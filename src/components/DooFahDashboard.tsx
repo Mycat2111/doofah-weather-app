@@ -1,8 +1,8 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { AlertTriangle, RotateCw } from "lucide-react";
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { AlertTriangle, RotateCw, WifiOff } from "lucide-react";
+import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { AtmosphereBackground } from "@/components/AtmosphereBackground";
 import { CurrentWeatherCard } from "@/components/CurrentWeatherCard";
 import { DailyForecastList } from "@/components/DailyForecastList";
@@ -29,6 +29,7 @@ import { readOpeningPlace, saveLastPlace } from "@/lib/favorites";
 import { lifestyleIndex } from "@/lib/lifestyle";
 import { previewCountdown, previewNowcast, rainCountdown, type CountdownPreview } from "@/lib/rainCountdown";
 import { weatherSummary } from "@/lib/voiceSummary";
+import { weatherService, type WeatherSetup } from "@/services/weatherService";
 import {
   DEFAULT_PLACE,
   weatherNext3,
@@ -44,12 +45,21 @@ interface DooFahDashboardProps {
   alertPreview?: AlertKind[];
   /** Show a sample rain countdown, e.g. from `?rain=soon`. */
   rainPreview?: CountdownPreview;
+  /** Where the forecast comes from, decided on the server. */
+  weather: WeatherSetup;
 }
 
 const noSubscription = () => () => {};
 
-export function DooFahDashboard({ atmosphereOverride, alertPreview, rainPreview }: DooFahDashboardProps) {
-  const { locale, m } = useI18n();
+export function DooFahDashboard({
+  atmosphereOverride,
+  alertPreview,
+  rainPreview,
+  weather: setup,
+}: DooFahDashboardProps) {
+  const { locale, m, f } = useI18n();
+  const weather = weatherService(setup);
+  const simulated = weather.source === "simulated";
   // False on the server and while hydrating, true in the browser after that.
   const inBrowser = useSyncExternalStore(
     noSubscription,
@@ -60,9 +70,9 @@ export function DooFahDashboard({ atmosphereOverride, alertPreview, rainPreview 
   // Until a place is picked, open on a saved favorite (the server, which
   // cannot see localStorage, renders the default place first).
   const place = chosen ?? (inBrowser ? readOpeningPlace() : undefined) ?? DEFAULT_PLACE;
-  const { data, loading, error, refresh } = useForecast(place);
-  const crowd = useCrowdReports(place);
-  const route = useRouteWeather(place);
+  const { data, loading, error, refresh } = useForecast(weather, place);
+  const crowd = useCrowdReports(place, simulated);
+  const route = useRouteWeather(weather, place);
   const [routeFocus, setRouteFocus] = useState<RouteFocus>({ key: 0, stop: null });
 
   // Remember what is on screen, so the app reopens on it if it is a favorite.
@@ -128,6 +138,7 @@ export function DooFahDashboard({ atmosphereOverride, alertPreview, rainPreview 
         <FavoritesBar
           place={place}
           onSelectPlace={setPlace}
+          weather={weather}
           sampleTime={data ? Date.parse(data.current.observedAt) : undefined}
         />
         <WeatherAlertBanner alerts={alerts} placeId={data?.current.place.id ?? place.id} timeZone={tz} />
@@ -138,6 +149,15 @@ export function DooFahDashboard({ atmosphereOverride, alertPreview, rainPreview 
             <span className="flex-1" title={error}>
               {m.errors.forecast}
             </span>
+            <TapButton onClick={refresh} className="flex items-center gap-1 text-sky-200 hover:text-white">
+              <RotateCw className="size-3.5" /> {m.errors.retry}
+            </TapButton>
+          </div>
+        )}
+        {!error && data?.current.savedAt && (
+          <div role="status" className="glass mt-3 flex items-center gap-3 rounded-2xl px-4 py-3 text-sm">
+            <WifiOff className="size-4 shrink-0 text-sky-200" aria-hidden />
+            <span className="flex-1">{m.errors.offline(f.clock(data.current.savedAt, tz))}</span>
             <TapButton onClick={refresh} className="flex items-center gap-1 text-sky-200 hover:text-white">
               <RotateCw className="size-3.5" /> {m.errors.retry}
             </TapButton>
@@ -183,6 +203,7 @@ export function DooFahDashboard({ atmosphereOverride, alertPreview, rainPreview 
             reportsNow={crowd.now}
             verification={crowd.verification}
             night={data ? !data.current.sample.isDay : false}
+            source={weather.source}
             trip={trip}
             tripFocus={routeFocus}
             tripStopName={stopName}
@@ -228,16 +249,37 @@ export function DooFahDashboard({ atmosphereOverride, alertPreview, rainPreview 
         <VoiceSummaryButton summary={summary} />
 
         <footer className="mt-10 text-center text-xs text-white/45">
-          {m.footer.credit}
-          {data && (
+          {simulated ? (
             <>
-              {" · "}
-              {m.footer.modelRun(new Date(data.current.model.runInitTime).toISOString().slice(0, 16).replace("T", " "))}
+              {m.footer.credit}
+              {data?.current.model && (
+                <>
+                  {" · "}
+                  {m.footer.modelRun(
+                    new Date(data.current.model.runInitTime).toISOString().slice(0, 16).replace("T", " "),
+                  )}
+                </>
+              )}
+            </>
+          ) : (
+            // Open-Meteo's data is CC BY 4.0 and its air quality comes from Copernicus CAMS; both must be credited.
+            <>
+              DooFah ดูฟ้า · {m.footer.weatherBy} <FooterLink href="https://open-meteo.com/">Open-Meteo.com</FooterLink>{" "}
+              (<FooterLink href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</FooterLink>) ·{" "}
+              {m.footer.airBy} <FooterLink href="https://atmosphere.copernicus.eu/">Copernicus CAMS</FooterLink>
             </>
           )}
         </footer>
       </main>
     </>
+  );
+}
+
+function FooterLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a href={href} target="_blank" rel="noreferrer" className="underline decoration-white/30 hover:text-white/70">
+      {children}
+    </a>
   );
 }
 

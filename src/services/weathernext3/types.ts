@@ -1,10 +1,14 @@
 /**
- * Data contracts for the simulated WeatherNext 3 API.
+ * Data contracts for DooFah's weather data, from either source: real
+ * forecasts from Open-Meteo, or the simulated WeatherNext 3 API.
  *
- * Every value is produced by a deterministic, continuous field model so that a
- * point forecast, an hourly series and a radar grid for the same place and time
- * always agree with each other.
+ * In the simulation every value comes from a deterministic, continuous field
+ * model, so a point forecast, an hourly series and a radar grid for the same
+ * place and time always agree with each other.
  */
+
+/** Where the weather comes from: Open-Meteo's real forecasts, or DooFah's simulation. */
+export type WeatherSource = "open-meteo" | "simulated";
 
 export interface GeoPoint {
   lat: number;
@@ -112,6 +116,12 @@ export interface AtmosphericSample {
   sunElevationDeg: number;
 }
 
+/** The few values shown for a spot at a glance: a favorite's chip, a stop on a road trip. */
+export type SpotWeather = Pick<
+  AtmosphericSample,
+  "time" | "temperatureC" | "precipitationMm" | "precipitationProbability" | "condition" | "isDay"
+>;
+
 export type AqiCategory =
   | "Good"
   | "Moderate"
@@ -171,22 +181,32 @@ export interface ModelInfo {
 
 export interface CurrentConditions {
   place: Place;
-  cell: GridCell;
+  source: WeatherSource;
+  /** The simulation's 5 km grid cell; null for real data. */
+  cell: GridCell | null;
   observedAt: string;
+  /**
+   * Set when there was no connection and this is the last forecast saved on
+   * the device: when it was downloaded (ISO). The conditions are its forecast
+   * for now.
+   */
+  savedAt?: string;
   sample: AtmosphericSample;
-  airQuality: AirQuality;
+  /** Null when the air quality service could not be reached. */
+  airQuality: AirQuality | null;
   atmosphere: AtmosphereTheme;
   sunrise: string | null;
   sunset: string | null;
   nowcast: Nowcast;
-  model: ModelInfo;
+  /** The simulated model run; null for real data. */
+  model: ModelInfo | null;
 }
 
 export interface HourlyForecast extends AtmosphericSample {
   /** Hours after the current hour (0 = this hour). */
   leadHours: number;
-  /** Model confidence 0–1, decays with lead time. */
-  confidence: number;
+  /** Model confidence 0–1, decays with lead time. Only the simulation has one. */
+  confidence: number | null;
 }
 
 export type DayPeriod = "overnight" | "morning" | "afternoon" | "evening";
@@ -231,7 +251,8 @@ export interface DailyForecast {
   meanHumidity: number;
   sunrise: string | null;
   sunset: string | null;
-  confidence: number;
+  /** Only the simulation has one. */
+  confidence: number | null;
   hours: HourlyForecast[];
 }
 

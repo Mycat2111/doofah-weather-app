@@ -159,7 +159,7 @@ export function summaryFacts({ current, hourly, daily, countdown, now }: Summary
 
   if (s.feelsLikeC >= HEAT_DANGER) facts.push({ kind: "heat", feelsLikeC: feelsLike });
   const air = current.airQuality;
-  if (air.aqi > AIR_CAUTION) facts.push({ kind: "air", aqi: Math.round(air.aqi), category: air.category });
+  if (air && air.aqi > AIR_CAUTION) facts.push({ kind: "air", aqi: Math.round(air.aqi), category: air.category });
   return facts;
 }
 

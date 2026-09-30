@@ -105,8 +105,9 @@ export function weatherAlerts(
     });
   }
 
-  const { aqi, category, pm25 } = current.airQuality;
-  if (aqi > AQI_LIMIT) {
+  const air = current.airQuality;
+  if (air && air.aqi > AQI_LIMIT) {
+    const { aqi, category, pm25 } = air;
     alerts.push({ kind: "air", level: aqi > AQI_SEVERE ? "severe" : "warning", aqi, category, pm25 });
   }
 

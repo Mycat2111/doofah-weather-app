@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { routeOutlook, routeStops, type RouteOutlook, type RouteStopWeather } from "@/lib/routeWeather";
 import { getRoute, RouteError, type Route, type RouteErrorCode } from "@/services/routing/routeService";
-import { weatherNext3, type Place } from "@/services/WeatherNext3MockService";
+import type { WeatherService } from "@/services/weatherService";
+import type { Place } from "@/services/WeatherNext3MockService";
 
 const HOUR_MS = 3_600_000;
 
@@ -22,10 +23,10 @@ interface TripState {
 /**
  * A road trip and the weather along it. The origin follows the dashboard's
  * place until another one is picked; setting a destination plans the drive
- * and fetches the WeatherNext 3 forecast at every stop for the time you get
+ * and fetches the forecast from `weather` at every stop for the time you get
  * there.
  */
-export function useRouteWeather(place: Place) {
+export function useRouteWeather(weather: WeatherService, place: Place) {
   const [pickedOrigin, setOrigin] = useState<Place | null>(null);
   const [destination, setDestination] = useState<Place | null>(null);
   const [leaveInHours, setLeaveInHours] = useState(0);
@@ -50,8 +51,8 @@ export function useRouteWeather(place: Place) {
           departure,
         });
         const stops = routeStops(route);
-        const weather = await weatherNext3.getWeatherAlong(stops.map((s) => ({ point: s.point, time: s.eta })));
-        const withWeather = stops.map((s, i) => ({ ...s, weather: weather[i] }));
+        const along = await weather.getWeatherAlong(stops.map((s) => ({ point: s.point, time: s.eta })));
+        const withWeather = stops.map((s, i) => ({ ...s, weather: along[i] }));
         if (!controller.signal.aborted)
           setState({ key, trip: { route, stops: withWeather, outlook: routeOutlook(withWeather) } });
       } catch (error) {
@@ -60,7 +61,7 @@ export function useRouteWeather(place: Place) {
       }
     })();
     return () => controller.abort();
-  }, [key, fromLat, fromLon, toLat, toLon, leaveInHours]);
+  }, [weather, key, fromLat, fromLon, toLat, toLon, leaveInHours]);
 
   const swap = useCallback(() => {
     if (!destination) return;

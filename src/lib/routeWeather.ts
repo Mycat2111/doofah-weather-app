@@ -1,7 +1,7 @@
 import { TOWNS } from "@/services/routing/roadNetwork";
 import type { Route, RoutePoint } from "@/services/routing/types";
 import { distanceKm, PLACES } from "@/services/weathernext3/places";
-import type { AtmosphericSample, GeoPoint } from "@/services/weathernext3/types";
+import type { AtmosphericSample, GeoPoint, SpotWeather } from "@/services/weathernext3/types";
 import { RAIN_LIKELY, WET_RATE } from "./rainCountdown";
 
 /** Where to stop along the route and check the weather: every this many minutes of driving, picked to give at most 10 stops. */
@@ -36,7 +36,7 @@ export interface RouteStop {
 }
 
 export interface RouteStopWeather extends RouteStop {
-  weather: AtmosphericSample;
+  weather: SpotWeather;
 }
 
 /** Towns on the road map and every place in the place list, for naming stops. */

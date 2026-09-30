@@ -125,7 +125,8 @@ export function lifestyleIndex(
     if (s.condition === "thunderstorm" || next.some((h) => h.condition === "thunderstorm")) {
       return { level: "poor", reason: { kind: "storm" } };
     }
-    const { aqi } = current.airQuality;
+    // With no recent air reading, judge by the weather alone.
+    const aqi = current.airQuality?.aqi ?? 0;
     if (aqi > AIR_DANGER) return { level: "poor", reason: { kind: "air", aqi } };
     const feelsLikeC = Math.round(s.feelsLikeC);
     // The next hour cool and dry enough to run, within the next 12 hours.

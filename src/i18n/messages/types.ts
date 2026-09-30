@@ -276,6 +276,8 @@ export interface Messages {
     twoFingers: string;
     /** Text around the "OpenStreetMap" link in the map credit. */
     attribution: { before: string; after: string };
+    /** Tag on the map when the forecast is real but the radar layers are still simulated. */
+    simulated: string;
     probe: {
       noRain: (cloudPercent: number) => string;
       rain: (rate: string) => string;
@@ -287,11 +289,18 @@ export interface Messages {
 
   errors: {
     forecast: string;
+    /** No connection: the forecast shown is the one saved at `clock`. */
+    offline: (clock: string) => string;
     retry: string;
   };
 
   footer: {
+    /** Credit for the simulated forecast. */
     credit: string;
     modelRun: (utc: string) => string;
+    /** Before the "Open-Meteo.com" link, for real forecasts. */
+    weatherBy: string;
+    /** Before "Copernicus CAMS". */
+    airBy: string;
   };
 }

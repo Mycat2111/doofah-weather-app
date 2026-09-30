@@ -42,7 +42,7 @@ async function main() {
         ...base.current,
         observedAt: new Date(NOW).toISOString(),
         sample: { ...base.current.sample, condition },
-        airQuality: { ...base.current.airQuality, aqi, category: aqi > 200 ? "Very Unhealthy" : "Unhealthy" },
+        airQuality: { ...base.current.airQuality!, aqi, category: aqi > 200 ? "Very Unhealthy" : "Unhealthy" },
       },
       hourly,
     };

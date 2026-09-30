@@ -1,8 +1,8 @@
 /*
  * DooFah service worker.
  *
- * The forecast model runs in the browser, so once the page and its scripts
- * are cached the whole app works offline. This worker keeps:
+ * Once the page and its scripts are cached the app opens offline, showing the
+ * last forecast saved on the device (see OpenMeteoService). This worker keeps:
  * - the page itself, network first, so it opens with no connection;
  * - Next.js build files (/_next/static), which never change once built;
  * - icons and the manifest;
