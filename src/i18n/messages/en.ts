@@ -183,6 +183,7 @@ export const en: Messages = {
     outsideArea: "Outside the loaded area",
     zoomIn: "Zoom in",
     zoomOut: "Zoom out",
+    recenter: "Go to my location",
     twoFingers: "Use two fingers to move the map",
     attribution: { before: "Map © ", after: " contributors" },
     probe: {

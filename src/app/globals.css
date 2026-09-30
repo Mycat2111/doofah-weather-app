@@ -36,8 +36,21 @@ html {
   /* Pressed states come from the components' own animations instead. */
   -webkit-tap-highlight-color: transparent;
   /* Scroll with one finger, but no browser pinch or double-tap zoom anywhere
-     on the page. The radar map still zooms: Leaflet reads the touches itself. */
+     on the page. The radar map still zooms: Leaflet reads the touches itself.
+     pan-x stays so sideways strips (hourly forecast) can still be swiped. */
   touch-action: pan-x pan-y;
+}
+
+/* The page scrolls up and down only: nothing may push it sideways, and there
+   is no sideways rubber-banding. "clip" (unlike "hidden") does not turn the
+   page into a scroll box, so it keeps working with the window's own scroll;
+   older browsers fall back to "hidden". */
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-x: clip;
+  overscroll-behavior-x: none;
 }
 
 button,

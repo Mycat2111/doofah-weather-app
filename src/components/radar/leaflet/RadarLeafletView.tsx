@@ -1,7 +1,7 @@
 "use client";
 
 import L from "leaflet";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { Messages } from "@/i18n/messages";
@@ -27,6 +27,8 @@ export interface RadarLeafletViewProps {
   onMap?: (map: L.Map | null) => void;
   /** Show or hide the "use two fingers" hint (touch screens only). */
   onGestureHint?: (show: boolean) => void;
+  /** Zoom for the next fly to a new centre (set by "go to my location"); otherwise at least 9. */
+  nextZoomRef?: RefObject<number | null>;
 }
 
 /** Closest zoom level (street level). */
@@ -45,7 +47,7 @@ const userIcon = L.divIcon({
 });
 
 /** Fly to a new place when the selected location changes. */
-function Recenter({ center }: { center: GeoPoint }) {
+function Recenter({ center, nextZoomRef }: { center: GeoPoint; nextZoomRef?: RefObject<number | null> }) {
   const map = useMap();
   const first = useRef(true);
   useEffect(() => {
@@ -53,8 +55,10 @@ function Recenter({ center }: { center: GeoPoint }) {
       first.current = false;
       return;
     }
-    map.flyTo([center.lat, center.lon], Math.max(map.getZoom(), 9), { duration: 1.4 });
-  }, [map, center.lat, center.lon]);
+    const zoom = nextZoomRef?.current ?? Math.max(map.getZoom(), 9);
+    if (nextZoomRef) nextZoomRef.current = null;
+    map.flyTo([center.lat, center.lon], zoom, { duration: 1.4 });
+  }, [map, center.lat, center.lon, nextZoomRef]);
   return null;
 }
 
@@ -256,6 +260,7 @@ export default function RadarLeafletView({
   onViewChange,
   onMap,
   onGestureHint,
+  nextZoomRef,
 }: RadarLeafletViewProps) {
   // The same array between renders, so playback and new frames never make
   // react-leaflet move the marker (which would fight a zoom in progress).
@@ -294,7 +299,7 @@ export default function RadarLeafletView({
       />
       <TouchGestures onHint={onGestureHint} />
       <DoubleClickZoom />
-      <Recenter center={center} />
+      <Recenter center={center} nextZoomRef={nextZoomRef} />
       <ViewReporter onViewChange={onViewChange} />
       {grid && frame && <FrameLayers grid={grid} frame={frame} />}
       <Marker position={position} icon={userIcon} keyboard={false} interactive={false} />

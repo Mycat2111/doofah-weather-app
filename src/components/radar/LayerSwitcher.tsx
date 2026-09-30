@@ -64,7 +64,8 @@ export function LayerSwitcher({ value, onChange }: LayerSwitcherProps) {
               >
                 <Icon className="size-3.5" aria-hidden />
               </motion.span>
-              {short}
+              {/* On the narrowest phones only the picked layer shows its name, so all four fit. */}
+              <span className={selected ? undefined : "max-[379px]:sr-only"}>{short}</span>
             </motion.span>
           </motion.button>
         );
