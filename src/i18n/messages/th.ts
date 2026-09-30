@@ -455,7 +455,7 @@ export const th: Messages = {
     },
     distance: (km) => `${Math.round(km)}${NB}กม.`,
     arrive: (clock) => `ถึง ${clock}${NB}น.`,
-    source: { google: "Google Maps สภาพจราจรจริง", simulated: "เส้นทางจำลอง" },
+    source: { simulated: "เส้นทางจำลอง" },
     borders: (count) => `ผ่านด่านชายแดน ${count} แห่ง`,
     ferry: "มีช่วงลงเรือเฟอร์รี",
     km: (km) => `กม.${NB}${Math.round(km)}`,

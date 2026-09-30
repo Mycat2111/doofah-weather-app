@@ -1,27 +1,12 @@
 import { simulatedRoute } from "./SimulatedRouter";
-import { RouteError, type Route, type RouteRequest } from "./types";
+import type { Route, RouteRequest } from "./types";
 
 export * from "./types";
 
 /**
- * Asks DooFah's server for a route (Google Maps when it has a key, otherwise
- * simulated). Offline, or when the server fails, the simulated route is
- * worked out on the device instead.
+ * A driving route between two points, worked out on the device over DooFah's
+ * simulated highway map (see RouteSource for why not Google's).
  */
-export async function getRoute(request: RouteRequest, signal?: AbortSignal): Promise<Route> {
-  try {
-    const response = await fetch("/api/route", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(request),
-      signal,
-    });
-    const data: unknown = await response.json();
-    if (response.ok) return data as Route;
-    const code = (data as { error?: string } | null)?.error;
-    if (code === "noRoute" || code === "samePlace") throw new RouteError(code);
-  } catch (error) {
-    if (error instanceof RouteError || signal?.aborted) throw error;
-  }
+export async function getRoute(request: RouteRequest): Promise<Route> {
   return simulatedRoute(request);
 }

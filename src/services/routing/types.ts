@@ -8,15 +8,18 @@ export interface RoutePoint extends GeoPoint {
   min: number;
 }
 
-export type RouteSource = "google" | "simulated";
+/**
+ * Where a route came from. Only DooFah's own simulated highway map for now:
+ * Google's Routes API is not an option, because its terms forbid showing its
+ * routes on a non-Google map and DooFah's map is OpenStreetMap.
+ */
+export type RouteSource = "simulated";
 
 export interface RouteRequest {
   origin: GeoPoint;
   destination: GeoPoint;
   /** ISO time you set off. */
   departure: string;
-  /** Language for anything the router names, "th" or "en". */
-  language?: string;
 }
 
 /** A driving route: its line, with the time and distance to every point on it. */
@@ -41,7 +44,7 @@ export type RouteErrorCode =
   | "noRoute"
   /** Origin and destination are the same place. */
   | "samePlace"
-  /** The routing service could not be reached or failed. */
+  /** Something else went wrong planning the trip. */
   | "failed";
 
 export class RouteError extends Error {

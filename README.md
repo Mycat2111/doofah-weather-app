@@ -6,7 +6,7 @@ simulated **WeatherNext 3** style forecast service: 5 km grid, hourly steps
 and a 15-day horizon.
 
 - **Stack:** Next.js 16 (App Router, TypeScript), Tailwind CSS 4, Framer Motion, Lucide icons, Leaflet + react-leaflet with OpenStreetMap tiles.
-- **No API keys needed.** The forecast service and place search run entirely in the browser. Route weather can optionally use Google Maps (see below).
+- **No API keys needed.** The forecast service, place search and route planner run entirely in the browser.
 - **Thai and English.** A TH / EN switch in the header changes every label, forecast phrase, date and place name.
 - **Favorite places.** Star any place and it joins a one-tap bar under the header, saved in the browser.
 - **Installable app.** Add it to the home screen and it opens full screen like a native app, works offline, and is tuned for touch.
@@ -33,7 +33,7 @@ npm run dev          # http://localhost:3000
 | `npm run verify:alerts` | Alert thresholds, time windows, order and tips in both languages |
 | `npm run verify:lifestyle` | Rain countdown timing and the lifestyle card rules          |
 | `npm run verify:reports` | Crowd report simulation, fading, your reports and "verified" |
-| `npm run verify:route` | Simulated and Google routes, `/api/route`, stops along the way and the trip outlook |
+| `npm run verify:route` | The simulated router, stops along the way and the trip outlook |
 | `npm run verify:voice` | Spoken times, voice choice and the summary for every place in both languages |
 | `npm run icons`       | Re-render the app icons and favicon from `scripts/icons/doofah-icon.svg` |
 
@@ -190,16 +190,12 @@ The "Route weather" card under the radar map shows the weather along a drive.
 - **Where to.** Pick the start and the destination: your GPS location, the
   place on screen, a favorite, or search by name. The swap button turns the
   trip around. Leave now, or in 1, 2 or 3 hours.
-- **The route.** `POST /api/route` (`src/app/api/route/route.ts`) works it out
-  on the server.
-  - With `GOOGLE_MAPS_API_KEY` set, it asks the Google Maps
-    [Routes API](https://developers.google.com/maps/documentation/routes)
-    for the fastest drive with live traffic. The key never reaches the browser.
-  - Without a key, or if Google can't be reached, DooFah's simulated highway
-    map is used: about 60 towns and the main roads of Thailand and its
-    neighbours, the Koh Samui car ferry, and border crossings
-    (`src/services/routing/`). The card says which one you are looking at.
-  - Offline, the phone works out the simulated route by itself.
+- **The route.** The phone works it out by itself, so it also works offline,
+  over DooFah's simulated highway map: about 60 towns and the main roads of
+  Thailand and its neighbours, the Koh Samui car ferry, and border crossings
+  (`src/services/routing/`). The card is tagged "Simulated route".
+  - Google's Routes API is not an option: its terms don't allow showing its
+    routes on a non-Google map, and DooFah's map is OpenStreetMap.
 - **Stops.** Every 15 minutes to 3 hours of driving, at most 10 stops. Each
   stop gets the WeatherNext 3 forecast for that spot at the time you get
   there (`src/lib/routeWeather.ts`). Stops are named after the nearest town
@@ -210,18 +206,6 @@ The "Route weather" card under the radar map shows the weather along a drive.
 - **On the map.** The route is drawn on the radar, coloured by rain, with a
   weather bubble at each stop. Your car moves along it as the radar timeline
   plays. Tap a stop and the map flies there with the radar at that hour.
-
-To turn on Google routes on Vercel:
-
-1. In the [Google Cloud console](https://console.cloud.google.com/), enable
-   the **Routes API** for a project with billing, and create an API key.
-   Restrict the key to the Routes API.
-2. In Vercel, open the project's **Settings → Environment Variables** and add
-   `GOOGLE_MAPS_API_KEY` for Production and Preview.
-3. Redeploy. The route card's tag changes from "Simulated route" to
-   "Google Maps, live traffic".
-
-For local development, put `GOOGLE_MAPS_API_KEY=...` in `.env.local`.
 
 ## Spoken weather summary
 
@@ -330,7 +314,6 @@ shapes), and `public/screenshots/*` for the richer install dialog.
 ```
 src/
 ├── app/
-│   ├── api/route/route.ts         POST /api/route: Google Routes with a key, simulated without
 │   ├── layout.tsx                 Fonts, language, metadata, viewport, Leaflet CSS
 │   ├── page.tsx                   Renders the dashboard (reads ?sky=, ?alert= and ?rain=)
 │   ├── manifest.ts                Web app manifest (install name, colours, icons)
@@ -415,11 +398,9 @@ src/
     ├── WeatherNext3MockService.ts The simulated API (start here)
     ├── CrowdReportMockService.ts  Mock backend for people's weather reports
     ├── routing/
-    │   ├── routeService.ts        getRoute(): asks /api/route, falls back to the simulated route
-    │   ├── googleRoutes.ts        Google Maps Routes API request and response
+    │   ├── routeService.ts        getRoute(): the route the app shows
     │   ├── SimulatedRouter.ts     Shortest drive over the simulated road map
     │   ├── roadNetwork.ts         Towns and roads of the simulated map
-    │   ├── polyline.ts            Google encoded polylines
     │   └── types.ts               Route, request and error types
     └── weathernext3/
         ├── types.ts               All data contracts
