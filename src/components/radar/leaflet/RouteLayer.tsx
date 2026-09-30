@@ -78,6 +78,12 @@ export function RouteLayer({ trip, frameTime, focus, timeZone, stopName }: Route
     [route.path, stops],
   );
 
+  // Car ferry crossings, dashed over the line.
+  const ferries = useMemo(
+    () => route.ferries.map((f) => route.path.slice(f.from, f.to + 1).map((p): L.LatLngTuple => [p.lat, p.lon])),
+    [route.ferries, route.path],
+  );
+
   const icons = useMemo(() => stops.map(stopIcon), [stops]);
 
   // Fit the whole route when a new trip arrives or the dashboard asks; fly to a stop when one is picked.
@@ -120,6 +126,14 @@ export function RouteLayer({ trip, frameTime, focus, timeZone, stopName }: Route
           positions={leg.points}
           interactive={false}
           pathOptions={{ color: RAIN_COLOR[leg.rain], opacity: 0.95, weight: 5, lineCap: "round", lineJoin: "round" }}
+        />
+      ))}
+      {ferries.map((points, i) => (
+        <Polyline
+          key={`ferry-${i}`}
+          positions={points}
+          interactive={false}
+          pathOptions={{ color: "#f0f9ff", opacity: 0.95, weight: 2.5, dashArray: "3 9", lineCap: "round" }}
         />
       ))}
       {stops.map((stop, i) => (

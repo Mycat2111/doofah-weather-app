@@ -179,6 +179,39 @@ export interface ModelInfo {
   simulated: true;
 }
 
+/** How much the weather models agree about rain. */
+export type ConfidenceLevel = "high" | "medium" | "low";
+
+/** How several weather models see an hour, or a day (real forecasts only; see openmeteo/consensus.ts). */
+export interface ModelVote {
+  /** Models with a forecast for it. */
+  models: number;
+  /** Of them, how many have rain... */
+  wet: number;
+  /** ...and which (their ids). */
+  wetModels: string[];
+  /** Of the models stepping hourly then, how many have rain, and how many heavy rain (none for a day). */
+  hourlyWet: number;
+  heavy: number;
+  /** Of the models that can forecast thunder (not the AI ones), how many answered, and how many have it. */
+  stormModels: number;
+  storm: number;
+  /** Ensembles behind the chance, and their runs in all. */
+  ensembles: number;
+  members: number;
+  /** Chance of rain, percent. */
+  chance: number;
+  /** 0–1: the sources agree, and lean clearly wet or dry. */
+  confidence: number;
+}
+
+/** A weather model blended into the forecast, for the credits. */
+export interface BlendedModel {
+  /** The centre that runs it, e.g. "ECMWF". */
+  centre: string;
+  name: string;
+}
+
 export interface CurrentConditions {
   place: Place;
   source: WeatherSource;
@@ -200,13 +233,20 @@ export interface CurrentConditions {
   nowcast: Nowcast;
   /** The simulated model run; null for real data. */
   model: ModelInfo | null;
+  /** The models the real forecast's chance of rain blends, when they could be reached. */
+  blend?: BlendedModel[];
 }
 
 export interface HourlyForecast extends AtmosphericSample {
   /** Hours after the current hour (0 = this hour). */
   leadHours: number;
-  /** Model confidence 0–1, decays with lead time. Only the simulation has one. */
+  /**
+   * Confidence 0–1: the simulation's model confidence, which decays with lead
+   * time, or for real forecasts how well several models agree (see `vote`).
+   */
   confidence: number | null;
+  /** Real forecasts, the first days: how the models see the hour. */
+  vote?: ModelVote;
 }
 
 export type DayPeriod = "overnight" | "morning" | "afternoon" | "evening";
@@ -251,8 +291,10 @@ export interface DailyForecast {
   meanHumidity: number;
   sunrise: string | null;
   sunset: string | null;
-  /** Only the simulation has one. */
+  /** As for an hour; for real forecasts, only the days the models are compared over. */
   confidence: number | null;
+  /** Real forecasts, the first days: how the models see the day. */
+  vote?: ModelVote;
   hours: HourlyForecast[];
 }
 

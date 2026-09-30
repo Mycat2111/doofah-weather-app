@@ -183,7 +183,7 @@ export function RouteWeatherCard({
               <Fade key="error">
                 <div className="flex items-center gap-3 rounded-2xl bg-amber-400/10 p-4 text-sm text-amber-100 ring-1 ring-amber-300/25">
                   <span className="flex-1">{m.route.errors[error]}</span>
-                  {error === "failed" && (
+                  {(error === "failed" || error === "offline" || error === "weather") && (
                     <TapButton onClick={state.retry} className="flex items-center gap-1 text-sky-200 hover:text-white">
                       <RotateCw className="size-3.5" /> {m.route.retry}
                     </TapButton>
@@ -278,17 +278,15 @@ function TripView({
             {m.route.distance(route.distanceKm)} · {m.route.arrive(f.clock(route.arrival, timeZone))}
           </p>
         </div>
-        <div className="flex flex-wrap justify-end gap-1.5 text-[11px] th:text-xs">
-          {route.ferry && (
-            <span className="flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-white/75">
-              <Ship className="size-3" aria-hidden /> {m.route.ferry}
-            </span>
-          )}
-          {route.borders > 0 && (
-            <span className="rounded-full bg-white/10 px-2.5 py-1 text-white/75">{m.route.borders(route.borders)}</span>
-          )}
-          <span className="rounded-full bg-white/10 px-2.5 py-1 text-white/60">{m.route.source[route.source]}</span>
-        </div>
+        {route.ferries.length > 0 && (
+          <span
+            className="flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[11px] text-white/75 th:text-xs"
+            title={route.ferries.map((f) => f.name).join(", ")}
+          >
+            <Ship className="size-3" aria-hidden />{" "}
+            {m.route.ferry(route.ferries.reduce((sum, f) => sum + f.minutes, 0))}
+          </span>
+        )}
       </div>
 
       {/* The trip in one line */}
@@ -389,6 +387,28 @@ function TripView({
           );
         })}
       </ol>
+      <RouteCredit />
     </div>
+  );
+}
+
+/**
+ * Who worked the route out, from whose map, and where to fix it: OpenStreetMap's
+ * licence and FOSSGIS's terms for its OSRM server ask for all three next to the route.
+ */
+function RouteCredit() {
+  const { m } = useI18n();
+  const link = (href: string, text: string) => (
+    <a href={href} target="_blank" rel="noreferrer" className="underline decoration-white/25 hover:text-white/70">
+      {text}
+    </a>
+  );
+  return (
+    <p className="mt-2 text-[10px] leading-relaxed text-white/45 th:text-[11px]">
+      {m.route.routeBy} {link("https://project-osrm.org/", "OSRM")} · {m.route.roadCredit.before}
+      {link("https://www.openstreetmap.org/copyright", "OpenStreetMap")}
+      {m.route.roadCredit.after} ({link("https://opendatacommons.org/licenses/odbl/", "ODbL")}) ·{" "}
+      {link("https://www.openstreetmap.org/fixthemap", m.route.fixMap)}
+    </p>
   );
 }

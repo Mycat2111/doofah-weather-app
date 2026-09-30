@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { AlertTriangle, RotateCw, WifiOff } from "lucide-react";
-import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { AtmosphereBackground } from "@/components/AtmosphereBackground";
 import { CurrentWeatherCard } from "@/components/CurrentWeatherCard";
 import { DailyForecastList } from "@/components/DailyForecastList";
@@ -28,6 +28,7 @@ import { previewAlerts, weatherAlerts, type AlertKind } from "@/lib/alerts";
 import { readOpeningPlace, saveLastPlace } from "@/lib/favorites";
 import { lifestyleIndex } from "@/lib/lifestyle";
 import { previewCountdown, previewNowcast, rainCountdown, type CountdownPreview } from "@/lib/rainCountdown";
+import { blendTrip } from "@/lib/routeWeather";
 import { weatherSummary } from "@/lib/voiceSummary";
 import { weatherService, type WeatherSetup } from "@/services/weatherService";
 import {
@@ -47,6 +48,10 @@ interface DooFahDashboardProps {
   rainPreview?: CountdownPreview;
   /** Where the forecast comes from, decided on the server. */
   weather: WeatherSetup;
+  /** The OSRM server road trips are routed by, or null when the site has none it may use. */
+  osrmUrl: string | null;
+  /** The site operator's email, shown in the footer. */
+  contactEmail?: string;
 }
 
 const noSubscription = () => () => {};
@@ -56,6 +61,8 @@ export function DooFahDashboard({
   alertPreview,
   rainPreview,
   weather: setup,
+  osrmUrl,
+  contactEmail,
 }: DooFahDashboardProps) {
   const { locale, m, f } = useI18n();
   const weather = weatherService(setup);
@@ -72,7 +79,7 @@ export function DooFahDashboard({
   const place = chosen ?? (inBrowser ? readOpeningPlace() : undefined) ?? DEFAULT_PLACE;
   const { data, loading, error, refresh } = useForecast(weather, place);
   const crowd = useCrowdReports(place, simulated);
-  const route = useRouteWeather(weather, place);
+  const route = useRouteWeather(weather, place, osrmUrl);
   const [routeFocus, setRouteFocus] = useState<RouteFocus>({ key: 0, stop: null });
 
   // Remember what is on screen, so the app reopens on it if it is a favorite.
@@ -116,8 +123,12 @@ export function DooFahDashboard({
       ? weatherSummary({ current: data.current, hourly: data.hourly, daily: data.daily, countdown }, locale)
       : null;
 
+  // Stops near the dashboard's place show its chance of rain, so the two never disagree.
+  const trip = useMemo(
+    () => (route.trip && data ? blendTrip(route.trip, data.current.place.point, data.hourly) : route.trip),
+    [route.trip, data],
+  );
   // The trip's stops: the start and end by their places, the rest by the nearest town, else the distance.
-  const trip = route.trip;
   const stopName = (i: number) => {
     if (!trip) return "";
     if (i === 0) return placeLabel(route.origin, locale).name;
@@ -210,7 +221,7 @@ export function DooFahDashboard({
             className="h-[600px] lg:col-start-2 lg:row-start-1 lg:h-auto lg:min-h-[580px]"
           />
           <RouteWeatherCard
-            state={route}
+            state={trip === route.trip ? route : { ...route, trip }}
             place={place}
             timeZone={place.timeZone}
             stopName={stopName}
@@ -267,11 +278,55 @@ export function DooFahDashboard({
               DooFah ดูฟ้า · {m.footer.weatherBy} <FooterLink href="https://open-meteo.com/">Open-Meteo.com</FooterLink>{" "}
               (<FooterLink href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</FooterLink>) ·{" "}
               {m.footer.airBy} <FooterLink href="https://atmosphere.copernicus.eu/">Copernicus CAMS</FooterLink>
+              {data?.current.blend && <BlendCredit centres={data.current.blend.map((b) => b.centre)} />}
             </>
+          )}
+          {/* FOSSGIS's routing terms ask every site using its router to show how to reach the operator. */}
+          {contactEmail && (
+            <p className="mt-1">
+              {m.footer.contact} <FooterLink href={`mailto:${contactEmail}`}>{contactEmail}</FooterLink>
+            </p>
           )}
         </footer>
       </main>
     </>
+  );
+}
+
+const CENTRE_LINK: Record<string, string> = {
+  ECMWF: "https://www.ecmwf.int/",
+  DWD: "https://www.dwd.de/",
+  NOAA: "https://www.nco.ncep.noaa.gov/",
+  CMA: "https://www.cma.gov.cn/en/",
+};
+
+/**
+ * Whose models the chance of rain blends. The blend is DooFah's own (CC BY
+ * asks that changes are marked), and Canada's data asks for its own credit line.
+ */
+function BlendCredit({ centres }: { centres: string[] }) {
+  const { m } = useI18n();
+  const unique = [...new Set(centres)];
+  const linked = unique.filter((c) => CENTRE_LINK[c]);
+  return (
+    <p className="mt-1">
+      {m.footer.blendBy}{" "}
+      {linked.map((c, i) => (
+        <span key={c}>
+          {i > 0 && ", "}
+          <FooterLink href={CENTRE_LINK[c]}>{c}</FooterLink>
+        </span>
+      ))}
+      {unique.includes("ECCC") && (
+        <>
+          {" · "}
+          Data Source:{" "}
+          <FooterLink href="https://eccc-msc.github.io/open-data/licence/readme_en/">
+            Environment and Climate Change Canada
+          </FooterLink>
+        </>
+      )}
+    </p>
   );
 }
 

@@ -6,6 +6,11 @@
  * hour T takes those from Open-Meteo's T + 1 h, with the weather code from
  * there too so that the sky agrees with the rain, and its instant values
  * (temperature, humidity, wind, cloud...) from T.
+ *
+ * The forecast itself is Open-Meteo's best model for the place (ECMWF's 9 km
+ * IFS over Thailand). When the other models' reply is there too, the chance
+ * of rain and the confidence of the first days come from all of them
+ * together (see consensus.ts).
  */
 
 import { aqiCategory, dewPoint, feelsLike, uvIndex } from "../weathernext3/fieldModel";
@@ -26,7 +31,14 @@ import type {
   SpotWeather,
   WeatherCondition,
 } from "../weathernext3/types";
-import { FORECAST_DAYS, type AirQualityResponse, type ForecastResponse, type Values } from "./api";
+import {
+  FORECAST_DAYS,
+  type AirQualityResponse,
+  type ConsensusResponse,
+  type ForecastResponse,
+  type Values,
+} from "./api";
+import { consensusFrom, dayVote, type Consensus } from "./consensus";
 
 const MINUTE_MS = 60_000;
 const QUARTER_MS = 15 * MINUTE_MS;
@@ -116,8 +128,17 @@ function required(values: Values | undefined, length: number, name: string): num
   return column;
 }
 
-/** Every hour of the reply as DooFah's hours, each covering the hour from its time. */
-export function hourlyForecasts(raw: ForecastResponse, point: GeoPoint, now: number): HourlyForecast[] {
+/**
+ * Every hour of the reply as DooFah's hours, each covering the hour from its
+ * time; with the models' `consensus`, the hours they cover take its chance of
+ * rain and confidence.
+ */
+export function hourlyForecasts(
+  raw: ForecastResponse,
+  point: GeoPoint,
+  now: number,
+  consensus: Consensus | null = null,
+): HourlyForecast[] {
   const h = raw.hourly;
   if (!h?.time?.length) throw new Error("Open-Meteo sent no hourly forecast");
   const n = h.time.length;
@@ -140,6 +161,7 @@ export function hourlyForecasts(raw: ForecastResponse, point: GeoPoint, now: num
     const next = Math.min(i + 1, n - 1);
     const precipitationMm = round1(Math.max(0, h.precipitation?.[next] ?? 0));
     const elevation = sunElevation(time, point.lat, point.lon);
+    const vote = consensus?.hours.get(time);
     return {
       time: iso(time),
       temperatureC: round1(temperature[i]),
@@ -151,7 +173,7 @@ export function hourlyForecasts(raw: ForecastResponse, point: GeoPoint, now: num
       windGustKmh: round1(Math.max(gusts?.[next] ?? wind[i], wind[i])),
       windDirectionDeg: Math.round(direction[i]) % 360,
       precipitationMm,
-      precipitationProbability: chance(h.precipitation_probability?.[next], precipitationMm),
+      precipitationProbability: vote ? vote.chance : chance(h.precipitation_probability?.[next], precipitationMm),
       cloudCover: Math.round(cloud[i]),
       // Without a visibility forecast, a clear 10 km.
       visibilityKm: round1((visibility?.[i] ?? 10_000) / 1000),
@@ -160,7 +182,8 @@ export function hourlyForecasts(raw: ForecastResponse, point: GeoPoint, now: num
       isDay: elevation > SUNRISE_ELEVATION,
       sunElevationDeg: round1(elevation),
       leadHours: Math.round((time - thisHour) / HOUR_MS),
-      confidence: null,
+      confidence: vote ? vote.confidence : null,
+      ...(vote ? { vote } : {}),
     };
   });
 }
@@ -251,8 +274,16 @@ export function airQualityFrom(raw: AirQualityResponse | null, now: number): Air
   };
 }
 
-/** Local days from today, each summarised from its hours. */
-function dailyForecasts(hours: HourlyForecast[], place: Place, now: number): DailyForecast[] {
+/**
+ * Local days from today, each summarised from its hours; the days the models'
+ * reply covers whole take their chance of rain and confidence from all of them.
+ */
+function dailyForecasts(
+  hours: HourlyForecast[],
+  place: Place,
+  now: number,
+  models: ConsensusResponse | null,
+): DailyForecast[] {
   const { timeZone, point } = place;
   const today = localDateKey(now, timeZone);
   const byDate = new Map<string, HourlyForecast[]>();
@@ -264,14 +295,21 @@ function dailyForecasts(hours: HourlyForecast[], place: Place, now: number): Dai
   return [...byDate].slice(0, FORECAST_DAYS).map(([date, dayHours]) => {
     const { year, month, day } = zonedParts(Date.parse(dayHours[0].time), timeZone);
     const sun = sunTimes(zonedMidnight(year, month, day, timeZone), point.lat, point.lon);
-    return summariseDay(date, dayHours, sun, timeZone);
+    const vote = dayVote(
+      models,
+      dayHours.map((h) => Date.parse(h.time)),
+    );
+    if (!vote) return { ...summariseDay(date, dayHours, sun, timeZone), confidence: null };
+    // Rain at some point in the day is never less likely than in any one of its hours.
+    const chance = Math.max(vote.chance, ...dayHours.map((h) => h.precipitationProbability));
+    return { ...summariseDay(date, dayHours, sun, timeZone, chance), confidence: vote.confidence, vote };
   });
 }
 
 /**
  * The dashboard's data for `place` from a forecast reply (and an air quality
- * reply, if there is one). `savedAt` is set for a forecast saved on the
- * device earlier, shown because there is no connection.
+ * reply and the other models' reply, if there are). `savedAt` is set for a
+ * forecast saved on the device earlier, shown because there is no connection.
  */
 export function forecastBundle(
   raw: ForecastResponse,
@@ -279,11 +317,13 @@ export function forecastBundle(
   place: Place,
   now: number,
   savedAt?: number,
+  models: ConsensusResponse | null = null,
 ): ForecastBundle {
   const { point } = place;
-  const hours = hourlyForecasts(raw, point, now);
+  const consensus = consensusFrom(models, now);
+  const hours = hourlyForecasts(raw, point, now, consensus);
   const hourly = hours.filter((h) => Date.parse(h.time) >= floorToHour(now)).slice(0, HOURLY_HOURS);
-  const daily = dailyForecasts(hours, place, now);
+  const daily = dailyForecasts(hours, place, now, consensus ? models : null);
   if (!hourly.length || !daily.length) throw new Error("The forecast does not reach today");
 
   const steps = nowcastSteps(raw, hours, now);
@@ -331,6 +371,7 @@ export function forecastBundle(
     sunset: today.sunset,
     nowcast: nowcastFromSteps(steps),
     model: null,
+    ...(consensus ? { blend: consensus.models.map(({ centre, name }) => ({ centre, name })) } : {}),
   };
   return { current, hourly, daily };
 }
