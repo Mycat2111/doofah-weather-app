@@ -2,19 +2,22 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, Pencil, Star, X } from "lucide-react";
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { FavoriteIcon } from "@/components/favorites/FavoriteIcon";
 import { TapButton } from "@/components/ui/TapButton";
 import { WeatherIcon } from "@/components/ui/WeatherIcon";
 import { useFavorites } from "@/hooks/useFavorites";
+import { useSpotWeather } from "@/hooks/useSpotWeather";
 import { useI18n } from "@/i18n/I18nProvider";
 import { favoriteName, placeLabel } from "@/i18n/places";
 import { haptic } from "@/lib/haptics";
-import { weatherNext3, type Place } from "@/services/WeatherNext3MockService";
+import type { WeatherService } from "@/services/weatherService";
+import type { Place } from "@/services/WeatherNext3MockService";
 
 interface FavoritesBarProps {
   place: Place;
   onSelectPlace: (place: Place) => void;
+  weather: WeatherService;
   /** Time of the dashboard's current conditions, so the chips and the hero agree. */
   sampleTime?: number;
 }
@@ -22,7 +25,7 @@ interface FavoritesBarProps {
 const noop = () => () => {};
 
 /** One-tap chips for starred places, under the header. */
-export function FavoritesBar({ place, onSelectPlace, sampleTime }: FavoritesBarProps) {
+export function FavoritesBar({ place, onSelectPlace, weather, sampleTime }: FavoritesBarProps) {
   const { locale, m, f } = useI18n();
   const { favorites, find, remove } = useFavorites();
   const [editing, setEditing] = useState(false);
@@ -36,9 +39,10 @@ export function FavoritesBar({ place, onSelectPlace, sampleTime }: FavoritesBarP
   const active = find(place);
   const isEditing = editing && favorites.length > 0;
 
-  const samples = useMemo(
-    () => favorites.map((fav) => weatherNext3.sampleAt(fav.place.point, sampleTime)),
-    [favorites, sampleTime],
+  const samples = useSpotWeather(
+    weather,
+    favorites.map((fav) => fav.place.point),
+    sampleTime,
   );
 
   return (
@@ -87,8 +91,12 @@ export function FavoritesBar({ place, onSelectPlace, sampleTime }: FavoritesBarP
                 >
                   <FavoriteIcon kind={fav.kind} className="size-4 shrink-0 text-white/75" />
                   <span className="max-w-[10rem] truncate font-medium">{name}</span>
-                  <WeatherIcon condition={sample.condition} isDay={sample.isDay} className="size-4 shrink-0" />
-                  <span className="tabular-nums text-white/85">{f.temp(sample.temperatureC)}</span>
+                  {sample && (
+                    <>
+                      <WeatherIcon condition={sample.condition} isDay={sample.isDay} className="size-4 shrink-0" />
+                      <span className="tabular-nums text-white/85">{f.temp(sample.temperatureC)}</span>
+                    </>
+                  )}
                 </button>
                 {isEditing && (
                   <button

@@ -34,6 +34,7 @@ async function main() {
     assert.ok(day.hours.length >= 23 && day.hours.length <= 25, `24 hourly steps in ${day.date}`);
     assert.ok(day.minTempC <= day.maxTempC);
   }
+  assert.ok(bundle.current.cell, "the simulation names its grid cell");
   assert.equal(bundle.current.cell.resolutionKm, 5);
   const [[s, w], [n, e]] = bundle.current.cell.bounds;
   const cellKmNS = (n - s) * 110.574;
@@ -111,7 +112,7 @@ async function main() {
         winds.push(sample.windSpeedKmh);
         rain.push(sample.precipitationMm);
         conditions.set(sample.condition, (conditions.get(sample.condition) ?? 0) + 1);
-        if (hour === 6) aqi.push((await clock.getCurrentConditions(place)).airQuality.aqi);
+        if (hour === 6) aqi.push((await clock.getCurrentConditions(place)).airQuality!.aqi);
       }
     }
   }
@@ -141,6 +142,7 @@ async function main() {
 
   // 5. Today in Bangkok -------------------------------------------------------
   const c = bundle.current;
+  assert.ok(c.airQuality, "the simulation always has air quality");
   console.log(
     `\nBangkok now: ${c.sample.temperatureC}°C (feels ${c.sample.feelsLikeC}°C), ${c.sample.condition}, ` +
       `RH ${c.sample.humidity}%, wind ${c.sample.windSpeedKmh} km/h from ${c.sample.windDirectionDeg}°, ` +

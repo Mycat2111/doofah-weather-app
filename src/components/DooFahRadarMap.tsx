@@ -17,7 +17,7 @@ import type { RouteFocus } from "@/components/radar/leaflet/RouteLayer";
 import type { Trip } from "@/hooks/useRouteWeather";
 import type { Verification } from "@/lib/crowdVerify";
 import type { CrowdReport } from "@/services/CrowdReportMockService";
-import type { GeoBounds, GeoPoint, Place, RadarLayerType } from "@/services/WeatherNext3MockService";
+import type { GeoBounds, GeoPoint, Place, RadarLayerType, WeatherSource } from "@/services/WeatherNext3MockService";
 
 // Leaflet touches `window`, so the map itself only renders in the browser.
 const RadarLeafletView = dynamic(() => import("@/components/radar/leaflet/RadarLeafletView"), {
@@ -55,6 +55,11 @@ interface DooFahRadarMapProps {
   verification?: Verification | null;
   /** Night at the place. */
   night?: boolean;
+  /**
+   * Where the rest of the dashboard's forecast comes from. The map's layers
+   * are always simulated, so with a real forecast the map says so.
+   */
+  source?: WeatherSource;
   /** A planned road trip to draw over the radar, and requests to show it. */
   trip?: Trip | null;
   tripFocus?: RouteFocus;
@@ -74,6 +79,7 @@ export function DooFahRadarMap({
   reportsNow = 0,
   verification = null,
   night = false,
+  source = "simulated",
   trip = null,
   tripFocus,
   tripStopName,
@@ -193,7 +199,8 @@ export function DooFahRadarMap({
             )}
           </AnimatePresence>
           <span>
-            WeatherNext 3 · {m.radar.grid(frameSet?.grid.cellSizeKm ?? 5)}
+            {source === "simulated" ? "WeatherNext 3" : m.radar.simulated} ·{" "}
+            {m.radar.grid(frameSet?.grid.cellSizeKm ?? 5)}
             {frameSet && (
               <span className="hidden text-white/50 sm:inline">
                 {" · "}

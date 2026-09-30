@@ -135,11 +135,11 @@ function voiceSummary(facts: SummaryFact[], { place, clock }: SummaryContext): s
       case "rainStarting":
         switch (fact.intensity) {
           case "heavy":
-            return `Heavy rain is on its way: the radar shows it arriving in ${spokenWaitEn(fact.minutes)}, so grab an umbrella before you head out.`;
+            return `Heavy rain is on its way, arriving in ${spokenWaitEn(fact.minutes)}, so grab an umbrella before you head out.`;
           case "drizzle":
             return `Expect a little drizzle in ${spokenWaitEn(fact.minutes)}.`;
           default:
-            return `The radar shows ${fact.intensity === "light" ? "light rain" : "rain"} arriving in ${spokenWaitEn(fact.minutes)}, so keep an umbrella handy.`;
+            return `${fact.intensity === "light" ? "Light rain" : "Rain"} should start in ${spokenWaitEn(fact.minutes)}, so keep an umbrella handy.`;
         }
       case "raining":
         if (!fact.until) return "It looks set to keep going for a while, so take an umbrella if you head out.";
@@ -181,7 +181,7 @@ export const en: Messages = {
   meta: {
     title: "DooFah ดูฟ้า · Look at the Sky",
     description:
-      "Hyper-local weather with a 5 km radar map, hourly and 15-day forecasts, powered by simulated WeatherNext 3 data.",
+      "Hyper-local weather with a radar map, a rain countdown, hourly and 15-day forecasts, and the weather along your drive.",
   },
 
   units: {
@@ -470,6 +470,7 @@ export const en: Messages = {
     recenter: "Go to my location",
     twoFingers: "Use two fingers to move the map",
     attribution: { before: "Map © ", after: " contributors" },
+    simulated: "Simulated radar",
     probe: {
       noRain: (cloudPercent) => `No rain · cloud ${cloudPercent}%`,
       rain: (rate) => `Rain ${rate} mm/h`,
@@ -481,11 +482,14 @@ export const en: Messages = {
 
   errors: {
     forecast: "Could not load the forecast",
+    offline: (clock) => `Offline · showing the forecast from ${clock}`,
     retry: "Retry",
   },
 
   footer: {
     credit: "DooFah ดูฟ้า · Forecast data is simulated in the style of WeatherNext 3 (5 km grid, hourly, 15 days)",
     modelRun: (utc) => `model run ${utc} UTC`,
+    weatherBy: "Weather data by",
+    airBy: "Air quality by",
   },
 };

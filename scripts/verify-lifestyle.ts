@@ -77,7 +77,7 @@ async function main() {
           visibilityKm: 10,
           ...sample,
         },
-        airQuality: { ...base.current.airQuality, aqi },
+        airQuality: { ...base.current.airQuality!, aqi },
         nowcast: {
           ...base.current.nowcast,
           steps: base.current.nowcast.steps.map((s, i) => ({ ...s, precipitationMm: steps[i] ?? 0 })),

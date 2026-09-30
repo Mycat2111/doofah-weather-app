@@ -1,12 +1,13 @@
 # DooFah ดูฟ้า · Look at the Sky
 
 A hyper-local weather app with a glassmorphism UI, a sky that changes with the
-weather, and an interactive top-view radar map. All data comes from a
-simulated **WeatherNext 3** style forecast service: 5 km grid, hourly steps
-and a 15-day horizon.
+weather, and an interactive top-view radar map. Forecasts and air quality are
+real, from [Open-Meteo](https://open-meteo.com/). The radar map's layers come
+from a simulated **WeatherNext 3** style model (5 km grid, hourly steps, 15-day
+horizon), which can also run the whole dashboard with `?data=sim`.
 
 - **Stack:** Next.js 16 (App Router, TypeScript), Tailwind CSS 4, Framer Motion, Lucide icons, Leaflet + react-leaflet with OpenStreetMap tiles.
-- **No API keys needed.** The forecast service, place search and route planner run entirely in the browser.
+- **No API keys needed.** The browser asks Open-Meteo's free API directly; place search and the route planner run on the device. See [Weather data](#weather-data).
 - **Thai and English.** A TH / EN switch in the header changes every label, forecast phrase, date and place name.
 - **Favorite places.** Star any place and it joins a one-tap bar under the header, saved in the browser.
 - **Installable app.** Add it to the home screen and it opens full screen like a native app, works offline, and is tuned for touch.
@@ -35,6 +36,7 @@ npm run dev          # http://localhost:3000
 | `npm run verify:reports` | Crowd report simulation, fading, your reports and "verified" |
 | `npm run verify:route` | The simulated router, stops along the way and the trip outlook |
 | `npm run verify:voice` | Spoken times, voice choice and the summary for every place in both languages |
+| `npm run verify:open-meteo` | Open-Meteo requests, reading its replies, offline copies and the key proxy |
 | `npm run icons`       | Re-render the app icons and favicon from `scripts/icons/doofah-icon.svg` |
 
 Preview any sky mood with a query parameter:
@@ -47,6 +49,49 @@ list such as `storm,air`, or `all`.
 Preview the rain countdown with `/?rain=soon` (rain in 20 minutes), `now`
 (heavy rain easing in 35 minutes), `later` (dry for 3 hours) or `dry`
 (dry for a day). The lifestyle cards follow the previewed countdown.
+
+Show the simulated WeatherNext 3 data instead of Open-Meteo with `/?data=sim`.
+The parameters combine, e.g. `/?data=sim&sky=rain`.
+
+## Weather data
+
+| What | Where it comes from |
+| ---- | ------------------- |
+| Now, the 48-hour strip, 15 days, the rain countdown, alerts, lifestyle cards, the spoken summary | [Open-Meteo forecast API](https://open-meteo.com/en/docs), which picks the best weather models for each place |
+| Air quality (US AQI, PM2.5, PM10, ozone) | [Open-Meteo air quality API](https://open-meteo.com/en/docs/air-quality-api), from Copernicus CAMS |
+| Favorites' temperatures and the weather at each road trip stop | Open-Meteo, one request for up to 12 places |
+| Radar map layers (rain, wind, temperature, pressure) | The WeatherNext 3 simulation, tagged "Simulated radar" on the map |
+| Road trip routes | DooFah's simulated road map, tagged "Simulated route" |
+| Other people's weather reports and the "Verified by N local users" badge | Only with `?data=sim` until there is a shared backend; your own reports always show |
+
+- **Environment variables: none.** The browser asks
+  `api.open-meteo.com` and `air-quality-api.open-meteo.com` directly, so there
+  is nothing to set on Vercel. Each visitor's requests count against their own
+  address's limits.
+- **Free API terms.** Non-commercial use only, with up to 10,000 calls a day,
+  5,000 an hour and 600 a minute. Open-Meteo counts a request for more than 10
+  values as more than one call, and each place separately, so opening a place
+  costs about 3 calls and each favorite or trip stop 1. The same request within
+  5 minutes is answered from memory and the forecast refreshes every 10
+  minutes, so a tab left open all day stays well under the limit. The data is
+  licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), so the
+  footer credits Open-Meteo and Copernicus.
+- **`OPEN_METEO_API_KEY` (optional).** For commercial use (ads,
+  subscriptions), buy an [Open-Meteo API plan](https://open-meteo.com/en/pricing)
+  and set its key as `OPEN_METEO_API_KEY` in Vercel → Settings → Environment
+  Variables, then redeploy. The browser then asks
+  `/api/weather/forecast` and `/api/weather/air-quality`, which add the key on
+  the server (`src/services/openmeteo/proxy.ts`), so it never reaches the
+  browser. They only pass on DooFah's own parameters, refuse other sites, and
+  let Vercel answer the same request again for 5 minutes.
+- **Offline.** The last forecast for up to 6 places is saved in `localStorage`
+  (`doofah-saved-forecasts`). With no connection the dashboard shows it for up
+  to 2 days, says when it was downloaded, and offers a retry.
+- **How the replies are read.** `src/services/openmeteo/adapter.ts`. Open-Meteo
+  gives rain, its chance and gusts for the hour *before* each time, so a
+  DooFah hour takes them from the next hour. Weather codes map to DooFah's
+  conditions, and the condition now always agrees with the rain countdown.
+  Open-Meteo has no forecast confidence, so the 15-day list leaves it out.
 
 ## Setting it up from scratch
 
@@ -122,8 +167,9 @@ are in `src/lib/alerts.ts`:
   show for about a third of the day in the rainy season.
 - The × hides an alert for that place until it gets worse (rain from later
   becomes rain now, or unhealthy air becomes very unhealthy).
-- The simulated air is clean in the rainy season and worst in March, so AQI
-  alerts are rare in September; `?alert=air` shows one.
+- Air in Thailand is cleanest in the rainy season and worst around March, so
+  AQI alerts are rare in September; `?alert=air` shows one. With no recent air
+  quality reading there is no air alert.
 
 ## Rain countdown and lifestyle cards
 
@@ -131,10 +177,12 @@ The hero card opens its rain panel with a badge such as "Rain expected in 20
 min" / "ฝนจะตกในอีก 20 นาที" or "Clear sky for the next 3 hours". The rules are
 in `src/lib/rainCountdown.ts`:
 
-- The first 2 hours come from the 10-minute radar nowcast. The start (or end)
-  of rain is where the rate crosses 0.1 mm/h, interpolated between steps to the
-  minute, and the badge counts down live every 15 seconds. These times carry a
-  "Radar" chip and a marker on the rain bars.
+- The first 2 hours come from the 10-minute nowcast: each step takes the
+  rate of its quarter hour in Open-Meteo's 15-minute forecast (the radar with
+  `?data=sim`). The start (or end) of rain is where the rate crosses 0.1 mm/h,
+  interpolated between steps to the minute, and the badge counts down live
+  every 15 seconds. These times get a marker on the rain bars, and a "Radar"
+  chip with the simulation.
 - After that the hourly forecast takes over: the first hour with a 50% chance
   of rain or more, looking 24 hours ahead. A dry spell reads "Clear sky" when
   its cloud cover averages under 40%, otherwise "No rain".
@@ -169,6 +217,8 @@ sends a report.
 - **Changing your mind.** Tapping again within 10 minutes changes your report
   instead of adding a second one.
 - **Mock backend.** `src/services/CrowdReportMockService.ts` plays the backend.
+  Other people's reports and the badge below only show with `?data=sim`, since
+  real ones need a shared backend and the radar they check is simulated.
   - Your reports are kept in localStorage, so they survive a reload.
   - Other people's reports are simulated from the same weather model as the
     radar. There are about six an hour within 30 km, more when it rains, and
@@ -197,9 +247,9 @@ The "Route weather" card under the radar map shows the weather along a drive.
   - Google's Routes API is not an option: its terms don't allow showing its
     routes on a non-Google map, and DooFah's map is OpenStreetMap.
 - **Stops.** Every 15 minutes to 3 hours of driving, at most 10 stops. Each
-  stop gets the WeatherNext 3 forecast for that spot at the time you get
-  there (`src/lib/routeWeather.ts`). Stops are named after the nearest town
-  within 40 km, otherwise by distance ("km 127").
+  stop gets the Open-Meteo forecast for that spot at the time you get there,
+  all in one request (`src/lib/routeWeather.ts`). Stops are named after the
+  nearest town within 40 km, otherwise by distance ("km 127").
 - **Journey timeline.** Time, weather icon, temperature and chance of rain at
   each stop, joined by a line coloured by rain. A line above the timeline sums
   up the trip ("Heavy rain from Nakhon Sawan to Tak, 17:00–18:30") with a tip.
@@ -235,8 +285,9 @@ Home screen*). On iPhone and iPad, open the site in Safari and use Share →
 address bar. The installed app opens full screen, draws its sky behind the
 status bar and around the notch, and colours the browser bar to match the sky.
 
-**Offline.** The forecast model runs in the browser, so once the page has
-loaded the whole app works without a connection. `public/sw.js` keeps the page
+**Offline.** Once the page has loaded, the app opens without a connection and
+shows the last forecast saved on the device (see [Weather data](#weather-data)).
+`public/sw.js` keeps the page
 (network first, falling back to the saved copy when offline or very slow), the
 Next.js build files, the icons and the last 400 map tiles you looked at. It is
 only registered in production builds (`npm run build && npm start`); in
@@ -315,7 +366,8 @@ shapes), and `public/screenshots/*` for the richer install dialog.
 src/
 ├── app/
 │   ├── layout.tsx                 Fonts, language, metadata, viewport, Leaflet CSS
-│   ├── page.tsx                   Renders the dashboard (reads ?sky=, ?alert= and ?rain=)
+│   ├── page.tsx                   Renders the dashboard (reads ?sky=, ?alert=, ?rain= and ?data=)
+│   ├── api/weather/               forecast/ and air-quality/: Open-Meteo with the commercial key, if one is set
 │   ├── manifest.ts                Web app manifest (install name, colours, icons)
 │   ├── icon.svg, apple-icon.png, favicon.ico   App icons (from `npm run icons`)
 │   └── globals.css                Glass surfaces, sky effects, touch rules, Leaflet styling
@@ -329,8 +381,8 @@ src/
 │   │   ├── FavoritesBar.tsx       One-tap chips under the header, edit mode
 │   │   ├── FavoriteStar.tsx       Star beside the place name and the naming panel
 │   │   └── FavoriteIcon.tsx       House / briefcase / pin per favorite
-│   ├── CurrentWeatherCard.tsx     Hero: temperature, feels-like, rain countdown, AQI, 5×5 km badge
-│   ├── RainCountdownPanel.tsx     Live time-to-rain badge over the radar's 2-hour rain bars
+│   ├── CurrentWeatherCard.tsx     Hero: temperature, feels-like, rain countdown, AQI (5×5 km badge with the simulation)
+│   ├── RainCountdownPanel.tsx     Live time-to-rain badge over the 2-hour rain bars
 │   ├── WeatherReportBar.tsx       One-tap Sunny / Cloudy / Light rain / Heavy rain reports
 │   ├── VoiceSummaryButton.tsx     "Play AI summary" floating button and the words it reads
 │   ├── route/
@@ -379,7 +431,8 @@ src/
 │   ├── useFavorites.ts            Favorite places from localStorage, synced across tabs
 │   ├── useGeolocation.ts          Browser location with status
 │   ├── useNow.ts                  A shared clock that ticks every 15 s, for countdowns
-│   ├── useCrowdReports.ts         Local reports (yours and simulated), and whether they back the radar
+│   ├── useCrowdReports.ts         Local reports (yours, and simulated ones with ?data=sim), and whether they back the radar
+│   ├── useSpotWeather.ts          Weather at the favorites, in one request
 │   ├── useRouteWeather.ts         Route card state: places, leave time, route and stop weather
 │   └── useSpeech.ts               Web Speech: voice choice, sentence by sentence, stop
 ├── lib/
@@ -388,13 +441,19 @@ src/
 │   ├── favorites.ts               Favorite list rules and the localStorage store
 │   ├── haptics.ts                 Short vibrations on Android and iPhone
 │   ├── lifestyle.ts               Lifestyle card rules: good, take care or not now, and why
-│   ├── rainCountdown.ts           Time to the next rain from the radar nowcast, then the hourly forecast
+│   ├── rainCountdown.ts           Time to the next rain from the nowcast, then the hourly forecast
 │   ├── crowdVerify.ts             When local reports count as verifying the rain radar
 │   ├── routeWeather.ts            Stops along a route, how wet each is, the trip outlook
 │   ├── voiceSummary.ts            What the spoken summary says
 │   ├── speech.ts                  Picking the best voice for a language
 │   └── pwa.ts                     Service worker registration (production only)
 └── services/
+    ├── weatherService.ts          WeatherService: what the app asks of a weather source, and which one to use
+    ├── openmeteo/
+    │   ├── OpenMeteoService.ts    Real forecasts: requests, reuse, the offline copy
+    │   ├── api.ts                 Endpoints, the values asked for and the reply types
+    │   ├── adapter.ts             Open-Meteo's replies in DooFah's shapes
+    │   └── proxy.ts               Server side of /api/weather: adds OPEN_METEO_API_KEY
     ├── WeatherNext3MockService.ts The simulated API (start here)
     ├── CrowdReportMockService.ts  Mock backend for people's weather reports
     ├── routing/
@@ -405,6 +464,7 @@ src/
     └── weathernext3/
         ├── types.ts               All data contracts
         ├── describe.ts            English wording of nowcast and day outlooks
+        ├── summarise.ts           Sky mood, day outlooks and the nowcast, for both sources
         ├── fieldModel.ts          The atmospheric field model
         ├── grid.ts                5 km grid snapping, radar grids, bilinear sampling
         ├── noise.ts               Seeded value noise / fBm
@@ -423,6 +483,7 @@ scripts/verify-lifestyle.ts        Checks behind `npm run verify:lifestyle`
 scripts/verify-reports.ts          Checks behind `npm run verify:reports`
 scripts/verify-route.ts            Checks behind `npm run verify:route`
 scripts/verify-voice.ts            Checks behind `npm run verify:voice`
+scripts/verify-open-meteo.ts       Checks behind `npm run verify:open-meteo`
 scripts/generate-icons.ts          `npm run icons`, from scripts/icons/doofah-icon.svg
 ```
 
@@ -433,7 +494,7 @@ import { weatherNext3, DEFAULT_PLACE } from "@/services/WeatherNext3MockService"
 
 const { current, hourly, daily } = await weatherNext3.getForecastBundle(DEFAULT_PLACE);
 current.sample.temperatureC;   // 2 m temperature at the 5 km cell
-current.airQuality.aqi;        // US EPA AQI from PM2.5, PM10 and O₃
+current.airQuality?.aqi;       // US EPA AQI from PM2.5, PM10 and O₃ (null for real data with no recent reading)
 current.nowcast.summary;       // "Rain starting in about 40 min"
 current.nowcast.outlook;       // { kind: "starting", minutes: 40, intensity: "moderate" }
 hourly.length;                 // 48 (up to 360)
@@ -472,7 +533,9 @@ with lead time and regresses toward climatology for days far ahead.
 Options: `new WeatherNext3MockService({ seed, latencyMs, now })`. A fixed
 `seed` and `now` give fully reproducible weather for tests and screenshots.
 
-**Swapping in a real API.** Components only depend on the types in
-`services/weathernext3/types.ts` and the service's public methods. A real
-client that returns the same shapes can replace `weatherNext3` without UI
-changes.
+**Real data.** Components only depend on the types in
+`services/weathernext3/types.ts` and the `WeatherService` interface in
+`services/weatherService.ts` (`getForecastBundle` and `getWeatherAlong`).
+`OpenMeteoService` implements it for real data, and `weatherService()` picks
+it or `weatherNext3` from the page's `?data=` setting. Another source only
+needs the same two methods. The radar map still reads `weatherNext3` directly.

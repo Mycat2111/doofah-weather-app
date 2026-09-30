@@ -184,7 +184,9 @@ function DayDetails({ day, timeZone }: { day: DailyForecast; timeZone: string })
     <div className="mb-3 rounded-2xl bg-black/15 p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-sm text-white/90">{m.daySummary(day.outlook)}</p>
-        <p className="text-[11px] text-white/45 th:text-xs">{m.daily.confidence(Math.round(day.confidence * 100))}</p>
+        {day.confidence !== null && (
+          <p className="text-[11px] text-white/45 th:text-xs">{m.daily.confidence(Math.round(day.confidence * 100))}</p>
+        )}
       </div>
       <DaySparkline day={day} timeZone={timeZone} />
       <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5 sm:grid-cols-3">

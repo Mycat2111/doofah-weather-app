@@ -7,7 +7,7 @@ import type {
   RainIntensity,
 } from "@/services/WeatherNext3MockService";
 
-/** Radar rain rate that counts as rain, mm/h. The nowcast uses the same line. */
+/** Rain rate that counts as rain, mm/h. The nowcast uses the same line. */
 export const WET_RATE = 0.1;
 /** An hour of the hourly forecast counts as rainy from this chance of rain, in percent. */
 export const RAIN_LIKELY = 50;
@@ -21,7 +21,8 @@ const MINUTE_MS = 60_000;
 
 /**
  * Time to the next rain, or to the end of the current rain. The first two
- * hours come from the 10-minute radar nowcast, timed to the minute; after
+ * hours come from the 10-minute nowcast (the radar in the simulation,
+ * Open-Meteo's 15-minute forecast for real data), timed to the minute; after
  * that the hourly forecast takes over.
  */
 export type RainCountdown =

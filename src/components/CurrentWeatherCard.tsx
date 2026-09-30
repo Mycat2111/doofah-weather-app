@@ -28,7 +28,6 @@ export function CurrentWeatherCard({ current, daily, countdown, reportBar, class
   const { sample, place, airQuality, cell } = current;
   const tz = place.timeZone;
   const label = placeLabel(place, locale);
-  const aqiColor = AQI_COLOR[airQuality.category];
   const today = daily[0];
 
   return (
@@ -58,19 +57,22 @@ export function CurrentWeatherCard({ current, daily, countdown, reportBar, class
             <FavoriteStar key={place.id} place={place} />
           </div>
           <p className="mt-0.5 truncate text-sm text-white/60">
-            {label.area} · {m.hero.updated(f.clock(current.observedAt, tz))}
+            {/* Offline, the time the saved forecast was downloaded. */}
+            {label.area} · {m.hero.updated(f.clock(current.savedAt ?? current.observedAt, tz))}
           </p>
         </div>
-        <span
-          className="glass-chip flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-medium text-white/85"
-          title={m.hero.cellTitle(cell.id)}
-        >
-          <Grid3x3 className="size-3.5 text-sky-200" aria-hidden />
-          {/* The word only shows while the card is full width; beside the map it needs the room for the name. */}
-          {m.hero.precisionBefore && <span className="hidden sm:inline lg:hidden">{m.hero.precisionBefore}</span>}
-          5×5 {m.units.km}
-          {m.hero.precisionAfter && <span className="hidden sm:inline lg:hidden">{m.hero.precisionAfter}</span>}
-        </span>
+        {cell && (
+          <span
+            className="glass-chip flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-medium text-white/85"
+            title={m.hero.cellTitle(cell.id)}
+          >
+            <Grid3x3 className="size-3.5 text-sky-200" aria-hidden />
+            {/* The word only shows while the card is full width; beside the map it needs the room for the name. */}
+            {m.hero.precisionBefore && <span className="hidden sm:inline lg:hidden">{m.hero.precisionBefore}</span>}
+            5×5 {m.units.km}
+            {m.hero.precisionAfter && <span className="hidden sm:inline lg:hidden">{m.hero.precisionAfter}</span>}
+          </span>
+        )}
       </div>
 
       {/* Temperature hero */}
@@ -114,33 +116,35 @@ export function CurrentWeatherCard({ current, daily, countdown, reportBar, class
         </motion.div>
       </div>
 
-      {/* Time to rain, from the radar nowcast */}
+      {/* Time to rain, from the nowcast */}
       <RainCountdownPanel current={current} countdown={countdown} daily={daily} />
       {reportBar}
 
-      {/* Air quality */}
-      <div className="mt-4 flex items-center gap-3">
-        <Leaf className="size-4 shrink-0" style={{ color: aqiColor }} aria-hidden />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-baseline justify-between text-sm">
-            <span className="text-white/90">
-              {m.hero.aqi} <span className="font-semibold">{airQuality.aqi}</span>
-              <span className="ml-1.5 text-white/60">{m.aqi[airQuality.category]}</span>
-            </span>
-            <span className="text-xs text-white/50">
-              PM2.5 {airQuality.pm25} {m.units.microgramsPerCubicMetre}
-            </span>
-          </div>
-          <div className="relative mt-1.5 h-1.5 rounded-full bg-[linear-gradient(90deg,#4ade80,#facc15_20%,#fb923c_40%,#f87171_60%,#c084fc_80%,#be123c)]">
-            <motion.span
-              className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-black/30 shadow"
-              initial={{ left: "0%" }}
-              animate={{ left: `${Math.min(100, (airQuality.aqi / 300) * 100)}%` }}
-              transition={{ type: "spring", stiffness: 90, damping: 16, delay: 0.2 }}
-            />
+      {/* Air quality, when there is a recent reading */}
+      {airQuality && (
+        <div className="mt-4 flex items-center gap-3">
+          <Leaf className="size-4 shrink-0" style={{ color: AQI_COLOR[airQuality.category] }} aria-hidden />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline justify-between text-sm">
+              <span className="text-white/90">
+                {m.hero.aqi} <span className="font-semibold">{airQuality.aqi}</span>
+                <span className="ml-1.5 text-white/60">{m.aqi[airQuality.category]}</span>
+              </span>
+              <span className="text-xs text-white/50">
+                PM2.5 {airQuality.pm25} {m.units.microgramsPerCubicMetre}
+              </span>
+            </div>
+            <div className="relative mt-1.5 h-1.5 rounded-full bg-[linear-gradient(90deg,#4ade80,#facc15_20%,#fb923c_40%,#f87171_60%,#c084fc_80%,#be123c)]">
+              <motion.span
+                className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-black/30 shadow"
+                initial={{ left: "0%" }}
+                animate={{ left: `${Math.min(100, (airQuality.aqi / 300) * 100)}%` }}
+                transition={{ type: "spring", stiffness: 90, damping: 16, delay: 0.2 }}
+              />
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </GlassCard>
   );
 }

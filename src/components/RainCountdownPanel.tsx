@@ -55,7 +55,7 @@ interface RainCountdownPanelProps {
 
 /**
  * Time to the next rain (or to the end of this rain) as a badge that counts
- * down live, over the radar's 10-minute rain bars for the next 2 hours.
+ * down live, over the nowcast's 10-minute rain bars for the next 2 hours.
  */
 export function RainCountdownPanel({ current, countdown, daily }: RainCountdownPanelProps) {
   const { m, f } = useI18n();
@@ -176,7 +176,8 @@ export function RainCountdownPanel({ current, countdown, daily }: RainCountdownP
       </div>
       <div className="mt-2 flex items-center justify-between gap-2 pl-1">
         <p className="min-w-0 text-xs text-white/65 th:text-[13px]">{detail}</p>
-        {fromRadar && (
+        {/* Only the simulation has a radar behind its nowcast. */}
+        {fromRadar && current.source === "simulated" && (
           <span className="glass-chip flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium text-sky-100 th:text-[11px]">
             <Radar className="size-3" aria-hidden />
             {m.countdown.radar}
