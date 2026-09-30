@@ -6,6 +6,7 @@ import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from "re
 import { useI18n } from "@/i18n/I18nProvider";
 import type { Messages } from "@/i18n/messages";
 import { haptic } from "@/lib/haptics";
+import type { CrowdReport } from "@/services/CrowdReportMockService";
 import {
   sampleGrid,
   type GeoBounds,
@@ -16,6 +17,7 @@ import {
 import { PRECIP_SCALE, PRESSURE_SCALE, TEMPERATURE_SCALE, WIND_SCALE } from "../colorScales";
 import { FieldRasterLayer } from "./FieldRasterLayer";
 import { IsobarLayer } from "./IsobarLayer";
+import { ReportMarkers } from "./ReportMarkers";
 import { WindParticleLayer } from "./WindParticleLayer";
 
 export interface RadarLeafletViewProps {
@@ -29,6 +31,11 @@ export interface RadarLeafletViewProps {
   onGestureHint?: (show: boolean) => void;
   /** Zoom for the next fly to a new centre (set by "go to my location"); otherwise at least 9. */
   nextZoomRef?: RefObject<number | null>;
+  /** People's weather reports to pin on the map, and the time their age is measured from. */
+  reports?: CrowdReport[];
+  reportsNow?: number;
+  /** Night at the place: "sunny" reports show a moon. */
+  night?: boolean;
 }
 
 /** Closest zoom level (street level). */
@@ -261,6 +268,9 @@ export default function RadarLeafletView({
   onMap,
   onGestureHint,
   nextZoomRef,
+  reports = [],
+  reportsNow = 0,
+  night = false,
 }: RadarLeafletViewProps) {
   // The same array between renders, so playback and new frames never make
   // react-leaflet move the marker (which would fight a zoom in progress).
@@ -303,6 +313,7 @@ export default function RadarLeafletView({
       <ViewReporter onViewChange={onViewChange} />
       {grid && frame && <FrameLayers grid={grid} frame={frame} />}
       <Marker position={position} icon={userIcon} keyboard={false} interactive={false} />
+      <ReportMarkers reports={reports} now={reportsNow} night={night} />
       <Probe grid={grid} frame={frame} />
     </MapContainer>
   );

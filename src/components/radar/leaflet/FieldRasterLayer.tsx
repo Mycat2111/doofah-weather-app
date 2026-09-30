@@ -177,6 +177,8 @@ export function FieldRasterLayer({ grid, values, scale, cloud, opacity = 1, labe
   const handle = useCanvasLayer("doofah-field", 350, (h: CanvasHandle) => {
     const { ctx } = h;
     ctx.clearRect(0, 0, h.width, h.height);
+    // The map has no size yet while its card is still being laid out.
+    if (!h.width || !h.height) return;
     if (!paintRef.current) {
       const canvas = document.createElement("canvas");
       const paintCtx = canvas.getContext("2d");

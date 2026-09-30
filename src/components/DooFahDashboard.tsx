@@ -14,6 +14,8 @@ import { LifestyleIndex } from "@/components/LifestyleIndex";
 import { TapButton } from "@/components/ui/TapButton";
 import { WeatherAlertBanner } from "@/components/WeatherAlertBanner";
 import { WeatherDetailsGrid } from "@/components/WeatherDetailsGrid";
+import { WeatherReportBar } from "@/components/WeatherReportBar";
+import { useCrowdReports } from "@/hooks/useCrowdReports";
 import { useForecast } from "@/hooks/useForecast";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import { useI18n } from "@/i18n/I18nProvider";
@@ -53,6 +55,7 @@ export function DooFahDashboard({ atmosphereOverride, alertPreview, rainPreview 
   // cannot see localStorage, renders the default place first).
   const place = chosen ?? (inBrowser ? readOpeningPlace() : undefined) ?? DEFAULT_PLACE;
   const { data, loading, error, refresh } = useForecast(place);
+  const crowd = useCrowdReports(place);
 
   // Remember what is on screen, so the app reopens on it if it is a favorite.
   useEffect(() => {
@@ -118,7 +121,21 @@ export function DooFahDashboard({ atmosphereOverride, alertPreview, rainPreview 
         <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(340px,420px)_1fr]">
           <div className={`transition-opacity duration-300 ${loading && data ? "opacity-60" : ""}`}>
             {data && current && countdown ? (
-              <CurrentWeatherCard current={current} daily={data.daily} countdown={countdown} className="h-full" />
+              <CurrentWeatherCard
+                current={current}
+                daily={data.daily}
+                countdown={countdown}
+                reportBar={
+                  <WeatherReportBar
+                    reports={crowd.reports}
+                    mine={crowd.mine}
+                    now={crowd.now}
+                    isDay={current.sample.isDay}
+                    onReport={crowd.submit}
+                  />
+                }
+                className="h-full"
+              />
             ) : (
               <Skeleton className="h-[560px]" />
             )}
@@ -135,6 +152,10 @@ export function DooFahDashboard({ atmosphereOverride, alertPreview, rainPreview 
           <DooFahRadarMap
             place={place}
             onLocated={onLocated}
+            reports={crowd.reports}
+            reportsNow={crowd.now}
+            verification={crowd.verification}
+            night={data ? !data.current.sample.isDay : false}
             className="h-[600px] lg:col-start-2 lg:row-start-1 lg:h-auto lg:min-h-[580px]"
           />
         </div>

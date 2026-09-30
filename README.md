@@ -30,6 +30,7 @@ npm run dev          # http://localhost:3000
 | `npm run verify:favorites` | Saving, naming and reading back favorite places             |
 | `npm run verify:alerts` | Alert thresholds, time windows, order and tips in both languages |
 | `npm run verify:lifestyle` | Rain countdown timing and the lifestyle card rules          |
+| `npm run verify:reports` | Crowd report simulation, fading, your reports and "verified" |
 | `npm run icons`       | Re-render the app icons and favicon from `scripts/icons/doofah-icon.svg` |
 
 Preview any sky mood with a query parameter:
@@ -148,6 +149,36 @@ the same countdown as the badge, so they never disagree with it:
 | Sunscreen | UV 8+ still to come today | UV 3–7 | UV under 3, or the sun is down |
 | Stargazing | Rain likely or 70%+ cloud in tonight's first 5 dark hours | 35–70% cloud | Under 35% cloud |
 
+## Live weather reports from people nearby
+
+Under the rain countdown, "What's the sky like where you are?" has four
+buttons: Sunny (Clear after dark), Cloudy, Light rain and Heavy rain. One tap
+sends a report.
+
+- **On the map.** Your report shows next to your pin with a "You" tag.
+  Other people's reports from the last hour show as small glass bubbles.
+  - Each bubble has a ring that runs down over the hour. The bubble fades as
+    the ring empties, and it leaves the map 60 minutes after the report was
+    made.
+  - Reports only show on the "now" end of the timeline, since they describe
+    the last hour.
+- **Changing your mind.** Tapping again within 10 minutes changes your report
+  instead of adding a second one.
+- **Mock backend.** `src/services/CrowdReportMockService.ts` plays the backend.
+  - Your reports are kept in localStorage, so they survive a reload.
+  - Other people's reports are simulated from the same weather model as the
+    radar. There are about six an hour within 30 km, more when it rains, and
+    about one in eight picks the "wrong" button.
+  - The same place and time always give the same reports.
+- **"Verified by 5 local users".** This badge sits under the Rain / Wind /
+  Temp / Pressure switcher while the rain layer is showing. The rule is in
+  `src/lib/crowdVerify.ts`.
+  - A report agrees with the radar when both say rain, or both say dry, at the
+    report's spot and time.
+  - The badge needs at least 2 people agreeing and at least 60% of the local
+    reports.
+  - When fewer than half agree, the badge says local users differ instead.
+
 ## Home screen app (PWA)
 
 **Installing.** On Android, Chrome offers **Install app** (or menu → *Add to
@@ -252,6 +283,7 @@ src/
 │   │   └── FavoriteIcon.tsx       House / briefcase / pin per favorite
 │   ├── CurrentWeatherCard.tsx     Hero: temperature, feels-like, rain countdown, AQI, 5×5 km badge
 │   ├── RainCountdownPanel.tsx     Live time-to-rain badge over the radar's 2-hour rain bars
+│   ├── WeatherReportBar.tsx       One-tap Sunny / Cloudy / Light rain / Heavy rain reports
 │   ├── LifestyleIndex.tsx         Laundry, car wash, run, commute, sunscreen and stargazing cards
 │   ├── DooFahRadarMap.tsx         Radar panel: layer switcher, timeline, legend, playback
 │   ├── HourlyForecastSlider.tsx   48 h strip with sunrise/sunset markers
@@ -263,6 +295,7 @@ src/
 │   │   ├── TimelineScrubber.tsx   −3 h … +24 h touch scrubber with play/pause
 │   │   ├── ZoomButtons.tsx        Map zoom buttons, finger-sized on touch screens
 │   │   ├── RecenterButton.tsx     Go to my location: GPS fix, then fly the map there
+│   │   ├── CrowdVerifiedBadge.tsx "Verified by N local users" badge under the layer switcher
 │   │   ├── RadarLegend.tsx        Colour legend per layer
 │   │   ├── colorScales.ts         Radar, temperature, wind and pressure colour ramps
 │   │   ├── isobars.ts             Marching-squares isobars + H/L centres
@@ -271,6 +304,7 @@ src/
 │   │       ├── useCanvasLayer.ts      Full-viewport canvas pane that follows pans, pinches and zooms
 │   │       ├── FieldRasterLayer.tsx   Smooth colour field painted at screen resolution (rain, temperature, wind)
 │   │       ├── WindParticleLayer.tsx  Animated wind streamlines
+│   │       ├── ReportMarkers.tsx      People's reports as bubbles that fade over their hour
 │   │       └── IsobarLayer.tsx        Isobar lines, labels, H/L markers
 │   └── ui/
 │       ├── GlassCard.tsx          Translucent card with entrance animation
@@ -288,7 +322,8 @@ src/
 │   ├── useRadarFrames.ts          Loads frames for the visible map area
 │   ├── useFavorites.ts            Favorite places from localStorage, synced across tabs
 │   ├── useGeolocation.ts          Browser location with status
-│   └── useNow.ts                  A shared clock that ticks every 15 s, for countdowns
+│   ├── useNow.ts                  A shared clock that ticks every 15 s, for countdowns
+│   └── useCrowdReports.ts         Local reports (yours and simulated), and whether they back the radar
 ├── lib/
 │   ├── alerts.ts                  When to warn about storms, rain and air, and what to do
 │   ├── colors.ts                  AQI and temperature colours
@@ -296,9 +331,11 @@ src/
 │   ├── haptics.ts                 Short vibrations on Android and iPhone
 │   ├── lifestyle.ts               Lifestyle card rules: good, take care or not now, and why
 │   ├── rainCountdown.ts           Time to the next rain from the radar nowcast, then the hourly forecast
+│   ├── crowdVerify.ts             When local reports count as verifying the rain radar
 │   └── pwa.ts                     Service worker registration (production only)
 └── services/
     ├── WeatherNext3MockService.ts The simulated API (start here)
+    ├── CrowdReportMockService.ts  Mock backend for people's weather reports
     └── weathernext3/
         ├── types.ts               All data contracts
         ├── describe.ts            English wording of nowcast and day outlooks
@@ -317,6 +354,7 @@ scripts/verify-i18n.ts             Checks behind `npm run verify:i18n`
 scripts/verify-favorites.ts        Checks behind `npm run verify:favorites`
 scripts/verify-alerts.ts           Checks behind `npm run verify:alerts`
 scripts/verify-lifestyle.ts        Checks behind `npm run verify:lifestyle`
+scripts/verify-reports.ts          Checks behind `npm run verify:reports`
 scripts/generate-icons.ts          `npm run icons`, from scripts/icons/doofah-icon.svg
 ```
 

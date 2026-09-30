@@ -5,6 +5,7 @@ import type { Map as LeafletMap } from "leaflet";
 import { Hand, LoaderCircle, Radar } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { CrowdVerifiedBadge } from "@/components/radar/CrowdVerifiedBadge";
 import { LayerSwitcher } from "@/components/radar/LayerSwitcher";
 import { RadarLegend } from "@/components/radar/RadarLegend";
 import { RecenterButton } from "@/components/radar/RecenterButton";
@@ -12,6 +13,8 @@ import { TimelineScrubber } from "@/components/radar/TimelineScrubber";
 import { ZoomButtons } from "@/components/radar/ZoomButtons";
 import { TIMELINE_FROM, TIMELINE_TO, useRadarFrames } from "@/hooks/useRadarFrames";
 import { useI18n } from "@/i18n/I18nProvider";
+import type { Verification } from "@/lib/crowdVerify";
+import type { CrowdReport } from "@/services/CrowdReportMockService";
 import type { GeoBounds, GeoPoint, Place, RadarLayerType } from "@/services/WeatherNext3MockService";
 
 // Leaflet touches `window`, so the map itself only renders in the browser.
@@ -44,6 +47,12 @@ interface DooFahRadarMapProps {
   place: Place;
   /** Makes a GPS fix the dashboard's place ("go to my location" on the map). */
   onLocated: (point: GeoPoint) => void;
+  /** People's weather reports from the last hour, and how they compare with the radar. */
+  reports?: CrowdReport[];
+  reportsNow?: number;
+  verification?: Verification | null;
+  /** Night at the place. */
+  night?: boolean;
   className?: string;
 }
 
@@ -52,7 +61,15 @@ interface DooFahRadarMapProps {
  * (rain, wind streamlines, temperature, isobars) and a time-lapse scrubber
  * from 3 hours ago to 24 hours ahead.
  */
-export function DooFahRadarMap({ place, onLocated, className = "" }: DooFahRadarMapProps) {
+export function DooFahRadarMap({
+  place,
+  onLocated,
+  reports = [],
+  reportsNow = 0,
+  verification = null,
+  night = false,
+  className = "",
+}: DooFahRadarMapProps) {
   const { m, f } = useI18n();
   const [layer, setLayer] = useState<RadarLayerType>("precipitation");
   const [bounds, setBounds] = useState<GeoBounds | null>(null);
@@ -77,6 +94,8 @@ export function DooFahRadarMap({ place, onLocated, className = "" }: DooFahRadar
 
   const frames = frameSet?.frames ?? [];
   const frame = frames[Math.min(frameIndex, frames.length - 1)];
+  // Reports describe the last hour, so they show on the "now" frames only.
+  const live = !frame || (frame.offsetHours <= 0 && frame.offsetHours >= -1);
 
   return (
     <section
@@ -92,6 +111,9 @@ export function DooFahRadarMap({ place, onLocated, className = "" }: DooFahRadar
           onMap={setMap}
           onGestureHint={setGestureHint}
           nextZoomRef={nextZoomRef}
+          reports={live ? reports : undefined}
+          reportsNow={reportsNow}
+          night={night}
         />
       </div>
 
@@ -120,8 +142,11 @@ export function DooFahRadarMap({ place, onLocated, className = "" }: DooFahRadar
 
       {/* Top overlay */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-wrap items-start justify-between gap-2 bg-gradient-to-b from-black/35 to-transparent p-3 sm:p-4">
-        <div className="pointer-events-auto">
-          <LayerSwitcher value={layer} onChange={setLayer} />
+        <div className="flex min-w-0 flex-col items-start gap-2">
+          <div className="pointer-events-auto max-w-full">
+            <LayerSwitcher value={layer} onChange={setLayer} />
+          </div>
+          <CrowdVerifiedBadge verification={live && layer === "precipitation" ? verification : null} />
         </div>
         <div className="glass-dark pointer-events-auto flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] text-white/80">
           <AnimatePresence mode="wait" initial={false}>

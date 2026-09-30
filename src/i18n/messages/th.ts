@@ -302,6 +302,21 @@ export const th: Messages = {
     },
   },
 
+  reports: {
+    title: "ท้องฟ้าตรงที่คุณอยู่เป็นอย่างไร",
+    kinds: { sunny: "แดดออก", cloudy: "มีเมฆ", lightRain: "ฝนเล็กน้อย", heavyRain: "ฝนตกหนัก" },
+    clear: "ฟ้าโปร่ง",
+    hint: "แตะครั้งเดียวเพื่อแชร์บนแผนที่ให้คนแถวนี้เห็น",
+    thanks: "ขอบคุณ! รายงานของคุณจะแสดงบนแผนที่ 1 ชั่วโมง",
+    yours: (kind, ago) => `คุณรายงานว่า${kind} · ${ago}`,
+    ago: (minutes) => (minutes < 1 ? "เมื่อสักครู่" : `${minutes}${NB}นาทีที่แล้ว`),
+    nearby: (count) => `ใกล้คุณ ${count} รายงาน`,
+    you: "คุณ",
+    verified: (people) => `ยืนยันโดยผู้ใช้ในพื้นที่ ${people} คน`,
+    disputed: (agreeing, total) => `ผู้ใช้ในพื้นที่เห็นต่าง ตรงกัน ${agreeing} จาก ${total}`,
+    few: (count) => `รายงานจากผู้ใช้ ${count} รายการ`,
+  },
+
   hourly: {
     label: "พยากรณ์รายชั่วโมง",
     title: "48 ชั่วโมงข้างหน้า",

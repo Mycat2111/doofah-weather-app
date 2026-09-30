@@ -8,6 +8,7 @@ import type {
 } from "@/services/weathernext3/types";
 import type { AlertTip } from "@/lib/alerts";
 import type { Activity, Level, LifestyleReason } from "@/lib/lifestyle";
+import type { ReportKind } from "@/services/CrowdReportMockService";
 
 /**
  * Every piece of UI text. Functions take already-formatted values (times,
@@ -127,6 +128,24 @@ export interface Messages {
     title: string;
     activities: Record<Activity, string>;
     status: Record<Activity, Record<Level, string>>;
+  };
+
+  /** One-tap weather reports from people nearby. */
+  reports: {
+    title: string;
+    kinds: Record<ReportKind, string>;
+    /** "Sunny" after dark. */
+    clear: string;
+    hint: string;
+    thanks: string;
+    /** `kind` is an already-translated report name. */
+    yours: (kind: string, ago: string) => string;
+    ago: (minutes: number) => string;
+    nearby: (count: number) => string;
+    you: string;
+    verified: (people: number) => string;
+    disputed: (agreeing: number, total: number) => string;
+    few: (count: number) => string;
   };
 
   hourly: {
