@@ -11,6 +11,7 @@
     "verify:mock": "tsx scripts/verify-mock-service.ts",
     "verify:i18n": "tsx scripts/verify-i18n.ts",
     "verify:favorites": "tsx scripts/verify-favorites.ts",
+    "verify:alerts": "tsx scripts/verify-alerts.ts",
     "icons": "tsx scripts/generate-icons.ts"
   },
   "dependencies": {

@@ -158,6 +158,33 @@ export const th: Messages = {
     done: "เสร็จ",
   },
 
+  alerts: {
+    label: "แจ้งเตือนสภาพอากาศ",
+    dismiss: "ปิดการแจ้งเตือน",
+    stormNow: "มีพายุฝนฟ้าคะนองขณะนี้",
+    stormFrom: (clock) => `อาจเกิดพายุฝนฟ้าคะนองตั้งแต่ ${clock} น.`,
+    stormDetail: (chance) => `ระวังฟ้าผ่าและลมกระโชกแรง · โอกาสฝน ${chance}%`,
+    rainNow: "ฝนมีแนวโน้มตกในชั่วโมงนี้",
+    rainFrom: (clock) => `ฝนมีแนวโน้มตกตั้งแต่ ${clock} น.`,
+    rainDetail: (chance, hours) => `โอกาสฝนสูงสุด ${chance}% ใน ${hours} ชั่วโมงข้างหน้า`,
+    heavyAtTimes: `อาจตกหนักเป็นพัก${YAMOK}`,
+    air: (category) => `คุณภาพอากาศ${category}`,
+    airDetail: (aqi, pm25) => `AQI ${aqi} · PM2.5 ${pm25}`,
+    tipsLabel: "ข้อแนะนำ",
+    tips: {
+      umbrella: "ควรพกร่ม",
+      stayIndoors: "อยู่ในอาคารหากทำได้",
+      avoidOpenGround: "หลีกเลี่ยงที่โล่งแจ้งและต้นไม้ใหญ่",
+      unplug: "ถอดปลั๊กเครื่องใช้ไฟฟ้า",
+      travelTime: "เผื่อเวลาเดินทาง",
+      floodedRoads: "ระวังน้ำท่วมขังบนถนน",
+      mask: "ควรสวมหน้ากากกันฝุ่น PM2.5",
+      noOutdoorExercise: "งดออกกำลังกายกลางแจ้ง",
+      closeWindows: "ปิดหน้าต่างและเปิดเครื่องฟอกอากาศ",
+      sensitiveGroups: "เด็ก ผู้สูงอายุ และผู้มีโรคหัวใจหรือโรคปอดควรอยู่ในอาคาร",
+    },
+  },
+
   hero: {
     label: "สภาพอากาศปัจจุบัน",
     updated: (clock) => `อัปเดต ${clock} น.`,
