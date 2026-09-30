@@ -1,4 +1,4 @@
-import { TOWNS } from "@/services/routing/roadNetwork";
+import { TOWNS } from "@/services/routing/towns";
 import type { Route, RoutePoint } from "@/services/routing/types";
 import { distanceKm, PLACES } from "@/services/weathernext3/places";
 import type { AtmosphericSample, GeoPoint, SpotWeather } from "@/services/weathernext3/types";
@@ -39,7 +39,7 @@ export interface RouteStopWeather extends RouteStop {
   weather: SpotWeather;
 }
 
-/** Towns on the road map and every place in the place list, for naming stops. */
+/** Towns along the main roads and every place in the place list, for naming stops. */
 const GAZETTEER: (TownName & { point: GeoPoint })[] = [
   ...TOWNS,
   ...PLACES.filter((p) => !TOWNS.some((t) => t.id === p.id)).map((p) => ({

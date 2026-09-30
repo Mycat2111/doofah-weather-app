@@ -2,10 +2,9 @@ import { PLACES } from "../weathernext3/places";
 import type { GeoPoint } from "../weathernext3/types";
 
 /**
- * A small, hand-made map of the main highways of Thailand and the roads that
- * cross into its neighbours, for the simulated router. Towns sit roughly on
- * the real highway junctions, so a simulated Bangkok to Chiang Mai trip runs
- * up Highway 1 and 11 like the real one does.
+ * Towns along Thailand's main highways and the roads into its neighbours, in
+ * English and Thai, for naming the weather stops on a road trip ("Nakhon
+ * Sawan" rather than "km 240").
  */
 
 export interface Town {
@@ -16,17 +15,7 @@ export interface Town {
   point: GeoPoint;
 }
 
-export type RoadKind = "motorway" | "highway" | "road" | "mountain" | "ferry";
-
-export interface Road {
-  from: string;
-  to: string;
-  kind: RoadKind;
-  /** The road crosses a border (a passport check on the way). */
-  border?: boolean;
-}
-
-/** Towns on the network that are not already in the place list. */
+/** Towns that are not already in the place list. */
 const JUNCTIONS: Town[] = [
   { id: "saraburi", name: "Saraburi", th: "สระบุรี", point: { lat: 14.5289, lon: 100.9108 } },
   { id: "nakhon-sawan", name: "Nakhon Sawan", th: "นครสวรรค์", point: { lat: 15.7047, lon: 100.1372 } },
@@ -72,7 +61,7 @@ const JUNCTIONS: Town[] = [
   { id: "bago", name: "Bago", th: "พะโค", point: { lat: 17.335, lon: 96.4814 } },
 ];
 
-/** Places from the place list that sit on the network. */
+/** Places from the place list that are also towns on the way. */
 const PLACE_TOWNS = [
   "bangkok",
   "ayutthaya",
@@ -103,81 +92,4 @@ export const TOWNS: Town[] = [
     return { id, name: place.name, th: place.th?.name ?? place.name, point: place.point };
   }),
   ...JUNCTIONS,
-];
-
-const road = (from: string, to: string, kind: RoadKind, border = false): Road => ({ from, to, kind, border });
-
-export const ROADS: Road[] = [
-  // North: Highway 1, 32, 11 and 118.
-  road("bangkok", "ayutthaya", "highway"),
-  road("ayutthaya", "saraburi", "road"),
-  road("bangkok", "saraburi", "highway"),
-  road("ayutthaya", "nakhon-sawan", "highway"),
-  road("nakhon-sawan", "phitsanulok", "highway"),
-  road("nakhon-sawan", "kamphaeng-phet", "highway"),
-  road("kamphaeng-phet", "tak", "highway"),
-  road("tak", "lampang", "mountain"),
-  road("phitsanulok", "uttaradit", "highway"),
-  road("uttaradit", "den-chai", "highway"),
-  road("den-chai", "lampang", "road"),
-  road("lampang", "lamphun", "mountain"),
-  road("lamphun", "chiang-mai", "road"),
-  road("lampang", "phayao", "mountain"),
-  road("phayao", "chiang-rai", "highway"),
-  road("chiang-mai", "wiang-pa-pao", "mountain"),
-  road("wiang-pa-pao", "chiang-rai", "mountain"),
-  // East: Motorway 7.
-  road("bangkok", "chon-buri", "motorway"),
-  road("chon-buri", "pattaya", "motorway"),
-  // South: Highway 35, 4 and 41, the Sarasin bridge to Phuket, the Samui car ferry.
-  road("bangkok", "phetchaburi", "highway"),
-  road("phetchaburi", "hua-hin", "highway"),
-  road("hua-hin", "prachuap", "highway"),
-  road("prachuap", "chumphon", "highway"),
-  road("chumphon", "surat-thani", "highway"),
-  road("surat-thani", "don-sak", "road"),
-  road("don-sak", "koh-samui", "ferry"),
-  road("surat-thani", "phang-nga", "road"),
-  road("phang-nga", "phuket", "highway"),
-  road("phang-nga", "krabi", "road"),
-  road("surat-thani", "krabi", "road"),
-  road("surat-thani", "thung-song", "highway"),
-  road("thung-song", "phatthalung", "highway"),
-  road("phatthalung", "hat-yai", "highway"),
-  // Malaysia's North-South Expressway to Singapore.
-  road("hat-yai", "sadao", "highway"),
-  road("sadao", "alor-setar", "motorway", true),
-  road("alor-setar", "butterworth", "motorway"),
-  road("butterworth", "ipoh", "motorway"),
-  road("ipoh", "kuala-lumpur", "motorway"),
-  road("kuala-lumpur", "seremban", "motorway"),
-  road("seremban", "johor-bahru", "motorway"),
-  road("johor-bahru", "singapore", "road", true),
-  // Northeast: Highway 2 (Mittraphap), the Friendship Bridge, Laos and Vietnam.
-  road("saraburi", "pak-chong", "highway"),
-  road("pak-chong", "korat", "highway"),
-  road("korat", "khon-kaen", "highway"),
-  road("khon-kaen", "udon-thani", "highway"),
-  road("udon-thani", "nong-khai", "highway"),
-  road("nong-khai", "vientiane", "road", true),
-  road("vientiane", "paksan", "road"),
-  road("paksan", "lak-sao", "mountain"),
-  road("lak-sao", "vinh", "mountain", true),
-  road("vinh", "thanh-hoa", "highway"),
-  road("thanh-hoa", "hanoi", "motorway"),
-  // Cambodia and southern Vietnam.
-  road("bangkok", "prachinburi", "highway"),
-  road("prachinburi", "sa-kaeo", "highway"),
-  road("sa-kaeo", "aranyaprathet", "highway"),
-  road("aranyaprathet", "sisophon", "road", true),
-  road("sisophon", "battambang", "road"),
-  road("battambang", "pursat", "road"),
-  road("pursat", "phnom-penh", "road"),
-  road("phnom-penh", "bavet", "road"),
-  road("bavet", "ho-chi-minh", "road", true),
-  // Myanmar, over the Dawna range.
-  road("tak", "mae-sot", "mountain"),
-  road("mae-sot", "hpa-an", "mountain", true),
-  road("hpa-an", "bago", "road"),
-  road("bago", "yangon", "highway"),
 ];

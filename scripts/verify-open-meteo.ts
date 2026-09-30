@@ -5,6 +5,9 @@
  * Run with: npm run verify:open-meteo
  */
 import assert from "node:assert/strict";
+import { createFormatters } from "../src/i18n/format";
+import { MESSAGES } from "../src/i18n/messages";
+import { modelOutlook, rainCountdown, type ModelOutlook, type RainCountdown } from "../src/lib/rainCountdown";
 import { rainIntensity } from "../src/services/weathernext3/describe";
 import { floorToHour, HOUR_MS, localDateKey, timeZoneOffsetMinutes } from "../src/services/weathernext3/time";
 import {
@@ -15,20 +18,28 @@ import {
   wmoCondition,
 } from "../src/services/openmeteo/adapter";
 import {
+  CONSENSUS_MODELS,
+  CONSENSUS_VARIABLES,
+  consensusParams,
   CURRENT_VARIABLES,
   forecastParams,
   HOURLY_VARIABLES,
   MAX_LOCATIONS,
   OpenMeteoError,
   type AirQualityResponse,
+  type ConsensusModel,
+  type ConsensusResponse,
   type ForecastResponse,
 } from "../src/services/openmeteo/api";
+import { confidenceLevel, consensusFrom, dayVote, support, weigh } from "../src/services/openmeteo/consensus";
 import { OpenMeteoService } from "../src/services/openmeteo/OpenMeteoService";
 import { proxyOpenMeteo } from "../src/services/openmeteo/proxy";
 import {
   PLACES,
   WeatherNext3MockService,
+  type ForecastBundle,
   type HourlyForecast,
+  type ModelVote,
   type Place,
   type WeatherCondition,
 } from "../src/services/WeatherNext3MockService";
@@ -142,6 +153,34 @@ function spotReply(point: { lat: number; lon: number }, temps: number[], rain: n
   } satisfies ForecastResponse;
 }
 
+type ModelValue = (model: ConsensusModel, start: number) => number | null;
+
+const isWet = (mm: number | null) => (mm ?? 0) >= 0.1;
+
+/**
+ * The models' reply (consensusParams) for 8 days from `from`: each model's
+ * rain, chance of rain and weather code for the DooFah hour from `start`,
+ * which Open-Meteo sends at start + 1 h. By default an ensemble gives 90%
+ * when its model has rain and 5% when not (AIGFS's comes back empty, as it
+ * does live), and the code is rain or cloud to match.
+ */
+function modelsReply(
+  from: number,
+  rain: ModelValue,
+  chance: ModelValue = (m, t) => (!m.ensemble || m.id === "ncep_aigfs025" ? null : isWet(rain(m, t)) ? 90 : 5),
+  code: ModelValue = (m, t) => (isWet(rain(m, t)) ? 61 : 3),
+): ConsensusResponse {
+  const time = Array.from({ length: 8 * 24 }, (_, i) => from + i * HOUR_MS);
+  const hourly: NonNullable<ConsensusResponse["hourly"]> = { time: time.map(unix) };
+  for (const model of CONSENSUS_MODELS) {
+    const before = (value: ModelValue) => time.map((t) => value(model, t - HOUR_MS));
+    hourly[`precipitation_${model.id}`] = before(rain);
+    hourly[`precipitation_probability_${model.id}`] = before(chance);
+    hourly[`weather_code_${model.id}`] = before(code);
+  }
+  return { utc_offset_seconds: 7 * 3600, hourly };
+}
+
 /** localStorage stand-in. */
 function memoryStorage(failWrites = false) {
   const items = new Map<string, string>();
@@ -178,6 +217,16 @@ async function main() {
   const hours = simulated.daily.flatMap((d) => d.hours);
   assert.equal(hours.length, 15 * 24);
   const reply = forecastReply(hours, bangkok);
+  // The models: a thunderstorm in every one of them at 16:00 (except CMA's, which sends nothing).
+  const midnight = Date.parse(hours[0].time);
+  const thisHour = floorToHour(NOW);
+  const storm = thisHour + 2 * HOUR_MS;
+  const stormReply = modelsReply(
+    midnight,
+    (m, t) => (m.id === "cma_grapes_global" ? null : t === storm ? 5 : 0),
+    undefined,
+    (_, t) => (t === storm ? 95 : 3),
+  );
   /** The temperature at `at` between the hours around it. */
   const tempAt = (at: number) => {
     const i = hours.findIndex((x) => Date.parse(x.time) === floorToHour(at));
@@ -416,23 +465,31 @@ async function main() {
     fakeFetch((url) =>
       url.pathname.endsWith("/air-quality")
         ? airReply()
-        : forecastReply(hours, bangkok, { current: current(), minutely_15: quarters(Array(12).fill(0)) }),
+        : url.searchParams.has("models")
+          ? stormReply
+          : forecastReply(hours, bangkok, { current: current(), minutely_15: quarters(Array(12).fill(0)) }),
     );
   let clock = NOW;
   const net = good();
   const service = new OpenMeteoService({ fetch: net.fetch, now: () => clock, storage: null });
   const live = await service.getForecastBundle(bangkok);
-  assert.equal(net.calls.length, 2);
+  assert.equal(net.calls.length, 3);
   assert.ok(net.calls[0].startsWith("https://api.open-meteo.com/v1/forecast?latitude=13.756&longitude=100.502&"));
   assert.ok(net.calls[1].startsWith("https://air-quality-api.open-meteo.com/v1/air-quality?latitude=13.756&"));
+  assert.ok(net.calls[2].startsWith("https://api.open-meteo.com/v1/forecast?latitude=13.756&longitude=100.502&"));
+  assert.equal(new URL(net.calls[2]).searchParams.get("models"), consensusParams(bangkok).get("models"));
   assert.equal(live.current.source, "open-meteo");
   assert.equal(live.current.airQuality?.aqi, 162);
+  assert.equal(live.current.blend?.length, 6);
   clock += 4 * MIN;
   await service.getForecastBundle(bangkok);
-  assert.equal(net.calls.length, 2, "the same request within 5 minutes is not sent again");
+  assert.equal(net.calls.length, 3, "the same request within 5 minutes is not sent again");
   clock += 2 * MIN;
   await service.getForecastBundle(bangkok);
-  assert.equal(net.calls.length, 4, "after 5 minutes it is");
+  assert.equal(net.calls.length, 5, "after 5 minutes it is, but the models' reply is kept for 30 minutes");
+  clock += 25 * MIN;
+  await service.getForecastBundle(bangkok);
+  assert.equal(net.calls.length, 8, "after 30 minutes the models are asked again");
 
   const viaServer = good();
   await new OpenMeteoService({ proxy: true, fetch: viaServer.fetch, now: () => NOW, storage: null }).getForecastBundle(
@@ -440,6 +497,8 @@ async function main() {
   );
   assert.ok(viaServer.calls[0].startsWith("/api/weather/forecast?latitude=13.756&"));
   assert.ok(viaServer.calls[1].startsWith("/api/weather/air-quality?latitude=13.756&"));
+  assert.ok(viaServer.calls[2].startsWith("/api/weather/forecast?latitude=13.756&"));
+  assert.ok(new URL(viaServer.calls[2], "https://doofah.test").searchParams.has("models"));
 
   const refused = fakeFetch(() => ({ error: true, reason: "Parameter 'hourly' is invalid" }));
   await assert.rejects(
@@ -453,6 +512,21 @@ async function main() {
     storage: null,
   }).getForecastBundle(bangkok);
   assert.equal(withoutAir.current.airQuality, null, "the forecast still shows when air quality fails");
+  const modelsDown = () =>
+    fakeFetch((url) =>
+      url.searchParams.has("models")
+        ? { error: true, reason: "No data is available for this location" }
+        : url.pathname.endsWith("/air-quality")
+          ? airReply()
+          : reply,
+    );
+  const withoutModels = await new OpenMeteoService({
+    fetch: modelsDown().fetch,
+    now: () => NOW,
+    storage: null,
+  }).getForecastBundle(bangkok);
+  assert.equal(withoutModels.current.blend, undefined, "...and when the models fail");
+  assert.equal(withoutModels.hourly[0].vote, undefined);
   console.log("✓ free servers from the browser, or /api/weather with a key; Open-Meteo's errors come through");
 
   // 12. Offline --------------------------------------------------------------------
@@ -469,6 +543,22 @@ async function main() {
   assert.equal(saved.hourly[0].time, iso(floorToHour(later)), "the hours start at the hour it is now");
   assert.equal(saved.current.sample.temperatureC, tempAt(later), "now comes from the saved hourly forecast");
   assert.equal(saved.current.airQuality?.aqi, 162, "with the saved air quality while it is recent");
+  assert.equal(saved.current.blend?.length, 6, "and the saved models");
+  // Online, but the models fail: the saved ones fill in while they are under 6 hours old.
+  const modelsStore = memoryStorage();
+  await new OpenMeteoService({ fetch: good().fetch, now: () => NOW, storage: modelsStore }).getForecastBundle(bangkok);
+  const in1h = await new OpenMeteoService({
+    fetch: modelsDown().fetch,
+    now: () => NOW + HOUR_MS,
+    storage: modelsStore,
+  }).getForecastBundle(bangkok);
+  assert.equal(in1h.current.blend?.length, 6, "the saved models fill in when the new ones fail");
+  const in7h = await new OpenMeteoService({
+    fetch: modelsDown().fetch,
+    now: () => NOW + 7 * HOUR_MS,
+    storage: modelsStore,
+  }).getForecastBundle(bangkok);
+  assert.equal(in7h.current.blend, undefined, "but not once they are 6 hours old, though saved again since");
   await assert.rejects(
     new OpenMeteoService({ fetch: offline.fetch, now: () => NOW + 49 * HOUR_MS, storage }).getForecastBundle(bangkok),
     TypeError,
@@ -558,14 +648,15 @@ async function main() {
   assert.equal((await ask("hourly=temperature_2m")).status, 400, "coordinates needed");
   const lots = Array(13).fill("1").join(",");
   assert.equal((await ask(`latitude=${lots}&longitude=${lots}`)).status, 400, "12 places at most");
+  assert.equal((await ask(`${coords}&models=ecmwf_ifs,gfs_seamless`)).status, 400, "only the models DooFah blends");
   assert.equal(upstream.calls.length, 0);
-  const ok = await ask(`${coords}&hourly=temperature_2m&timeformat=unixtime&apikey=stolen&models=gfs_seamless`);
+  const ok = await ask(`${coords}&hourly=temperature_2m&timeformat=unixtime&apikey=stolen&cell_selection=sea`);
   assert.equal(ok.status, 200);
   assert.match(ok.headers.get("cache-control") ?? "", /s-maxage=300/);
   const sent = new URL(upstream.calls[0]);
   assert.equal(sent.origin, "https://customer-api.open-meteo.com");
   assert.equal(sent.searchParams.get("apikey"), "SECRET", "the server's key, not the caller's");
-  assert.equal(sent.searchParams.get("models"), null, "only the parameters DooFah uses");
+  assert.equal(sent.searchParams.get("cell_selection"), null, "only the parameters DooFah uses");
   assert.equal(sent.searchParams.get("hourly"), "temperature_2m");
   assert.equal((await ask(coords, null)).status, 200, "requests without the header (older browsers) pass");
   await ask(coords, "same-origin", "air-quality");
@@ -580,7 +671,255 @@ async function main() {
     fakeFetch(() => new TypeError("fetch failed")).fetch,
   );
   assert.equal(down.status, 502);
+  const blendAsked = await ask(`${coords}&${consensusParams(bangkok)}`);
+  assert.equal(blendAsked.status, 200);
+  assert.equal(new URL(upstream.calls.at(-1)!).searchParams.get("models"), consensusParams(bangkok).get("models"));
   console.log("✓ /api/weather adds the key on the server, for DooFah's own pages only");
+
+  // 15. The models' blend: how the chance of rain and the confidence are weighed -----------
+  const models = consensusParams(bangkok);
+  assert.equal(models.get("models"), CONSENSUS_MODELS.map((m) => m.id).join(","));
+  assert.equal(models.get("hourly"), "precipitation,precipitation_probability,weather_code");
+  assert.equal(models.get("forecast_days"), "8");
+  assert.equal(models.get("timezone"), "Asia/Bangkok");
+  // Open-Meteo counts every 10 variables (models × variables) as one call.
+  assert.equal((CONSENSUS_MODELS.length * CONSENSUS_VARIABLES.length) / 10, 2.1);
+  const votes = (wet: number, dry = 0) => Array.from({ length: wet + dry }, (_, i) => ({ wet: i < wet, weight: 1 }));
+  const ens = (...chances: number[]) => chances.map((chance) => ({ chance, members: 36 }));
+  assert.deepEqual(weigh({ votes: votes(7), ensembles: ens(1, 1, 1) }), { chance: 100, confidence: 1 });
+  assert.deepEqual(weigh({ votes: votes(0, 7), ensembles: ens(0, 0) }), { chance: 0, confidence: 1 });
+  assert.deepEqual(
+    weigh({ votes: votes(3, 3), ensembles: ens(0.5, 0.5) }),
+    { chance: 50, confidence: 0 },
+    "50% is never confident, however well the sources agree",
+  );
+  const likely = weigh({ votes: votes(6, 1), ensembles: ens(0.9, 0.8) })!;
+  assert.equal(likely.chance, 85);
+  assert.equal(confidenceLevel(likely.confidence), "high");
+  assert.equal(support(likely, true), "high");
+  assert.equal(support(likely, false), "low", "they lean the other way");
+  const clash = weigh({ votes: votes(6), ensembles: ens(0.2, 0.2) })!;
+  assert.equal(clash.chance, 52, "every model has rain, but only 20% of the ensembles' runs");
+  assert.equal(confidenceLevel(clash.confidence), "low");
+  assert.equal(weigh({ votes: votes(7), ensembles: [] }), null, "the votes alone can't be checked against anything");
+  assert.equal(weigh({ votes: votes(2), ensembles: ens(0.9) }), null, "two models are not a source of their own");
+  assert.ok(weigh({ votes: votes(2), ensembles: ens(0.9, 0.7) }), "two ensembles are two sources");
+  console.log(
+    `✓ weighing: all agree ${JSON.stringify(weigh({ votes: votes(7), ensembles: ens(1, 1) }))}, ` +
+      `likely ${JSON.stringify(likely)}, clash ${JSON.stringify(clash)}`,
+  );
+
+  // 16. The models' blend for each hour and day ------------------------------------------
+  const blend = consensusFrom(stormReply, NOW)!;
+  assert.deepEqual(
+    blend.models.map((m) => m.id),
+    CONSENSUS_MODELS.map((m) => m.id).filter((id) => id !== "cma_grapes_global"),
+    "a model that sent only nulls is left out",
+  );
+  const at16 = blend.hours.get(storm)!;
+  const { chance: chance16, confidence: confidence16, ...counts16 } = at16;
+  assert.deepEqual(counts16, {
+    models: 6,
+    // Heavy rain counts only from models stepping hourly then (not the 6-hourly AI models).
+    wet: 6,
+    heavy: 4,
+    // Thunder only from models that forecast it (not the AI models).
+    stormModels: 4,
+    storm: 4,
+    // ECMWF 51, DWD 40, NOAA 31 and Canada 21 runs; AIGFS's chance is empty.
+    ensembles: 4,
+    members: 143,
+  });
+  assert.equal(chance16, 94);
+  assert.equal(confidenceLevel(confidence16), "high");
+  assert.equal(blend.hours.get(storm - HOUR_MS)!.wet, 0, "each hour reads the record an hour after it");
+  assert.equal(blend.hours.get(storm + HOUR_MS)!.wet, 0);
+  assert.equal(blend.hours.get(storm - HOUR_MS)!.chance, 3);
+  assert.ok(blend.hours.has(midnight + 190 * HOUR_MS));
+  assert.ok(!blend.hours.has(midnight + 191 * HOUR_MS), "the last record's hour has no record after it");
+  const farAhead = thisHour + 100 * HOUR_MS;
+  const far = consensusFrom(
+    modelsReply(midnight, (_, t) => (t === farAhead ? 5 : 0)),
+    NOW,
+  )!.hours.get(farAhead)!;
+  assert.deepEqual([far.wet, far.heavy], [7, 1], "100 hours ahead only GFS still steps hourly");
+  const gap = consensusFrom(
+    modelsReply(midnight, (m, t) => (m.id === "dwd_icon_global" && t === storm ? null : 0)),
+    NOW,
+  )!;
+  assert.equal(gap.hours.get(storm)!.models, 6, "a model missing an hour doesn't vote on it");
+  assert.equal(
+    consensusFrom(
+      modelsReply(midnight, (m) => (m.id === "ecmwf_ifs" ? 0 : null)),
+      NOW,
+    ),
+    null,
+  );
+  assert.equal(consensusFrom(null, NOW), null);
+
+  const startsOf = (day: number) => bundle.daily[day].hours.map((x) => Date.parse(x.time));
+  const stormDay = dayVote(stormReply, startsOf(0))!;
+  assert.deepEqual(
+    [stormDay.models, stormDay.wet, stormDay.storm, stormDay.stormModels, stormDay.chance],
+    [6, 6, 4, 4, 94],
+  );
+  assert.equal(dayVote(stormReply, startsOf(1))!.wet, 0);
+  const drizzle = modelsReply(midnight, () => 0.05);
+  assert.equal(consensusFrom(drizzle, NOW)!.hours.get(storm)!.wet, 0, "0.05 mm in an hour isn't rain...");
+  assert.equal(dayVote(drizzle, startsOf(0))!.wet, 7, "...but 1.2 mm in a day is a rainy day");
+  assert.equal(dayVote(stormReply, startsOf(7)), null, "a day the reply doesn't cover whole");
+
+  const blended = forecastBundle(reply, null, bangkok, NOW, undefined, stormReply);
+  const hourAt = (b: ForecastBundle, t: number) => b.hourly.find((x) => Date.parse(x.time) === t)!;
+  assert.equal(hourAt(blended, storm).precipitationProbability, 94);
+  assert.equal(hourAt(blended, storm).confidence, confidence16);
+  assert.deepEqual(hourAt(blended, storm).vote, at16);
+  assert.equal(
+    hourAt(blended, storm).precipitationMm,
+    hourAt(bundle, storm).precipitationMm,
+    "the rain itself stays the forecast's (ECMWF 9 km)",
+  );
+  assert.ok(
+    blended.hourly.every((x) => x.vote),
+    "the 48-hour strip is all blended",
+  );
+  blended.daily.forEach((day, i) => {
+    if (i < 7) {
+      assert.ok(day.vote, `the models' view of ${day.date}`);
+      assert.equal(day.confidence, day.vote.confidence);
+      assert.equal(day.precipitationProbability, day.vote.chance);
+    } else {
+      assert.equal(day.vote, undefined, `${day.date} is past the models' week`);
+      assert.equal(day.confidence, null);
+    }
+  });
+  assert.deepEqual(
+    blended.current.blend?.map((b) => b.centre),
+    ["ECMWF", "DWD", "NOAA", "ECCC", "ECMWF", "NOAA"],
+  );
+  assert.equal(bundle.current.blend, undefined);
+  console.log(
+    `✓ 16:00 storm: ${counts16.wet}/${counts16.models} models, ${chance16}% (${confidenceLevel(confidence16)}); ` +
+      `this week blended, the rest from the forecast alone`,
+  );
+
+  // 17. The rain countdown listens to the models --------------------------------------------
+  const fen = createFormatters("en");
+  const clockAt = (t: string) => fen.clock(t, bangkok.timeZone);
+  const withModels = (minutely: ForecastResponse["minutely_15"], raw: ConsensusResponse) => {
+    const b = forecastBundle(
+      forecastReply(dry, bangkok, { current: current(), minutely_15: minutely }),
+      null,
+      bangkok,
+      NOW,
+      undefined,
+      raw,
+    );
+    return rainCountdown(b.current, b.hourly, b.daily, NOW);
+  };
+  const wetFrom = (start: number) => modelsReply(midnight, (_, t) => (t >= start && t < start + 3 * HOUR_MS ? 3 : 0));
+  const showerQuarters = quarters([0, 0, 0.5, 0.75, 0.75, 0.5, 0.25, 0, 0, 0, 0, 0]);
+  const dryQuarters = quarters(Array(12).fill(0));
+  const say = (c: RainCountdown) => {
+    const o = modelOutlook(c, NOW, clockAt);
+    return o && MESSAGES.en.modelOutlook(o);
+  };
+
+  const doubted = withModels(
+    showerQuarters,
+    modelsReply(midnight, () => 0),
+  );
+  assert.equal(doubted.kind, "starting");
+  assert.equal(doubted.kind === "starting" && doubted.doubtful, true, "rain no model has is only possible");
+  assert.deepEqual(modelOutlook(doubted, NOW, clockAt), {
+    kind: "rain",
+    clock: "14:41",
+    agree: 0,
+    total: 7,
+    chance: 3,
+    level: "low",
+    heavy: false,
+    storm: false,
+  });
+  const backed = withModels(showerQuarters, wetFrom(thisHour));
+  assert.equal(backed.kind === "starting" && backed.doubtful, undefined);
+  assert.equal(modelOutlook(backed, NOW, clockAt)?.level, "high");
+  const soon = withModels(dryQuarters, wetFrom(thisHour + HOUR_MS));
+  assert.deepEqual(
+    soon.kind === "later" && [soon.soon, soon.at],
+    [true, iso(thisHour + HOUR_MS)],
+    "rain the models agree on within 2 hours, though the 15-minute forecast has none",
+  );
+  const soonNow = withModels(dryQuarters, wetFrom(thisHour));
+  assert.equal(soonNow.kind === "later" && soonNow.at, iso(NOW));
+  assert.equal((modelOutlook(soonNow, NOW, clockAt) as Extract<ModelOutlook, { kind: "rain" }>).clock, null);
+  const showerAt18 = withModels(
+    dryQuarters,
+    modelsReply(midnight, (m, t) =>
+      t === thisHour + 4 * HOUR_MS && (m.id === "ncep_gfs_global" || m.id === "dwd_icon_global") ? 0.5 : 0,
+    ),
+  );
+  assert.equal(showerAt18.kind, "dry");
+  assert.equal(showerAt18.kind === "dry" && showerAt18.showerAt, iso(thisHour + 4 * HOUR_MS));
+  const dryOutlook = modelOutlook(showerAt18, NOW, clockAt) as Extract<ModelOutlook, { kind: "dry" }>;
+  assert.deepEqual([dryOutlook.agree, dryOutlook.total, dryOutlook.showerClock], [5, 7, "18:00"]);
+  const allDry = withModels(
+    dryQuarters,
+    modelsReply(midnight, () => 0),
+  );
+  assert.deepEqual(modelOutlook(allDry, NOW, clockAt), {
+    kind: "dry",
+    hours: 24,
+    agree: 7,
+    total: 7,
+    showerClock: clockAt(allDry.kind === "dry" ? allDry.showerAt! : ""),
+    chance: 3,
+    level: "high",
+  });
+
+  const vote = (fields: Partial<ModelVote> = {}): ModelVote => ({
+    models: 7,
+    wet: 4,
+    heavy: 0,
+    stormModels: 5,
+    storm: 0,
+    ensembles: 4,
+    members: 143,
+    chance: 70,
+    confidence: 0.8,
+    ...fields,
+  });
+  const rainIn = (v: ModelVote, minutes = 60) =>
+    modelOutlook(
+      { kind: "later", at: iso(NOW + minutes * MIN), chance: v.chance, clear: false, vote: v },
+      NOW,
+      clockAt,
+    ) as Extract<ModelOutlook, { kind: "rain" }>;
+  assert.equal(rainIn(vote(), 10).clock, null, "under 15 minutes away is soon");
+  assert.equal(rainIn(vote(), 38).clock, "14:58", "else when");
+  assert.equal(rainIn(vote({ heavy: 2, wet: 4 })).heavy, true);
+  assert.equal(rainIn(vote({ heavy: 2, wet: 5 })).heavy, false, "heavy in under half the models with rain");
+  assert.equal(rainIn(vote({ heavy: 1, wet: 1 })).heavy, false, "one model is not enough");
+  assert.equal(rainIn(vote({ storm: 2, stormModels: 6 })).storm, true);
+  assert.equal(rainIn(vote({ storm: 2, stormModels: 7 })).storm, false);
+  assert.equal(rainIn(vote({ chance: 30 })).level, "low", "the models lean dry");
+  assert.equal(
+    modelOutlook({ kind: "raining", intensity: "light", until: null, precise: false, vote: vote() }, NOW, clockAt),
+    null,
+  );
+  assert.equal(modelOutlook({ kind: "later", at: iso(NOW + HOUR_MS), chance: 70, clear: false }, NOW, clockAt), null);
+  const split = { kind: "rain", clock: "23:00", agree: 3, total: 7, level: "low", heavy: false, storm: false } as const;
+  assert.equal(
+    MESSAGES.en.modelOutlook({ ...split, chance: 69 }),
+    "Models are split on rain around 23:00: 3 of 7 expect it (69%).",
+    "a likely chance from the ensembles never reads as 'may stay dry'",
+  );
+  assert.equal(
+    MESSAGES.en.modelOutlook({ ...split, chance: 31 }),
+    "Only 3 of 7 models expect rain around 23:00, so it may stay dry (31%).",
+  );
+  for (const c of [doubted, backed, soon, showerAt18, allDry]) console.log(`  ${c.kind}: ${say(c)}`);
+  console.log("✓ the countdown doubts rain the models don't see, and warns of rain they agree on");
 }
 
 main().catch((error) => {

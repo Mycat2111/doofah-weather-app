@@ -23,10 +23,10 @@ interface TripState {
 /**
  * A road trip and the weather along it. The origin follows the dashboard's
  * place until another one is picked; setting a destination plans the drive
- * and fetches the forecast from `weather` at every stop for the time you get
- * there.
+ * (over real roads, from the OSRM server at `osrmUrl`) and fetches the
+ * forecast from `weather` at every stop for the time you get there.
  */
-export function useRouteWeather(weather: WeatherService, place: Place) {
+export function useRouteWeather(weather: WeatherService, place: Place, osrmUrl?: string) {
   const [pickedOrigin, setOrigin] = useState<Place | null>(null);
   const [destination, setDestination] = useState<Place | null>(null);
   const [leaveInHours, setLeaveInHours] = useState(0);
@@ -45,11 +45,10 @@ export function useRouteWeather(weather: WeatherService, place: Place) {
     const departure = new Date(Date.now() + leaveInHours * HOUR_MS).toISOString();
     (async () => {
       try {
-        const route = await getRoute({
-          origin: { lat: fromLat, lon: fromLon },
-          destination: { lat: toLat, lon: toLon },
-          departure,
-        });
+        const route = await getRoute(
+          { origin: { lat: fromLat, lon: fromLon }, destination: { lat: toLat, lon: toLon }, departure },
+          { osrmUrl, signal: controller.signal },
+        );
         const stops = routeStops(route);
         const along = await weather.getWeatherAlong(stops.map((s) => ({ point: s.point, time: s.eta })));
         const withWeather = stops.map((s, i) => ({ ...s, weather: along[i] }));
@@ -61,7 +60,7 @@ export function useRouteWeather(weather: WeatherService, place: Place) {
       }
     })();
     return () => controller.abort();
-  }, [weather, key, fromLat, fromLon, toLat, toLon, leaveInHours]);
+  }, [weather, osrmUrl, key, fromLat, fromLon, toLat, toLon, leaveInHours]);
 
   const swap = useCallback(() => {
     if (!destination) return;

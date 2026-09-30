@@ -8,6 +8,7 @@ import type {
   WeatherCondition,
 } from "@/services/weathernext3/types";
 import type { LifestyleReason } from "@/lib/lifestyle";
+import type { ModelOutlook } from "@/lib/rainCountdown";
 import type { RouteOutlook } from "@/lib/routeWeather";
 import type { SummaryContext, SummaryFact } from "@/lib/voiceSummary";
 import { spokenTimeTh, spokenWaitTh } from "../spokenTime";
@@ -243,6 +244,20 @@ function voiceSummary(facts: SummaryFact[], { place, clock }: SummaryContext): s
         return fact.weekday === null
           ? `ไม่มีฝนตลอด ${fact.hours} ชั่วโมงข้างหน้า`
           : `ไม่มีฝนตลอด ${fact.hours} ชั่วโมงข้างหน้า ฝนรอบถัดไปน่าจะเป็นวัน${WEEKDAYS[fact.weekday]}`;
+      case "models": {
+        const of = fact.agree === fact.total ? `ทั้ง ${fact.total} ตัว` : ` ${fact.agree} จาก ${fact.total} ตัว`;
+        if (fact.about === "dry")
+          return fact.level === "low"
+            ? `แต่โมเดลพยากรณ์ยังไม่แน่ใจนัก มี ${fact.agree} จาก ${fact.total} ตัวที่ว่าไม่มีฝน`
+            : `โมเดลพยากรณ์${of}เห็นตรงกัน`;
+        if (fact.level === "high") return `โมเดลพยากรณ์${of}เห็นตรงกัน ค่อนข้างแน่นอน`;
+        if (fact.level === "medium") return `โมเดลพยากรณ์${of}เห็นตรงกัน`;
+        if (fact.chance < 50 && fact.agree * 2 < fact.total)
+          return fact.agree === 0
+            ? `แต่โมเดลพยากรณ์ทั้ง ${fact.total} ตัวไม่มีตัวไหนเห็นด้วย ฝนอาจไม่ตกก็ได้`
+            : `แต่มีโมเดลพยากรณ์เห็นด้วยเพียง ${fact.agree} จาก ${fact.total} ตัว ฝนอาจไม่ตกก็ได้`;
+        return `แต่โมเดลพยากรณ์ยังเห็นไม่ตรงกัน มี ${fact.agree} จาก ${fact.total} ตัวที่คาดว่าฝนจะตก`;
+      }
       case "today":
         return `วันนี้อุณหภูมิสูงสุด ${fact.maxC} องศา`;
       case "tonight":
@@ -257,6 +272,29 @@ function voiceSummary(facts: SummaryFact[], { place, clock }: SummaryContext): s
         return `คุณภาพอากาศ${SPOKEN_AQI[fact.category]} ค่าดัชนีอยู่ที่ ${fact.aqi} ควรสวมหน้ากากเมื่ออยู่กลางแจ้ง`;
     }
   });
+}
+
+const RAIN_KIND = { storm: "พายุฝนฟ้าคะนอง", heavy: "ฝนตกหนัก", rain: "ฝน" };
+
+function modelOutlook(o: ModelOutlook): string {
+  if (o.kind === "dry") {
+    const shower = `${o.showerClock}${NB}น.`;
+    if (o.level === "low")
+      return `ยังไม่แน่นอน มีโอกาสฝนเล็กน้อย ${o.chance}% ราว ${shower} โมเดล ${o.agree} จาก ${o.total} ตัวว่าไม่มีฝน`;
+    if (o.agree === o.total) return `โมเดลทั้ง ${o.total} ตัวเห็นตรงกันว่าไม่มีฝนใน ${o.hours} ชั่วโมงข้างหน้า`;
+    return `โมเดล ${o.total - o.agree} จาก ${o.total} ตัวมีฝนเล็กน้อยราว ${shower} ที่เหลือว่าไม่มีฝน`;
+  }
+  const what = RAIN_KIND[o.storm ? "storm" : o.heavy ? "heavy" : "rain"];
+  const when = o.clock ? `ตั้งแต่ราว ${o.clock}${NB}น.` : "เร็ว ๆ นี้";
+  const around = o.clock ? `ราว ${o.clock}${NB}น.` : "เร็ว ๆ นี้";
+  const of = o.agree === o.total ? `ทั้ง ${o.total} ตัว` : ` ${o.agree} จาก ${o.total} ตัว`;
+  if (o.level === "high") return `มั่นใจสูงว่าจะมี${what}${when} โมเดล${of}เห็นตรงกัน`;
+  if (o.level === "medium") return `โมเดล ${o.agree} จาก ${o.total} ตัวคาดว่าจะมี${what}${when} (${o.chance}%)`;
+  if (o.chance < 50 && o.agree * 2 < o.total)
+    return o.agree === 0
+      ? `ไม่มีโมเดลใดใน ${o.total} ตัวคาดว่าฝนจะตก${around} อาจไม่ตกก็ได้ (${o.chance}%)`
+      : `มีเพียง ${o.agree} จาก ${o.total} โมเดลที่คาดว่าฝนจะตก${around} อาจไม่ตกก็ได้ (${o.chance}%)`;
+  return `โมเดลยังเห็นไม่ตรงกันเรื่องฝน${around} มี ${o.agree} จาก ${o.total} ตัวที่คาดว่าจะตก (${o.chance}%)`;
 }
 
 export const th: Messages = {
@@ -296,6 +334,7 @@ export const th: Messages = {
   daySummary,
   lifestyleReason,
   routeOutlook,
+  modelOutlook,
   voiceSummary,
 
   header: {
@@ -357,6 +396,8 @@ export const th: Messages = {
     precisionBefore: "ละเอียด",
     precisionAfter: "",
     cellTitle: (cellId) => `ช่องกริด WeatherNext 3 ${cellId}`,
+    models: (count) => `${count} โมเดล`,
+    modelsTitle: "โอกาสฝนรวมจาก:",
     feelsLike: (temp) => `รู้สึกเหมือน ${temp}`,
     highLow: (high, low) => `สูงสุด ${high} ต่ำสุด ${low}`,
     now: "ตอนนี้",
@@ -391,6 +432,10 @@ export const th: Messages = {
     nextRainTomorrow: "ฝนรอบถัดไปน่าจะเป็นพรุ่งนี้",
     noRainAhead: "ไม่มีฝนในพยากรณ์ 15 วัน",
     radar: "เรดาร์",
+    maybeIn: (duration) => `อาจมีฝนในอีก ${duration}`,
+    likelyAround: (clock) => `ฝนน่าจะตกราว ${clock}${NB}น.`,
+    likelyNow: "ฝนน่าจะตกในชั่วโมงนี้",
+    modelsAgree: (agree, total) => `${agree}/${total} โมเดล`,
     duration: (minutes) => {
       if (minutes < 60) return `${minutes}${NB}นาที`;
       const h = Math.floor(minutes / 60);
@@ -455,9 +500,7 @@ export const th: Messages = {
     },
     distance: (km) => `${Math.round(km)}${NB}กม.`,
     arrive: (clock) => `ถึง ${clock}${NB}น.`,
-    source: { simulated: "เส้นทางจำลอง" },
-    borders: (count) => `ผ่านด่านชายแดน ${count} แห่ง`,
-    ferry: "มีช่วงลงเรือเฟอร์รี",
+    ferry: (minutes) => `ลงเรือเฟอร์รี ${th.route.duration(minutes)}`,
     km: (km) => `กม.${NB}${Math.round(km)}`,
     advice: {
       rain: "เผื่อเวลาเดินทาง และเว้นระยะห่างจากคันหน้าบนถนนเปียก",
@@ -471,11 +514,16 @@ export const th: Messages = {
     stopOnMap: (name, clock) => `${name} เวลา ${clock}${NB}น. ดูบนแผนที่`,
     carHere: (clock) => `คุณ เวลา ${clock}${NB}น.`,
     errors: {
-      noRoute: "ไม่มีเส้นทางถนนระหว่างสองที่นี้",
+      noRoute: "ไม่มีถนนหรือเรือเฟอร์รีรับรถระหว่างสองที่นี้",
       samePlace: "ต้นทางกับปลายทางเป็นที่เดียวกัน",
-      failed: "วางแผนเส้นทางไม่สำเร็จ",
+      tooFar: "ไกลเกินกว่าจะวางแผนขับรถ",
+      offline: "ต้องต่ออินเทอร์เน็ตเพื่อวางเส้นทาง",
+      failed: "ติดต่อระบบวางเส้นทางไม่ได้",
     },
     retry: "ลองอีกครั้ง",
+    routeBy: "เส้นทางโดย",
+    roadCredit: { before: "ข้อมูลถนน © ผู้ร่วมให้ข้อมูล ", after: "" },
+    fixMap: "แจ้งแผนที่ผิด",
   },
 
   voice: {
@@ -507,6 +555,8 @@ export const th: Messages = {
     range: (low, high) => `ต่ำสุด ${low} สูงสุด ${high}`,
     nowMarker: (temp) => `ตอนนี้ ${temp}`,
     confidence: (percent) => `ความเชื่อมั่นของโมเดล ${percent}%`,
+    vote: (wet, total, percent) =>
+      `${wet ? `มีฝนใน ${wet} จาก ${total} โมเดล` : `ไม่มีฝนในโมเดลทั้ง ${total} ตัว`} · ความมั่นใจ ${percent}%`,
     sparkline: "อุณหภูมิและฝนรายชั่วโมง",
     rain: "ฝน",
     wind: "ลม",
@@ -580,5 +630,7 @@ export const th: Messages = {
     modelRun: (utc) => `โมเดลรอบ ${utc} UTC`,
     weatherBy: "ข้อมูลพยากรณ์อากาศจาก",
     airBy: "ข้อมูลคุณภาพอากาศจาก",
+    contact: "ติดต่อ:",
+    blendBy: "โอกาสฝนและความมั่นใจ: DooFah รวมจากโมเดลของ",
   },
 };

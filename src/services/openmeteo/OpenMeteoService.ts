@@ -6,6 +6,9 @@
  *   visitor's requests count against their own daily limit.
  * - With a commercial key on the server, requests go through /api/weather,
  *   which adds the key (see proxy.ts).
+ * - Besides the forecast, seven models' rain is asked for, to blend their
+ *   chances of rain and say how far they agree (see consensus.ts). The
+ *   forecast works without it.
  * - The last forecast for a few places is saved on the device. With no
  *   connection, the dashboard shows it and says when it was downloaded.
  */
@@ -16,6 +19,7 @@ import type { WeatherService } from "../weatherService";
 import { forecastBundle, spotWeather } from "./adapter";
 import {
   airQualityParams,
+  consensusParams,
   forecastParams,
   FREE_URL,
   MAX_LOCATIONS,
@@ -23,6 +27,7 @@ import {
   pointKey,
   spotParams,
   type AirQualityResponse,
+  type ConsensusResponse,
   type Endpoint,
   type ErrorResponse,
   type ForecastResponse,
@@ -30,6 +35,10 @@ import {
 
 /** The same request within this time gets the same answer. */
 const REUSE_MS = 5 * 60_000;
+/** The models' reply changes with new model runs, every 6 to 12 hours; it is asked again after this. */
+const MODELS_REUSE_MS = 30 * 60_000;
+/** A saved models' reply is still blended in, when the new one fails, for this long. */
+const MODELS_MAX_AGE_MS = 6 * HOUR_MS;
 /** A request that takes longer than this has failed. */
 const TIMEOUT_MS = 15_000;
 /** Forecasts are saved on the device for this many places... */
@@ -47,6 +56,10 @@ interface Saved {
   savedAt: number;
   forecast: ForecastResponse;
   air: AirQualityResponse | null;
+  /** The other models' reply (absent in forecasts saved before it was asked for)... */
+  models?: ConsensusResponse | null;
+  /** ...and when it was downloaded, which can be before the forecast. */
+  modelsAt?: number;
 }
 
 export interface OpenMeteoOptions {
@@ -64,7 +77,7 @@ export class OpenMeteoService implements WeatherService {
   private readonly fetcher: typeof fetch;
   private readonly now: () => number;
   private readonly storage: Store | null | undefined;
-  private readonly recent = new Map<string, { at: number; reply: Promise<unknown> }>();
+  private readonly recent = new Map<string, { until: number; reply: Promise<unknown> }>();
   private readonly savedReplies = new WeakSet<ForecastResponse>();
 
   constructor(options: OpenMeteoOptions = {}) {
@@ -75,23 +88,38 @@ export class OpenMeteoService implements WeatherService {
   }
 
   async getForecastBundle(place: Place): Promise<ForecastBundle> {
-    const [forecast, air] = await Promise.allSettled([
+    const [forecast, air, models] = await Promise.allSettled([
       this.request<ForecastResponse>("forecast", forecastParams(place)),
       this.request<AirQualityResponse>("air-quality", airQualityParams(place)),
+      this.request<ConsensusResponse>("forecast", consensusParams(place), MODELS_REUSE_MS),
     ]);
     const now = this.now();
     const saved = this.load(place.point);
     if (forecast.status === "fulfilled") {
       const airReply = air.status === "fulfilled" ? air.value : (saved?.air ?? null);
-      const bundle = forecastBundle(forecast.value, airReply, place, now);
+      // New models, or the saved ones while they are recent.
+      const savedModelsAt = saved?.modelsAt ?? saved?.savedAt ?? 0;
+      const [modelsReply, modelsAt] =
+        models.status === "fulfilled"
+          ? [models.value, now]
+          : saved?.models && now - savedModelsAt < MODELS_MAX_AGE_MS
+            ? [saved.models, savedModelsAt]
+            : [null, undefined];
+      const bundle = forecastBundle(forecast.value, airReply, place, now, undefined, modelsReply);
       if (!this.savedReplies.has(forecast.value)) {
         this.savedReplies.add(forecast.value);
-        this.save(place.point, { savedAt: now, forecast: forecast.value, air: airReply });
+        this.save(place.point, {
+          savedAt: now,
+          forecast: forecast.value,
+          air: airReply,
+          models: modelsReply,
+          modelsAt,
+        });
       }
       return bundle;
     }
     if (saved && now - saved.savedAt < SAVED_MAX_AGE_MS) {
-      return forecastBundle(saved.forecast, saved.air, place, now, saved.savedAt);
+      return forecastBundle(saved.forecast, saved.air, place, now, saved.savedAt, saved.models ?? null);
     }
     throw forecast.reason;
   }
@@ -118,14 +146,14 @@ export class OpenMeteoService implements WeatherService {
     return stops.map((stop, i) => spotWeather(replies[unique.indexOf(keys[i])], stop.point, Date.parse(stop.time)));
   }
 
-  private request<T>(endpoint: Endpoint, params: URLSearchParams): Promise<T> {
+  private request<T>(endpoint: Endpoint, params: URLSearchParams, reuseMs = REUSE_MS): Promise<T> {
     const url = this.proxy ? `/api/weather/${endpoint}?${params}` : `${FREE_URL[endpoint]}?${params}`;
     const now = this.now();
-    for (const [key, entry] of this.recent) if (now - entry.at >= REUSE_MS) this.recent.delete(key);
+    for (const [key, entry] of this.recent) if (now >= entry.until) this.recent.delete(key);
     const hit = this.recent.get(url);
     if (hit) return hit.reply as Promise<T>;
     const reply = this.download<T>(url);
-    this.recent.set(url, { at: now, reply });
+    this.recent.set(url, { until: now + reuseMs, reply });
     reply.catch(() => this.recent.delete(url));
     return reply;
   }

@@ -7,6 +7,7 @@ import { localeFromAcceptLanguage } from "../src/i18n/config";
 import { createFormatters } from "../src/i18n/format";
 import { MESSAGES } from "../src/i18n/messages";
 import { placeLabel } from "../src/i18n/places";
+import type { ModelOutlook } from "../src/lib/rainCountdown";
 import type { RouteOutlook } from "../src/lib/routeWeather";
 import type { SummaryFact } from "../src/lib/voiceSummary";
 import {
@@ -75,7 +76,7 @@ function assertThai(text: string, where: string) {
 function collect(value: unknown, path: string, out: [string, string][]) {
   if (typeof value === "string") out.push([path, value]);
   else if (typeof value === "function") {
-    const result = (value as (...args: unknown[]) => unknown)("12", "34");
+    const result = (value as (...args: unknown[]) => unknown)("12", "34", "56");
     if (typeof result === "string") out.push([path, result]);
   } else if (value && typeof value === "object") {
     for (const [key, child] of Object.entries(value)) collect(child, `${path}.${key}`, out);
@@ -154,6 +155,33 @@ async function main() {
       ),
       `route ${JSON.stringify(o)}`,
     );
+  const LEVELS = ["high", "medium", "low"] as const;
+  const rainOutlook = { kind: "rain", clock: "15:00", total: 7, chance: 70, heavy: false, storm: false } as const;
+  const modelOutlooks: ModelOutlook[] = [
+    ...LEVELS.flatMap((level) => [
+      { ...rainOutlook, level, agree: 6 },
+      { ...rainOutlook, level, agree: 2, chance: 22 },
+      { ...rainOutlook, level, agree: 0, chance: 8 },
+      { ...rainOutlook, level, agree: 4, clock: null },
+      { ...rainOutlook, level, agree: 5, heavy: true },
+      { ...rainOutlook, level, agree: 5, heavy: true, storm: true },
+    ]),
+    ...LEVELS.flatMap((level) =>
+      [7, 5].map((agree) => ({
+        kind: "dry" as const,
+        hours: 24,
+        agree,
+        total: 7,
+        showerClock: "16:00",
+        chance: 30,
+        level,
+      })),
+    ),
+  ];
+  for (const o of modelOutlooks) {
+    assertThai(th.modelOutlook(o), `models ${JSON.stringify(o)}`);
+    assert.ok(!/undefined|null|NaN/.test(th.modelOutlook(o) + en.modelOutlook(o)), `models ${JSON.stringify(o)}`);
+  }
   const later = { at: "2026-09-30T10:00:00Z", chance: 40, likely: false, heavy: false, storm: false, tomorrow: false };
   const facts: SummaryFact[] = [
     ...(["morning", "afternoon", "evening", "night"] as const).map((part) => ({ kind: "greeting" as const, part })),
@@ -168,6 +196,18 @@ async function main() {
     { kind: "rainLater", ...later, storm: true },
     { kind: "dry", hours: 24, weekday: 4 },
     { kind: "dry", hours: 24, weekday: null },
+    ...(["rain", "dry"] as const).flatMap((about) =>
+      LEVELS.flatMap((level) =>
+        [7, 5, 2, 0].map((agree) => ({
+          kind: "models" as const,
+          about,
+          agree,
+          total: 7,
+          chance: 20 + agree * 10,
+          level,
+        })),
+      ),
+    ),
     { kind: "today", maxC: 34 },
     { kind: "tonight", minC: 25 },
     ...DAY_KINDS.map((kind) => ({
@@ -197,6 +237,7 @@ async function main() {
     "daySummary",
     "lifestyleReason",
     "routeOutlook",
+    "modelOutlook",
     "voiceSummary",
   ]);
   for (const [key, value] of Object.entries(th)) if (!skip.has(key)) collect(value, key, strings);

@@ -1,6 +1,7 @@
 import { DooFahDashboard } from "@/components/DooFahDashboard";
 import type { AlertKind } from "@/lib/alerts";
 import { COUNTDOWN_PREVIEWS } from "@/lib/rainCountdown";
+import { FOSSGIS_OSRM_URL } from "@/services/routing/osrm";
 import type { WeatherSetup } from "@/services/weatherService";
 import { ATMOSPHERE_THEMES, type AtmosphereTheme } from "@/services/WeatherNext3MockService";
 
@@ -26,6 +27,10 @@ export default async function Home({ searchParams }: PageProps<"/">) {
       alertPreview={alertPreview.length ? alertPreview : undefined}
       rainPreview={rainPreview}
       weather={weather}
+      // Road routes from OSRM: FOSSGIS's public server unless OSRM_URL names another.
+      osrmUrl={process.env.OSRM_URL || FOSSGIS_OSRM_URL}
+      // The operator's address, which FOSSGIS's terms ask every site using its router to show.
+      contactEmail={process.env.CONTACT_EMAIL || undefined}
     />
   );
 }

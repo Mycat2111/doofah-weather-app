@@ -47,6 +47,10 @@ interface DooFahDashboardProps {
   rainPreview?: CountdownPreview;
   /** Where the forecast comes from, decided on the server. */
   weather: WeatherSetup;
+  /** The OSRM server road trips are routed by. */
+  osrmUrl: string;
+  /** The site operator's email, shown in the footer. */
+  contactEmail?: string;
 }
 
 const noSubscription = () => () => {};
@@ -56,6 +60,8 @@ export function DooFahDashboard({
   alertPreview,
   rainPreview,
   weather: setup,
+  osrmUrl,
+  contactEmail,
 }: DooFahDashboardProps) {
   const { locale, m, f } = useI18n();
   const weather = weatherService(setup);
@@ -72,7 +78,7 @@ export function DooFahDashboard({
   const place = chosen ?? (inBrowser ? readOpeningPlace() : undefined) ?? DEFAULT_PLACE;
   const { data, loading, error, refresh } = useForecast(weather, place);
   const crowd = useCrowdReports(place, simulated);
-  const route = useRouteWeather(weather, place);
+  const route = useRouteWeather(weather, place, osrmUrl);
   const [routeFocus, setRouteFocus] = useState<RouteFocus>({ key: 0, stop: null });
 
   // Remember what is on screen, so the app reopens on it if it is a favorite.
@@ -267,11 +273,55 @@ export function DooFahDashboard({
               DooFah ดูฟ้า · {m.footer.weatherBy} <FooterLink href="https://open-meteo.com/">Open-Meteo.com</FooterLink>{" "}
               (<FooterLink href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</FooterLink>) ·{" "}
               {m.footer.airBy} <FooterLink href="https://atmosphere.copernicus.eu/">Copernicus CAMS</FooterLink>
+              {data?.current.blend && <BlendCredit centres={data.current.blend.map((b) => b.centre)} />}
             </>
+          )}
+          {/* FOSSGIS's routing terms ask every site using its router to show how to reach the operator. */}
+          {contactEmail && (
+            <p className="mt-1">
+              {m.footer.contact} <FooterLink href={`mailto:${contactEmail}`}>{contactEmail}</FooterLink>
+            </p>
           )}
         </footer>
       </main>
     </>
+  );
+}
+
+const CENTRE_LINK: Record<string, string> = {
+  ECMWF: "https://www.ecmwf.int/",
+  DWD: "https://www.dwd.de/",
+  NOAA: "https://www.nco.ncep.noaa.gov/",
+  CMA: "https://www.cma.gov.cn/en/",
+};
+
+/**
+ * Whose models the chance of rain blends. The blend is DooFah's own (CC BY
+ * asks that changes are marked), and Canada's data asks for its own credit line.
+ */
+function BlendCredit({ centres }: { centres: string[] }) {
+  const { m } = useI18n();
+  const unique = [...new Set(centres)];
+  const linked = unique.filter((c) => CENTRE_LINK[c]);
+  return (
+    <p className="mt-1">
+      {m.footer.blendBy}{" "}
+      {linked.map((c, i) => (
+        <span key={c}>
+          {i > 0 && ", "}
+          <FooterLink href={CENTRE_LINK[c]}>{c}</FooterLink>
+        </span>
+      ))}
+      {unique.includes("ECCC") && (
+        <>
+          {" · "}
+          Data Source:{" "}
+          <FooterLink href="https://eccc-msc.github.io/open-data/licence/readme_en/">
+            Environment and Climate Change Canada
+          </FooterLink>
+        </>
+      )}
+    </p>
   );
 }
 

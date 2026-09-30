@@ -4,7 +4,7 @@
  * never reaches the browser. Only used when that key is set.
  */
 
-import { CUSTOMER_URL, MAX_LOCATIONS, type Endpoint } from "./api";
+import { CONSENSUS_MODELS, CUSTOMER_URL, MAX_LOCATIONS, type Endpoint } from "./api";
 
 /** The only query parameters passed on. */
 const ALLOWED = [
@@ -16,9 +16,13 @@ const ALLOWED = [
   "forecast_minutely_15",
   "forecast_days",
   "forecast_hours",
+  "models",
   "timezone",
   "timeformat",
 ] as const;
+
+/** Models the key may be spent on: the ones DooFah compares. */
+const MODELS = new Set<string>(CONSENSUS_MODELS.map((m) => m.id));
 
 const TIMEOUT_MS = 15_000;
 
@@ -44,6 +48,8 @@ export async function proxyOpenMeteo(
   }
   const places = params.get("latitude")?.split(",").length ?? 0;
   if (!places || !params.get("longitude") || places > MAX_LOCATIONS) return refuse(400, "Bad coordinates");
+  const models = params.get("models")?.split(",");
+  if (models && !models.every((m) => MODELS.has(m))) return refuse(400, "Unknown model");
   params.set("apikey", apiKey);
 
   let upstream: Response;

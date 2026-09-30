@@ -7,11 +7,12 @@ from a simulated **WeatherNext 3** style model (5 km grid, hourly steps, 15-day
 horizon), which can also run the whole dashboard with `?data=sim`.
 
 - **Stack:** Next.js 16 (App Router, TypeScript), Tailwind CSS 4, Framer Motion, Lucide icons, Leaflet + react-leaflet with OpenStreetMap tiles.
-- **No API keys needed.** The browser asks Open-Meteo's free API directly; place search and the route planner run on the device. See [Weather data](#weather-data).
+- **No API keys needed.** The browser asks Open-Meteo's free API and OSRM's public road router directly; place search runs on the device. See [Weather data](#weather-data) and [Route weather](#route-weather).
 - **Thai and English.** A TH / EN switch in the header changes every label, forecast phrase, date and place name.
 - **Favorite places.** Star any place and it joins a one-tap bar under the header, saved in the browser.
 - **Installable app.** Add it to the home screen and it opens full screen like a native app, works offline, and is tuned for touch.
-- **Route weather.** Pick where you are going and see the weather at each stop on the way, at the time you get there.
+- **Seven models, one chance of rain.** The chance of rain and how sure it is come from seven global weather models compared hour by hour. See [The models' blend](#the-models-blend).
+- **Route weather.** Pick where you are going and see the weather at each stop on the way, at the time you get there, on real roads.
 - **Spoken summary.** A floating button reads a short weather summary aloud, in Thai or English.
 
 ## Quick start
@@ -34,9 +35,9 @@ npm run dev          # http://localhost:3000
 | `npm run verify:alerts` | Alert thresholds, time windows, order and tips in both languages |
 | `npm run verify:lifestyle` | Rain countdown timing and the lifestyle card rules          |
 | `npm run verify:reports` | Crowd report simulation, fading, your reports and "verified" |
-| `npm run verify:route` | The simulated router, stops along the way and the trip outlook |
+| `npm run verify:route` | Reading OSRM's replies (a real Koh Samui ferry route), the router's limits, stops along the way and the trip outlook |
 | `npm run verify:voice` | Spoken times, voice choice and the summary for every place in both languages |
-| `npm run verify:open-meteo` | Open-Meteo requests, reading its replies, offline copies and the key proxy |
+| `npm run verify:open-meteo` | Open-Meteo requests, reading its replies, the models' blend, offline copies and the key proxy |
 | `npm run icons`       | Re-render the app icons and favicon from `scripts/icons/doofah-icon.svg` |
 
 Preview any sky mood with a query parameter:
@@ -57,22 +58,25 @@ The parameters combine, e.g. `/?data=sim&sky=rain`.
 
 | What | Where it comes from |
 | ---- | ------------------- |
-| Now, the 48-hour strip, 15 days, the rain countdown, alerts, lifestyle cards, the spoken summary | [Open-Meteo forecast API](https://open-meteo.com/en/docs), which picks the best weather models for each place |
+| Now, the 48-hour strip, 15 days, the rain countdown, alerts, lifestyle cards, the spoken summary | [Open-Meteo forecast API](https://open-meteo.com/en/docs), which picks the best weather model for each place (ECMWF's 9 km IFS over Thailand) |
+| The chance of rain and its confidence for this week | Seven models from Open-Meteo compared by DooFah; see [The models' blend](#the-models-blend) |
 | Air quality (US AQI, PM2.5, PM10, ozone) | [Open-Meteo air quality API](https://open-meteo.com/en/docs/air-quality-api), from Copernicus CAMS |
 | Favorites' temperatures and the weather at each road trip stop | Open-Meteo, one request for up to 12 places |
 | Radar map layers (rain, wind, temperature, pressure) | The WeatherNext 3 simulation, tagged "Simulated radar" on the map |
-| Road trip routes | DooFah's simulated road map, tagged "Simulated route" |
+| Road trip routes | [OSRM](https://project-osrm.org) over [OpenStreetMap](https://www.openstreetmap.org/copyright)'s roads, from FOSSGIS's public car router; see [Route weather](#route-weather) |
 | Other people's weather reports and the "Verified by N local users" badge | Only with `?data=sim` until there is a shared backend; your own reports always show |
 
-- **Environment variables: none.** The browser asks
-  `api.open-meteo.com` and `air-quality-api.open-meteo.com` directly, so there
-  is nothing to set on Vercel. Each visitor's requests count against their own
-  address's limits.
+- **Environment variables.** The forecasts need none: the browser asks
+  `api.open-meteo.com` and `air-quality-api.open-meteo.com` directly, and each
+  visitor's requests count against their own address's limits. Set
+  `CONTACT_EMAIL` for the road router (see [Route weather](#route-weather)).
+  `OPEN_METEO_API_KEY` and `OSRM_URL` are optional.
 - **Free API terms.** Non-commercial use only, with up to 10,000 calls a day,
   5,000 an hour and 600 a minute. Open-Meteo counts a request for more than 10
   values as more than one call, and each place separately, so opening a place
-  costs about 3 calls and each favorite or trip stop 1. The same request within
-  5 minutes is answered from memory and the forecast refreshes every 10
+  costs about 5 calls (about 2 of them for the seven models) and each favorite
+  or trip stop 1. The same request within 5 minutes is answered from memory
+  (the models' within 30 minutes) and the forecast refreshes every 10
   minutes, so a tab left open all day stays well under the limit. The data is
   licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), so the
   footer credits Open-Meteo and Copernicus.
@@ -83,7 +87,8 @@ The parameters combine, e.g. `/?data=sim&sky=rain`.
   `/api/weather/forecast` and `/api/weather/air-quality`, which add the key on
   the server (`src/services/openmeteo/proxy.ts`), so it never reaches the
   browser. They only pass on DooFah's own parameters, refuse other sites, and
-  let Vercel answer the same request again for 5 minutes.
+  let Vercel answer the same request again for 5 minutes. The models' request
+  may only name the seven models DooFah blends.
 - **Offline.** The last forecast for up to 6 places is saved in `localStorage`
   (`doofah-saved-forecasts`). With no connection the dashboard shows it for up
   to 2 days, says when it was downloaded, and offers a retry.
@@ -91,7 +96,55 @@ The parameters combine, e.g. `/?data=sim&sky=rain`.
   gives rain, its chance and gusts for the hour *before* each time, so a
   DooFah hour takes them from the next hour. Weather codes map to DooFah's
   conditions, and the condition now always agrees with the rain countdown.
-  Open-Meteo has no forecast confidence, so the 15-day list leaves it out.
+  Open-Meteo has no forecast confidence of its own; the 15-day list shows the
+  models' blend's for this week and none after.
+
+## The models' blend
+
+Next to its forecast, DooFah asks Open-Meteo for the rain of seven global
+models at the same place, in one request for 8 days
+(`consensusParams` in `src/services/openmeteo/api.ts`), and compares them hour
+by hour (`src/services/openmeteo/consensus.ts`):
+
+| Model | Centre | Steps over Thailand | Its chance of rain from |
+| ----- | ------ | ------------------- | ----------------------- |
+| IFS 9 km | ECMWF | hourly for 90 h, then 3-hourly | ECMWF's ensemble, 51 runs |
+| ICON | DWD | hourly for 78 h, then 3-hourly | ICON-EPS, 40 runs |
+| GFS | NOAA | hourly for 120 h, then 3-hourly | GEFS, 31 runs |
+| GEM | Environment and Climate Change Canada | hourly for 84 h, then 3-hourly | GEPS, 21 runs |
+| GRAPES | CMA | 3-hourly | none |
+| AIFS (AI) | ECMWF | 6-hourly | none |
+| AIGFS (AI) | NOAA | 6-hourly | none (Open-Meteo sends it empty) |
+
+Left out: BOM's ACCESS-G and KMA's GDPS (no longer updated), JMA's GSM (55
+km), the UK Met Office (its CC BY-SA licence would carry over to the blend)
+and Google's WeatherNext (separate, experimental terms).
+
+- **Each hour.** Every model votes wet with 0.1 mm or more, weighted by
+  DooFah's own skill score for it and less when it only steps every 3 or 6
+  hours then (its timing is blurred). The chance of rain is 60% the
+  ensembles' chances (weighted by the square root of their runs) and 40% the
+  weighted share of wet votes. The confidence is the geometric mean of how
+  well those sources agree (1 minus twice their standard deviation) and how
+  clearly the chance leans wet or dry, so a 50% chance is never confident.
+  High is 75% or more, medium 50%.
+- **Each day.** A model votes wet with 1 mm or more in the day, each
+  ensemble brings its highest hourly chance.
+- **Where it shows.** The hourly and daily chance of rain and the confidence
+  for this week (the rain amounts and the sky stay the 9 km forecast's). The
+  hero card's "7 models" badge. Under the rain countdown, a chip such as
+  "6/7 models" and a line such as "High confidence of rain from about 15:00:
+  6 of 7 models agree." The spoken summary adds how many models agree. The
+  footer credits the centres.
+- **What it can't do.** None of these models is finer than 9 km over
+  Thailand, and none has real 15-minute steps there (Open-Meteo's 15-minute
+  rain for Thailand is the hourly rain spread out). So DooFah names the hour,
+  "from about 15:00", and never claims "in 15 minutes" or local
+  high-resolution data from the models. The weights and thresholds are
+  DooFah's choices, not a published method, and haven't been checked
+  against rain gauges yet.
+- **When it fails.** The forecast shows without it. A models' reply under 6
+  hours old, saved with the forecast, fills in.
 
 ## Setting it up from scratch
 
@@ -186,6 +239,13 @@ in `src/lib/rainCountdown.ts`:
 - After that the hourly forecast takes over: the first hour with a 50% chance
   of rain or more, looking 24 hours ahead. A dry spell reads "Clear sky" when
   its cloud cover averages under 40%, otherwise "No rain".
+- With real data, the [models' blend](#the-models-blend) has a say. Rain the
+  15-minute forecast shows but under 35% likely by the blend, with most models
+  dry, reads "Rain possible in 20 min". Rain the blend puts at 50% or more
+  within the 2 hours, though the 15-minute forecast is dry, reads "Rain
+  likely around 15:00". A chip says how many models back the badge, and a
+  line says how firmly (`modelOutlook` in `src/lib/rainCountdown.ts`, worded
+  in `src/i18n/messages/`).
 
 Under the hero card (above the map on phones, a full row on wide screens) six cards
 answer "is now a good time?". Each is good (green), take care (amber) or not
@@ -240,10 +300,23 @@ The "Route weather" card under the radar map shows the weather along a drive.
 - **Where to.** Pick the start and the destination: your GPS location, the
   place on screen, a favorite, or search by name. The swap button turns the
   trip around. Leave now, or in 1, 2 or 3 hours.
-- **The route.** The phone works it out by itself, so it also works offline,
-  over DooFah's simulated highway map: about 60 towns and the main roads of
-  Thailand and its neighbours, the Koh Samui car ferry, and border crossings
-  (`src/services/routing/`). The card is tagged "Simulated route".
+- **The route.** [OSRM](https://project-osrm.org) works out the drive over
+  OpenStreetMap's roads (`src/services/routing/osrm.ts`). By default the
+  browser asks FOSSGIS's public car router at `routing.openstreetmap.de`, so
+  the route follows real roads and car ferries, such as Don Sak to Koh Samui,
+  which show dashed on the map with the time on board. A start or end over 5
+  km from a road it can reach, an island with no car ferry, and a trip over
+  2,500 km get a clear message instead of a line.
+  - **FOSSGIS's terms** ([usage policy](https://www.fossgis.de/arbeitsgruppen/osm-server/nutzungsbedingungen/)):
+    reasonable, non-commercial use; at most one request a second (DooFah
+    spaces its requests 1.1 s apart and asks each trip once per visit); the
+    OpenStreetMap credit and a "fix the map" link beside the route (both under
+    the card); and an email address for the site's operator that is easy to
+    find. Set it as `CONTACT_EMAIL` in Vercel and the footer shows it.
+  - **`OSRM_URL` (optional).** Another OSRM server's address, for example a
+    self-hosted one for commercial use; FOSSGIS also asks that the address
+    isn't hard-coded.
+  - Routes need a connection; offline, the card says so.
   - Google's Routes API is not an option: its terms don't allow showing its
     routes on a non-Google map, and DooFah's map is OpenStreetMap.
 - **Stops.** Every 15 minutes to 3 hours of driving, at most 10 stops. Each
@@ -441,7 +514,7 @@ src/
 │   ├── favorites.ts               Favorite list rules and the localStorage store
 │   ├── haptics.ts                 Short vibrations on Android and iPhone
 │   ├── lifestyle.ts               Lifestyle card rules: good, take care or not now, and why
-│   ├── rainCountdown.ts           Time to the next rain from the nowcast, then the hourly forecast
+│   ├── rainCountdown.ts           Time to the next rain from the nowcast, then the hourly forecast; what the models say
 │   ├── crowdVerify.ts             When local reports count as verifying the rain radar
 │   ├── routeWeather.ts            Stops along a route, how wet each is, the trip outlook
 │   ├── voiceSummary.ts            What the spoken summary says
@@ -453,13 +526,15 @@ src/
     │   ├── OpenMeteoService.ts    Real forecasts: requests, reuse, the offline copy
     │   ├── api.ts                 Endpoints, the values asked for and the reply types
     │   ├── adapter.ts             Open-Meteo's replies in DooFah's shapes
+    │   ├── consensus.ts           The models' blend: chance of rain and confidence
     │   └── proxy.ts               Server side of /api/weather: adds OPEN_METEO_API_KEY
     ├── WeatherNext3MockService.ts The simulated API (start here)
     ├── CrowdReportMockService.ts  Mock backend for people's weather reports
     ├── routing/
-    │   ├── routeService.ts        getRoute(): the route the app shows
-    │   ├── SimulatedRouter.ts     Shortest drive over the simulated road map
-    │   ├── roadNetwork.ts         Towns and roads of the simulated map
+    │   ├── routeService.ts        getRoute(): asks OSRM, spaced out and remembered
+    │   ├── osrm.ts                OSRM's request and reply: the line, times and ferries
+    │   ├── polyline.ts            Encoded polylines
+    │   ├── towns.ts               Towns that name the stops
     │   └── types.ts               Route, request and error types
     └── weathernext3/
         ├── types.ts               All data contracts
@@ -482,6 +557,7 @@ scripts/verify-alerts.ts           Checks behind `npm run verify:alerts`
 scripts/verify-lifestyle.ts        Checks behind `npm run verify:lifestyle`
 scripts/verify-reports.ts          Checks behind `npm run verify:reports`
 scripts/verify-route.ts            Checks behind `npm run verify:route`
+scripts/fixtures/                  A real OSRM reply (Don Sak to Koh Samui by car ferry) for the route checks
 scripts/verify-voice.ts            Checks behind `npm run verify:voice`
 scripts/verify-open-meteo.ts       Checks behind `npm run verify:open-meteo`
 scripts/generate-icons.ts          `npm run icons`, from scripts/icons/doofah-icon.svg

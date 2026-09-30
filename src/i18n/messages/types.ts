@@ -9,9 +9,10 @@ import type {
 import type { AlertTip } from "@/lib/alerts";
 import type { Activity, Level, LifestyleReason } from "@/lib/lifestyle";
 import type { ReportKind } from "@/services/CrowdReportMockService";
+import type { ModelOutlook } from "@/lib/rainCountdown";
 import type { RouteOutlook, StopRain } from "@/lib/routeWeather";
 import type { SummaryContext, SummaryFact } from "@/lib/voiceSummary";
-import type { RouteErrorCode, RouteSource } from "@/services/routing/types";
+import type { RouteErrorCode } from "@/services/routing/types";
 
 /**
  * Every piece of UI text. Functions take already-formatted values (times,
@@ -43,6 +44,8 @@ export interface Messages {
    * index; `clock` gives its arrival time, formatted for the place.
    */
   routeOutlook: (outlook: RouteOutlook, stop: (index: number) => string, clock: (index: number) => string) => string;
+  /** What the weather models say about the rain countdown, e.g. "High confidence of rain from about 15:00: 6 of 7 models agree." */
+  modelOutlook: (outlook: ModelOutlook) => string;
   /** The spoken weather summary, one sentence per fact, worded to be read aloud. */
   voiceSummary: (facts: SummaryFact[], context: SummaryContext) => string[];
 
@@ -100,6 +103,10 @@ export interface Messages {
     precisionBefore: string;
     precisionAfter: string;
     cellTitle: (cellId: string) => string;
+    /** Badge for a real forecast: how many models its chance of rain blends. */
+    models: (count: number) => string;
+    /** Before the list of models in the badge's tooltip. */
+    modelsTitle: string;
     feelsLike: (temp: string) => string;
     highLow: (high: string, low: string) => string;
     now: string;
@@ -130,6 +137,13 @@ export interface Messages {
     noRainAhead: string;
     /** Marks a time that comes from the radar nowcast. */
     radar: string;
+    /** Rain the nowcast shows but most weather models doubt. */
+    maybeIn: (duration: string) => string;
+    /** Rain the weather models expect within 2 hours though the nowcast is dry. */
+    likelyAround: (clock: string) => string;
+    likelyNow: string;
+    /** Chip: how many of the models back what the badge says. */
+    modelsAgree: (agree: number, total: number) => string;
     duration: (minutes: number) => string;
   };
 
@@ -177,9 +191,8 @@ export interface Messages {
     distance: (km: number) => string;
     /** `clock` is an already-formatted time. */
     arrive: (clock: string) => string;
-    source: Record<RouteSource, string>;
-    borders: (count: number) => string;
-    ferry: string;
+    /** A car ferry on the way, with its time on board. */
+    ferry: (minutes: number) => string;
     /** A stop with no town nearby, named by its distance from the start. */
     km: (km: number) => string;
     advice: Record<"rain" | "heavy" | "storm", string>;
@@ -193,6 +206,11 @@ export interface Messages {
     carHere: (clock: string) => string;
     errors: Record<RouteErrorCode, string>;
     retry: string;
+    /** Credits under the trip: "Route by OSRM · Road data © OpenStreetMap contributors (ODbL) · Report a map error". */
+    routeBy: string;
+    /** Text around "OpenStreetMap". */
+    roadCredit: { before: string; after: string };
+    fixMap: string;
   };
 
   /** The spoken weather summary. */
@@ -227,6 +245,8 @@ export interface Messages {
     range: (low: string, high: string) => string;
     nowMarker: (temp: string) => string;
     confidence: (percent: number) => string;
+    /** For real forecasts: how many models have rain that day, and the confidence. */
+    vote: (wet: number, total: number, percent: number) => string;
     sparkline: string;
     rain: string;
     wind: string;
@@ -302,5 +322,9 @@ export interface Messages {
     weatherBy: string;
     /** Before "Copernicus CAMS". */
     airBy: string;
+    /** Before the operator's email address. */
+    contact: string;
+    /** Before the list of weather centres whose models the chance of rain blends. */
+    blendBy: string;
   };
 }
