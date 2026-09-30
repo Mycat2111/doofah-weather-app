@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useI18n } from "@/i18n/I18nProvider";
+import { useCallback, useEffect, useState } from "react";
 import { routeOutlook, routeStops, type RouteOutlook, type RouteStopWeather } from "@/lib/routeWeather";
 import { getRoute, RouteError, type Route, type RouteErrorCode } from "@/services/routing/routeService";
 import { weatherNext3, type Place } from "@/services/WeatherNext3MockService";
@@ -27,7 +26,6 @@ interface TripState {
  * there.
  */
 export function useRouteWeather(place: Place) {
-  const { locale } = useI18n();
   const [pickedOrigin, setOrigin] = useState<Place | null>(null);
   const [destination, setDestination] = useState<Place | null>(null);
   const [leaveInHours, setLeaveInHours] = useState(0);
@@ -36,13 +34,6 @@ export function useRouteWeather(place: Place) {
   const [attempt, setAttempt] = useState(0);
   const origin = pickedOrigin ?? place;
   const key = destination ? `${origin.id}>${destination.id}+${leaveInHours}#${attempt}` : "";
-
-  // The language only names things in Google's reply, which DooFah does not
-  // show, so switching it does not ask for the route again.
-  const languageRef = useRef(locale);
-  useEffect(() => {
-    languageRef.current = locale;
-  });
 
   // Plain numbers, so a place object rebuilt with the same values starts no new request.
   const [fromLat, fromLon] = [origin.point.lat, origin.point.lon];
@@ -53,15 +44,11 @@ export function useRouteWeather(place: Place) {
     const departure = new Date(Date.now() + leaveInHours * HOUR_MS).toISOString();
     (async () => {
       try {
-        const route = await getRoute(
-          {
-            origin: { lat: fromLat, lon: fromLon },
-            destination: { lat: toLat, lon: toLon },
-            departure,
-            language: languageRef.current,
-          },
-          controller.signal,
-        );
+        const route = await getRoute({
+          origin: { lat: fromLat, lon: fromLon },
+          destination: { lat: toLat, lon: toLon },
+          departure,
+        });
         const stops = routeStops(route);
         const weather = await weatherNext3.getWeatherAlong(stops.map((s) => ({ point: s.point, time: s.eta })));
         const withWeather = stops.map((s, i) => ({ ...s, weather: weather[i] }));

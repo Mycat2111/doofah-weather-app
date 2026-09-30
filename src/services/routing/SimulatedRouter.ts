@@ -4,10 +4,9 @@ import { ROADS, TOWNS, type RoadKind } from "./roadNetwork";
 import { RouteError, type Route, type RoutePoint, type RouteRequest } from "./types";
 
 /**
- * Offline router over the hand-made highway map in roadNetwork.ts, used when
- * no Google Maps key is set (and when the app is offline). Driving times use
- * typical speeds for each kind of road, plus stops at borders and the wait
- * for a ferry.
+ * Router over the hand-made highway map in roadNetwork.ts. It runs on the
+ * device, so it also works offline. Driving times use typical speeds for
+ * each kind of road, plus stops at borders and the wait for a ferry.
  */
 
 type Kind = RoadKind | "local";

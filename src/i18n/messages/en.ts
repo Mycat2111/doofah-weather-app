@@ -368,7 +368,7 @@ export const en: Messages = {
     },
     distance: (km) => `${Math.round(km)} km`,
     arrive: (clock) => `Arrive ${clock}`,
-    source: { google: "Google Maps, live traffic", simulated: "Simulated route" },
+    source: { simulated: "Simulated route" },
     borders: (count) => (count === 1 ? "1 border crossing" : `${count} border crossings`),
     ferry: "Car ferry",
     km: (km) => `km ${Math.round(km)}`,

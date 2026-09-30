@@ -1,9 +1,8 @@
 /**
- * Checks for route weather: the routers, the stops along the way and the trip outlook.
+ * Checks for route weather: the router, the stops along the way and the trip outlook.
  * Run with: npm run verify:route
  */
 import assert from "node:assert/strict";
-import { POST } from "../src/app/api/route/route";
 import { MESSAGES } from "../src/i18n/messages";
 import {
   MAX_STOPS,
@@ -14,8 +13,7 @@ import {
   stopRain,
   type RouteStopWeather,
 } from "../src/lib/routeWeather";
-import { googleRequestBody, routeFromGoogle, type GoogleRoutesResponse } from "../src/services/routing/googleRoutes";
-import { decodePolyline, encodePolyline } from "../src/services/routing/polyline";
+import { getRoute } from "../src/services/routing/routeService";
 import { BORDER_MIN, FERRY_WAIT_MIN, simulatedRoute } from "../src/services/routing/SimulatedRouter";
 import { RouteError, type Route, type RouteRequest } from "../src/services/routing/types";
 import { distanceKm } from "../src/services/weathernext3/places";
@@ -53,17 +51,7 @@ function expectError(code: string, run: () => unknown) {
 }
 
 async function main() {
-  // 1. Encoded polylines (Google's own example) -------------------------------
-  const sample = decodePolyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@");
-  assert.deepEqual(sample, [
-    { lat: 38.5, lon: -120.2 },
-    { lat: 40.7, lon: -120.95 },
-    { lat: 43.252, lon: -126.453 },
-  ]);
-  assert.equal(encodePolyline(sample), "_p~iF~ps|U_ulLnnqC_mqNvxq`@");
-  console.log("✓ Encoded polylines decode and encode like Google's example");
-
-  // 2. The simulated router --------------------------------------------------
+  // 1. The simulated router --------------------------------------------------
   const cases: [string, string, number, number][] = [
     // from, to, km range
     ["bangkok", "chiang-mai", 650, 800],
@@ -99,82 +87,15 @@ async function main() {
   assert.ok(Math.abs(back.distanceKm - routes["chiang-mai"].distanceKm) < 1, "the way back is as long");
   expectError("noRoute", () => simulatedRoute(trip("bangkok", "tokyo")));
   expectError("samePlace", () => simulatedRoute(trip("bangkok", "bangkok")));
+  // The app asks getRoute, which works the route out on the device.
+  assert.deepEqual(await getRoute(trip("bangkok", "chiang-mai")), routes["chiang-mai"]);
+  await assert.rejects(
+    getRoute(trip("bangkok", "tokyo")),
+    (e: unknown) => e instanceof RouteError && e.code === "noRoute",
+  );
   console.log("✓ Simulated routes follow the roads: ferry to Samui, a border to Vientiane, no road to Tokyo");
 
-  // 3. Google Routes ---------------------------------------------------------
-  const request = trip("bangkok", "hua-hin");
-  assert.equal("departureTime" in googleRequestBody(request, NOW), false, "leaving now sends no departure time");
-  const later = { ...request, departure: new Date(NOW + 2 * 3_600_000).toISOString(), language: "th" as const };
-  const body = googleRequestBody(later, NOW);
-  assert.equal(body.departureTime, later.departure);
-  assert.equal(body.languageCode, "th");
-  assert.equal(body.routingPreference, "TRAFFIC_AWARE");
-  // Two steps without traffic take 60 + 120 min; with traffic the route takes 225 min.
-  const a = request.origin;
-  const mid = { lat: 13.0, lon: 100.1 };
-  const b = request.destination;
-  const response: GoogleRoutesResponse = {
-    routes: [
-      {
-        distanceMeters: 215_000,
-        duration: "13500s",
-        polyline: { encodedPolyline: encodePolyline([a, mid, b]) },
-        legs: [
-          {
-            steps: [
-              {
-                distanceMeters: 90_000,
-                staticDuration: "3600s",
-                polyline: { encodedPolyline: encodePolyline([a, mid]) },
-              },
-              {
-                distanceMeters: 125_000,
-                staticDuration: "7200s",
-                polyline: { encodedPolyline: encodePolyline([mid, b]) },
-                navigationInstruction: { maneuver: "FERRY" },
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  };
-  const google = routeFromGoogle(response, request);
-  assertRoute(google, request);
-  assert.equal(google.source, "google");
-  assert.equal(google.distanceKm, 215);
-  assert.equal(google.durationMin, 225);
-  assert.ok(google.ferry);
-  // Traffic slows both steps alike: the first third of the time reaches the middle.
-  const atMid = google.path.find((p) => distanceKm(p, mid) < 0.01)!;
-  assert.ok(Math.abs(atMid.min - 75) < 0.01, `middle reached at ${atMid.min} min`);
-  assert.throws(
-    () => routeFromGoogle({ routes: [] }, request),
-    (e: unknown) => e instanceof RouteError,
-  );
-  console.log("✓ Google Routes: traffic-aware request, steps and traffic spread over the line, ferries spotted");
-
-  // 4. The /api/route handler (no Google key here, so simulated) --------------
-  delete process.env.GOOGLE_MAPS_API_KEY;
-  const post = (body: unknown, headers: Record<string, string> = {}) =>
-    POST(
-      new Request("http://localhost/api/route", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...headers },
-        body: JSON.stringify(body),
-      }),
-    );
-  const ok = await post(trip("bangkok", "chiang-mai"));
-  assert.equal(ok.status, 200);
-  assert.equal(((await ok.json()) as Route).source, "simulated");
-  assert.equal((await post({ origin: { lat: 200, lon: 0 } })).status, 400);
-  assert.equal((await post(trip("bangkok", "chiang-mai"), { "sec-fetch-site": "cross-site" })).status, 403);
-  const none = await post(trip("bangkok", "tokyo"));
-  assert.equal(none.status, 422);
-  assert.deepEqual(await none.json(), { error: "noRoute" });
-  console.log("✓ /api/route answers routes, refuses bad input and other sites, and says when there is no road");
-
-  // 5. Stops along the way -----------------------------------------------------
+  // 2. Stops along the way -----------------------------------------------------
   assert.equal(stopInterval(60), 15);
   assert.equal(stopInterval(9 * 60), 60);
   assert.equal(stopInterval(40 * 60), 180);
@@ -203,7 +124,7 @@ async function main() {
   assert.equal(mid5.min, 300);
   console.log("✓ Up to 10 stops, in order, each with the time you get there and a town name when one is near");
 
-  // 6. Weather at each stop and the trip in one line ---------------------------
+  // 3. Weather at each stop and the trip in one line ---------------------------
   const svc = new WeatherNext3MockService({ latencyMs: 0, now: () => NOW });
   const stops = routeStops(routes["chiang-mai"]);
   const weather = await svc.getWeatherAlong(stops.map((s) => ({ point: s.point, time: s.eta })));
