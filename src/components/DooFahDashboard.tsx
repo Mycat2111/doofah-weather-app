@@ -10,6 +10,7 @@ import { DooFahHeader } from "@/components/DooFahHeader";
 import { DooFahRadarMap } from "@/components/DooFahRadarMap";
 import { FavoritesBar } from "@/components/favorites/FavoritesBar";
 import { HourlyForecastSlider } from "@/components/HourlyForecastSlider";
+import { TapButton } from "@/components/ui/TapButton";
 import { WeatherDetailsGrid } from "@/components/WeatherDetailsGrid";
 import { useForecast } from "@/hooks/useForecast";
 import { useGeolocation } from "@/hooks/useGeolocation";
@@ -57,9 +58,9 @@ export function DooFahDashboard({ atmosphereOverride }: DooFahDashboardProps) {
             <span className="flex-1" title={error}>
               {m.errors.forecast}
             </span>
-            <button type="button" onClick={refresh} className="flex items-center gap-1 text-sky-200 hover:text-white">
+            <TapButton onClick={refresh} className="flex items-center gap-1 text-sky-200 hover:text-white">
               <RotateCw className="size-3.5" /> {m.errors.retry}
-            </button>
+            </TapButton>
           </div>
         )}
 

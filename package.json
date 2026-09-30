@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "verify:mock": "tsx scripts/verify-mock-service.ts",
     "verify:i18n": "tsx scripts/verify-i18n.ts",
-    "verify:favorites": "tsx scripts/verify-favorites.ts"
+    "verify:favorites": "tsx scripts/verify-favorites.ts",
+    "icons": "tsx scripts/generate-icons.ts"
   },
   "dependencies": {
     "framer-motion": "^13.4.6",

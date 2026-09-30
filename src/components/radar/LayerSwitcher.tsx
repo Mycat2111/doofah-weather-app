@@ -2,7 +2,9 @@
 
 import { motion } from "framer-motion";
 import { CloudRain, Gauge, Thermometer, Wind, type LucideIcon } from "lucide-react";
+import { PRESSED_LABEL } from "@/components/ui/TapButton";
 import { useI18n } from "@/i18n/I18nProvider";
+import { haptic } from "@/lib/haptics";
 import type { RadarLayerType } from "@/services/WeatherNext3MockService";
 
 export const LAYER_OPTIONS: { id: RadarLayerType; icon: LucideIcon }[] = [
@@ -29,14 +31,19 @@ export function LayerSwitcher({ value, onChange }: LayerSwitcherProps) {
         const selected = id === value;
         const { short, long } = m.radar.layers[id];
         return (
-          <button
+          <motion.button
             key={id}
             type="button"
             role="radio"
             aria-checked={selected}
             title={long}
-            onClick={() => onChange(id)}
-            className={`relative flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1.5 text-xs font-medium transition-colors sm:px-3.5 ${
+            whileTap="pressed"
+            onClick={() => {
+              if (selected) return;
+              haptic("selection");
+              onChange(id);
+            }}
+            className={`relative flex shrink-0 items-center whitespace-nowrap rounded-full px-2.5 py-1.5 text-xs font-medium transition-colors sm:px-3.5 ${
               selected ? "text-slate-900" : "text-white/75 hover:text-white"
             }`}
           >
@@ -47,9 +54,19 @@ export function LayerSwitcher({ value, onChange }: LayerSwitcherProps) {
                 transition={{ type: "spring", stiffness: 500, damping: 38 }}
               />
             )}
-            <Icon className="relative size-3.5" aria-hidden />
-            <span className="relative">{short}</span>
-          </button>
+            <motion.span className="relative flex items-center gap-1.5" variants={PRESSED_LABEL}>
+              {/* The icon pops as its layer is picked. */}
+              <motion.span
+                className="flex"
+                initial={false}
+                animate={selected ? { scale: [1, 1.35, 1], rotate: [0, -12, 0] } : { scale: 1, rotate: 0 }}
+                transition={{ duration: 0.4, ease: "easeOut" }}
+              >
+                <Icon className="size-3.5" aria-hidden />
+              </motion.span>
+              {short}
+            </motion.span>
+          </motion.button>
         );
       })}
     </div>

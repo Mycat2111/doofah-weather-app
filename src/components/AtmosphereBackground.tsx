@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import type { CSSProperties } from "react";
+import { useEffect, type CSSProperties } from "react";
 import type { AtmosphereTheme } from "@/services/WeatherNext3MockService";
 
 interface Palette {
@@ -167,6 +167,14 @@ function Particles({ palette }: { palette: Palette }) {
  */
 export function AtmosphereBackground({ theme }: { theme: AtmosphereTheme }) {
   const palette = ATMOSPHERES[theme];
+
+  // Phones tint the status bar (and installed apps their title bar) with the
+  // theme colour, so it follows the top of the sky.
+  useEffect(() => {
+    const top = palette.gradient.match(/#[0-9a-f]{6}/i)?.[0];
+    if (top) document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => meta.setAttribute("content", top));
+  }, [palette]);
+
   return (
     <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-[#0b1026]">
       <AnimatePresence initial={false}>

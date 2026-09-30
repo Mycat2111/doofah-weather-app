@@ -154,6 +154,9 @@ export const en: Messages = {
     analysis: "Latest analysis",
     forecast: "Forecast",
     outsideArea: "Outside the loaded area",
+    zoomIn: "Zoom in",
+    zoomOut: "Zoom out",
+    twoFingers: "Use two fingers to move the map",
     attribution: { before: "Map © ", after: " contributors" },
     probe: {
       noRain: (cloudPercent) => `No rain · cloud ${cloudPercent}%`,

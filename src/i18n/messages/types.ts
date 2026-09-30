@@ -130,6 +130,10 @@ export interface Messages {
     analysis: string;
     forecast: string;
     outsideArea: string;
+    zoomIn: string;
+    zoomOut: string;
+    /** Shown when one finger drags the map on a touch screen (one finger scrolls the page). */
+    twoFingers: string;
     /** Text around the "OpenStreetMap" link in the map credit. */
     attribution: { before: string; after: string };
     probe: {

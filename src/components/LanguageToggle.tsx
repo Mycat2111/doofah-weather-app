@@ -1,8 +1,10 @@
 "use client";
 
 import { motion } from "framer-motion";
+import { PRESSED_LABEL } from "@/components/ui/TapButton";
 import { LANGUAGE_NAMES, LOCALES } from "@/i18n/config";
 import { useI18n } from "@/i18n/I18nProvider";
+import { haptic } from "@/lib/haptics";
 
 /** TH / EN switch. The choice is kept in a cookie, so the next visit opens in it. */
 export function LanguageToggle({ className = "" }: { className?: string }) {
@@ -16,7 +18,7 @@ export function LanguageToggle({ className = "" }: { className?: string }) {
       {LOCALES.map((option) => {
         const selected = option === locale;
         return (
-          <button
+          <motion.button
             key={option}
             type="button"
             role="radio"
@@ -24,7 +26,12 @@ export function LanguageToggle({ className = "" }: { className?: string }) {
             aria-label={LANGUAGE_NAMES[option]}
             title={LANGUAGE_NAMES[option]}
             lang={option}
-            onClick={() => setLocale(option)}
+            whileTap="pressed"
+            onClick={() => {
+              if (selected) return;
+              haptic("selection");
+              setLocale(option);
+            }}
             className={`relative h-full min-w-9 rounded-full px-2.5 text-xs font-semibold tracking-wide transition-colors ${
               selected ? "text-slate-900" : "text-white/70 hover:text-white"
             }`}
@@ -36,8 +43,10 @@ export function LanguageToggle({ className = "" }: { className?: string }) {
                 transition={{ type: "spring", stiffness: 500, damping: 38 }}
               />
             )}
-            <span className="relative">{option.toUpperCase()}</span>
-          </button>
+            <motion.span className="relative block" variants={PRESSED_LABEL}>
+              {option.toUpperCase()}
+            </motion.span>
+          </motion.button>
         );
       })}
     </div>

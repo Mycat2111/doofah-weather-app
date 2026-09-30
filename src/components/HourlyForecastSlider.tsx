@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { ChevronLeft, ChevronRight, Clock, Droplet, Sunrise, Sunset } from "lucide-react";
 import { Fragment, useRef } from "react";
 import { CardLabel, GlassCard } from "@/components/ui/GlassCard";
+import { TapButton } from "@/components/ui/TapButton";
 import { WeatherIcon } from "@/components/ui/WeatherIcon";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { DailyForecast, HourlyForecast } from "@/services/WeatherNext3MockService";
@@ -41,15 +42,15 @@ export function HourlyForecastSlider({ hours, days, timeZone }: HourlyForecastSl
         <CardLabel icon={<Clock className="size-3.5" />}>{m.hourly.title}</CardLabel>
         <div className="hidden gap-1 sm:flex">
           {([-1, 1] as const).map((dir) => (
-            <button
+            <TapButton
               key={dir}
-              type="button"
+              tapScale={0.85}
               onClick={() => scrollBy(dir)}
               className="grid size-7 place-items-center rounded-full text-white/70 hover:bg-white/10 hover:text-white"
               aria-label={dir < 0 ? m.hourly.earlier : m.hourly.later}
             >
               {dir < 0 ? <ChevronLeft className="size-4" /> : <ChevronRight className="size-4" />}
-            </button>
+            </TapButton>
           ))}
         </div>
       </div>
