@@ -5,6 +5,7 @@ import type {
   RadarLayerType,
   WeatherCondition,
 } from "@/services/weathernext3/types";
+import type { AlertTip } from "@/lib/alerts";
 
 /**
  * Every piece of UI text. Functions take already-formatted values (times,
@@ -56,6 +57,25 @@ export interface Messages {
     removeShort: string;
     edit: string;
     done: string;
+  };
+
+  /** Banner for storms, likely rain and unhealthy air. Times arrive formatted. */
+  alerts: {
+    label: string;
+    dismiss: string;
+    stormNow: string;
+    stormFrom: (clock: string) => string;
+    stormDetail: (chance: number) => string;
+    rainNow: string;
+    rainFrom: (clock: string) => string;
+    rainDetail: (chance: number, hours: number) => string;
+    heavyAtTimes: string;
+    /** Headline for bad air; `category` is the already-translated AQI category. */
+    air: (category: string) => string;
+    airDetail: (aqi: number, pm25: string) => string;
+    /** Label for the list of tips. */
+    tipsLabel: string;
+    tips: Record<AlertTip, string>;
   };
 
   hero: {

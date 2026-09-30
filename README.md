@@ -28,11 +28,15 @@ npm run dev          # http://localhost:3000
 | `npm run verify:mock` | Shape, determinism, consistency and climate checks for the mock service |
 | `npm run verify:i18n` | Every Thai phrase is Thai, Thai dates and Thai place search       |
 | `npm run verify:favorites` | Saving, naming and reading back favorite places             |
+| `npm run verify:alerts` | Alert thresholds, time windows, order and tips in both languages |
 | `npm run icons`       | Re-render the app icons and favicon from `scripts/icons/doofah-icon.svg` |
 
 Preview any sky mood with a query parameter:
 `/?sky=thunderstorm`, `golden-hour`, `clear-night`, `heavy-rain`, `rain`,
 `snow`, `fog`, `cloudy-day`, `cloudy-night`, `clear-day`.
+
+Preview the alert banner the same way: `/?alert=storm`, `rain`, `air`, a
+list such as `storm,air`, or `all`.
 
 ## Setting it up from scratch
 
@@ -83,6 +87,30 @@ Geolocation API and snaps to the nearest known city within 40 km.
   Unreadable or old data is skipped rather than breaking the page, and places
   from the gazetteer pick up its current names when read back. "Use my
   location" within 1 km of a saved place counts as that place.
+
+## Weather alerts
+
+A banner at the top of the dashboard warns about weather worth acting on, each
+with a few things to do (ควรพกร่ม, ควรสวมหน้ากากกันฝุ่น PM2.5, …). The rules
+are in `src/lib/alerts.ts`:
+
+| Alert | Shows when | Tips |
+| ----- | ---------- | ---- |
+| Thunderstorm | Storming now, or a thunderstorm hour in the next 2 hours | Stay indoors, keep away from open ground and tall trees, bring an umbrella, unplug electronics |
+| Air quality | US AQI above 150; severe above 200 | Wear a PM2.5 mask, skip outdoor exercise, keep windows shut; when severe, sensitive groups stay indoors |
+| Rain | Chance of rain above 80% in any hour of the next 3 hours | Bring an umbrella, allow extra travel time; watch for flooded roads if heavy rain is expected |
+
+- A thunderstorm alert already covers the rain it brings, so the rain alert is
+  left out while one is showing.
+- Severe alerts come first and their icon pulses.
+- The rain window is 3 hours so there is time to grab an umbrella before
+  heading out; change `RAIN_WINDOW_HOURS` to widen or narrow it. With 2 hours
+  the banner would miss rain that starts just after, and with 6 hours it would
+  show for about a third of the day in the rainy season.
+- The × hides an alert for that place until it gets worse (rain from later
+  becomes rain now, or unhealthy air becomes very unhealthy).
+- The simulated air is clean in the rainy season and worst in March, so AQI
+  alerts are rare in September; `?alert=air` shows one.
 
 ## Home screen app (PWA)
 
@@ -156,7 +184,7 @@ shapes), and `public/screenshots/*` for the richer install dialog.
 src/
 ├── app/
 │   ├── layout.tsx                 Fonts, language, metadata, viewport, Leaflet CSS
-│   ├── page.tsx                   Renders the dashboard (reads ?sky=)
+│   ├── page.tsx                   Renders the dashboard (reads ?sky= and ?alert=)
 │   ├── manifest.ts                Web app manifest (install name, colours, icons)
 │   ├── icon.svg, apple-icon.png, favicon.ico   App icons (from `npm run icons`)
 │   └── globals.css                Glass surfaces, sky effects, touch rules, Leaflet styling
@@ -165,6 +193,7 @@ src/
 │   ├── DooFahDashboard.tsx        Page composition, place state, loading states
 │   ├── DooFahHeader.tsx           Logo, animated search, geolocation button, language switch
 │   ├── LanguageToggle.tsx         TH / EN switch
+│   ├── WeatherAlertBanner.tsx     Storm, rain and air quality warnings with tips
 │   ├── favorites/
 │   │   ├── FavoritesBar.tsx       One-tap chips under the header, edit mode
 │   │   ├── FavoriteStar.tsx       Star beside the place name and the naming panel
@@ -205,6 +234,7 @@ src/
 │   ├── useFavorites.ts            Favorite places from localStorage, synced across tabs
 │   └── useGeolocation.ts          Browser location with status
 ├── lib/
+│   ├── alerts.ts                  When to warn about storms, rain and air, and what to do
 │   ├── colors.ts                  AQI and temperature colours
 │   ├── favorites.ts               Favorite list rules and the localStorage store
 │   ├── haptics.ts                 Short vibrations on Android and iPhone
@@ -227,6 +257,7 @@ public/
 scripts/verify-mock-service.ts     Checks behind `npm run verify:mock`
 scripts/verify-i18n.ts             Checks behind `npm run verify:i18n`
 scripts/verify-favorites.ts        Checks behind `npm run verify:favorites`
+scripts/verify-alerts.ts           Checks behind `npm run verify:alerts`
 scripts/generate-icons.ts          `npm run icons`, from scripts/icons/doofah-icon.svg
 ```
 

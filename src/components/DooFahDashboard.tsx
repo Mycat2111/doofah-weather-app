@@ -11,10 +11,12 @@ import { DooFahRadarMap } from "@/components/DooFahRadarMap";
 import { FavoritesBar } from "@/components/favorites/FavoritesBar";
 import { HourlyForecastSlider } from "@/components/HourlyForecastSlider";
 import { TapButton } from "@/components/ui/TapButton";
+import { WeatherAlertBanner } from "@/components/WeatherAlertBanner";
 import { WeatherDetailsGrid } from "@/components/WeatherDetailsGrid";
 import { useForecast } from "@/hooks/useForecast";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import { useI18n } from "@/i18n/I18nProvider";
+import { previewAlerts, weatherAlerts, type AlertKind } from "@/lib/alerts";
 import {
   DEFAULT_PLACE,
   weatherNext3,
@@ -26,9 +28,11 @@ import {
 interface DooFahDashboardProps {
   /** Force a sky theme, e.g. from `?sky=thunderstorm`, to preview every mood. */
   atmosphereOverride?: AtmosphereTheme;
+  /** Show sample alerts, e.g. from `?alert=storm`, whatever the weather is doing. */
+  alertPreview?: AlertKind[];
 }
 
-export function DooFahDashboard({ atmosphereOverride }: DooFahDashboardProps) {
+export function DooFahDashboard({ atmosphereOverride, alertPreview }: DooFahDashboardProps) {
   const { m } = useI18n();
   const [place, setPlace] = useState<Place>(DEFAULT_PLACE);
   const { data, loading, error, refresh } = useForecast(place);
@@ -41,6 +45,12 @@ export function DooFahDashboard({ atmosphereOverride }: DooFahDashboardProps) {
   // data stays visible, dimmed, while the next one loads).
   const tz = data?.current.place.timeZone ?? place.timeZone;
 
+  const alerts = !data
+    ? []
+    : alertPreview
+      ? previewAlerts(alertPreview, Date.parse(data.current.observedAt))
+      : weatherAlerts(data.current, data.hourly);
+
   return (
     <>
       <AtmosphereBackground theme={atmosphere} />
@@ -51,6 +61,7 @@ export function DooFahDashboard({ atmosphereOverride }: DooFahDashboardProps) {
           onSelectPlace={setPlace}
           sampleTime={data ? Date.parse(data.current.observedAt) : undefined}
         />
+        <WeatherAlertBanner alerts={alerts} placeId={data?.current.place.id ?? place.id} timeZone={tz} />
 
         {error && (
           <div role="alert" className="glass mt-3 flex items-center gap-3 rounded-2xl px-4 py-3 text-sm">

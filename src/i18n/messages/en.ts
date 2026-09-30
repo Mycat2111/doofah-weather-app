@@ -78,6 +78,33 @@ export const en: Messages = {
     done: "Done",
   },
 
+  alerts: {
+    label: "Weather alerts",
+    dismiss: "Dismiss alert",
+    stormNow: "Thunderstorm now",
+    stormFrom: (clock) => `Thunderstorm likely from ${clock}`,
+    stormDetail: (chance) => `Lightning and strong gusts possible · ${chance}% chance of rain`,
+    rainNow: "Rain likely now",
+    rainFrom: (clock) => `Rain likely from ${clock}`,
+    rainDetail: (chance, hours) => `Up to ${chance}% chance of rain in the next ${hours} hours`,
+    heavyAtTimes: "heavy at times",
+    air: (category) => `Air quality: ${category}`,
+    airDetail: (aqi, pm25) => `AQI ${aqi} · PM2.5 ${pm25}`,
+    tipsLabel: "What to do",
+    tips: {
+      umbrella: "Bring an umbrella",
+      stayIndoors: "Stay indoors if you can",
+      avoidOpenGround: "Keep away from open ground and tall trees",
+      unplug: "Unplug sensitive electronics",
+      travelTime: "Allow extra travel time",
+      floodedRoads: "Watch for flooded roads",
+      mask: "Wear a PM2.5 mask outdoors",
+      noOutdoorExercise: "Skip outdoor exercise",
+      closeWindows: "Keep windows shut and run an air purifier",
+      sensitiveGroups: "Children, older people and anyone with heart or lung conditions should stay indoors",
+    },
+  },
+
   hero: {
     label: "Current weather",
     updated: (clock) => `Updated ${clock}`,
