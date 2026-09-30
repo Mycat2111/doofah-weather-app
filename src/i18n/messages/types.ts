@@ -9,6 +9,9 @@ import type {
 import type { AlertTip } from "@/lib/alerts";
 import type { Activity, Level, LifestyleReason } from "@/lib/lifestyle";
 import type { ReportKind } from "@/services/CrowdReportMockService";
+import type { RouteOutlook, StopRain } from "@/lib/routeWeather";
+import type { SummaryContext, SummaryFact } from "@/lib/voiceSummary";
+import type { RouteErrorCode, RouteSource } from "@/services/routing/types";
 
 /**
  * Every piece of UI text. Functions take already-formatted values (times,
@@ -35,6 +38,13 @@ export interface Messages {
   daySummary: (outlook: DayOutlook) => string;
   /** Why a lifestyle card got its status. `clock` formats an ISO time for the place. */
   lifestyleReason: (reason: LifestyleReason, clock: (time: string) => string) => string;
+  /**
+   * The weather along a road trip in one line. `stop` names a stop by its
+   * index; `clock` gives its arrival time, formatted for the place.
+   */
+  routeOutlook: (outlook: RouteOutlook, stop: (index: number) => string, clock: (index: number) => string) => string;
+  /** The spoken weather summary, one sentence per fact, worded to be read aloud. */
+  voiceSummary: (facts: SummaryFact[], context: SummaryContext) => string[];
 
   header: {
     searchPlaceholder: string;
@@ -146,6 +156,58 @@ export interface Messages {
     verified: (people: number) => string;
     disputed: (agreeing: number, total: number) => string;
     few: (count: number) => string;
+  };
+
+  /** Weather along a road trip. */
+  route: {
+    title: string;
+    from: string;
+    to: string;
+    toPlaceholder: string;
+    searchPlaceholder: string;
+    myLocation: string;
+    swap: string;
+    clear: string;
+    leave: string;
+    leaveNow: string;
+    leaveIn: (hours: number) => string;
+    planning: string;
+    hint: string;
+    duration: (minutes: number) => string;
+    distance: (km: number) => string;
+    /** `clock` is an already-formatted time. */
+    arrive: (clock: string) => string;
+    source: Record<RouteSource, string>;
+    borders: (count: number) => string;
+    ferry: string;
+    /** A stop with no town nearby, named by its distance from the start. */
+    km: (km: number) => string;
+    advice: Record<"rain" | "heavy" | "storm", string>;
+    rain: Record<StopRain, string>;
+    chance: (percent: number) => string;
+    timeline: string;
+    showOnMap: string;
+    /** Label for a stop's button: see it on the map at that time. */
+    stopOnMap: (name: string, clock: string) => string;
+    /** Where the car is at the map's timeline time. */
+    carHere: (clock: string) => string;
+    errors: Record<RouteErrorCode, string>;
+    retry: string;
+  };
+
+  /** The spoken weather summary. */
+  voice: {
+    play: string;
+    /** Button label on narrow screens. */
+    short: string;
+    title: string;
+    stop: string;
+    replay: string;
+    close: string;
+    /** The browser has no speech. */
+    noSpeech: string;
+    /** No voice for the language on this device. */
+    noVoice: string;
   };
 
   hourly: {

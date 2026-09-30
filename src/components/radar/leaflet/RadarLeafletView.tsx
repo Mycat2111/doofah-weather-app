@@ -6,6 +6,7 @@ import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from "re
 import { useI18n } from "@/i18n/I18nProvider";
 import type { Messages } from "@/i18n/messages";
 import { haptic } from "@/lib/haptics";
+import type { Trip } from "@/hooks/useRouteWeather";
 import type { CrowdReport } from "@/services/CrowdReportMockService";
 import {
   sampleGrid,
@@ -18,6 +19,7 @@ import { PRECIP_SCALE, PRESSURE_SCALE, TEMPERATURE_SCALE, WIND_SCALE } from "../
 import { FieldRasterLayer } from "./FieldRasterLayer";
 import { IsobarLayer } from "./IsobarLayer";
 import { ReportMarkers } from "./ReportMarkers";
+import { RouteLayer, type RouteFocus } from "./RouteLayer";
 import { WindParticleLayer } from "./WindParticleLayer";
 
 export interface RadarLeafletViewProps {
@@ -36,6 +38,11 @@ export interface RadarLeafletViewProps {
   reportsNow?: number;
   /** Night at the place: "sunny" reports show a moon. */
   night?: boolean;
+  /** A planned road trip to draw, the stop names, and a request to show it. */
+  trip?: Trip | null;
+  tripStopName?: (index: number) => string;
+  tripFocus?: RouteFocus;
+  timeZone?: string;
 }
 
 /** Closest zoom level (street level). */
@@ -271,6 +278,10 @@ export default function RadarLeafletView({
   reports = [],
   reportsNow = 0,
   night = false,
+  trip = null,
+  tripStopName = String,
+  tripFocus,
+  timeZone = "UTC",
 }: RadarLeafletViewProps) {
   // The same array between renders, so playback and new frames never make
   // react-leaflet move the marker (which would fight a zoom in progress).
@@ -312,6 +323,15 @@ export default function RadarLeafletView({
       <Recenter center={center} nextZoomRef={nextZoomRef} />
       <ViewReporter onViewChange={onViewChange} />
       {grid && frame && <FrameLayers grid={grid} frame={frame} />}
+      {trip && (
+        <RouteLayer
+          trip={trip}
+          frameTime={frame ? Date.parse(frame.time) : null}
+          focus={tripFocus}
+          timeZone={timeZone}
+          stopName={tripStopName}
+        />
+      )}
       <Marker position={position} icon={userIcon} keyboard={false} interactive={false} />
       <ReportMarkers reports={reports} now={reportsNow} night={night} />
       <Probe grid={grid} frame={frame} />

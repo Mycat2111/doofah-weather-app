@@ -13,6 +13,8 @@ import { TimelineScrubber } from "@/components/radar/TimelineScrubber";
 import { ZoomButtons } from "@/components/radar/ZoomButtons";
 import { TIMELINE_FROM, TIMELINE_TO, useRadarFrames } from "@/hooks/useRadarFrames";
 import { useI18n } from "@/i18n/I18nProvider";
+import type { RouteFocus } from "@/components/radar/leaflet/RouteLayer";
+import type { Trip } from "@/hooks/useRouteWeather";
 import type { Verification } from "@/lib/crowdVerify";
 import type { CrowdReport } from "@/services/CrowdReportMockService";
 import type { GeoBounds, GeoPoint, Place, RadarLayerType } from "@/services/WeatherNext3MockService";
@@ -53,6 +55,10 @@ interface DooFahRadarMapProps {
   verification?: Verification | null;
   /** Night at the place. */
   night?: boolean;
+  /** A planned road trip to draw over the radar, and requests to show it. */
+  trip?: Trip | null;
+  tripFocus?: RouteFocus;
+  tripStopName?: (index: number) => string;
   className?: string;
 }
 
@@ -68,6 +74,9 @@ export function DooFahRadarMap({
   reportsNow = 0,
   verification = null,
   night = false,
+  trip = null,
+  tripFocus,
+  tripStopName,
   className = "",
 }: DooFahRadarMapProps) {
   const { m, f } = useI18n();
@@ -93,14 +102,33 @@ export function DooFahRadarMap({
   }, []);
 
   const frames = frameSet?.frames ?? [];
+
+  // Showing the trip moves the timeline to when you set off, or to when you reach the chosen stop,
+  // so the radar shows the rain you would drive into.
+  const [seenFocus, setSeenFocus] = useState(tripFocus?.key ?? 0);
+  if (tripFocus && tripFocus.key !== seenFocus) {
+    setSeenFocus(tripFocus.key);
+    const stop = trip && tripFocus.stop !== null ? trip.stops[tripFocus.stop] : null;
+    const when = stop ? Date.parse(stop.eta) : trip ? Date.parse(trip.route.departure) : null;
+    if (when !== null && frames.length) {
+      let nearest = 0;
+      frames.forEach((fr, i) => {
+        if (Math.abs(Date.parse(fr.time) - when) < Math.abs(Date.parse(frames[nearest].time) - when)) nearest = i;
+      });
+      setPlaying(false);
+      setFrameIndex(nearest);
+    }
+  }
+
   const frame = frames[Math.min(frameIndex, frames.length - 1)];
   // Reports describe the last hour, so they show on the "now" frames only.
   const live = !frame || (frame.offsetHours <= 0 && frame.offsetHours >= -1);
 
   return (
     <section
+      id="doofah-radar"
       aria-label={m.radar.label}
-      className={`glass relative isolate overflow-hidden rounded-[28px] ${className}`}
+      className={`glass relative isolate scroll-mt-4 overflow-hidden rounded-[28px] ${className}`}
     >
       <div className="absolute inset-0 z-0">
         <RadarLeafletView
@@ -114,6 +142,10 @@ export function DooFahRadarMap({
           reports={live ? reports : undefined}
           reportsNow={reportsNow}
           night={night}
+          trip={trip}
+          tripFocus={tripFocus}
+          tripStopName={tripStopName}
+          timeZone={place.timeZone}
         />
       </div>
 
