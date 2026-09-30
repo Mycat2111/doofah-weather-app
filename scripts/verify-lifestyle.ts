@@ -134,6 +134,7 @@ async function main() {
   assert.equal(dryHoursUntil(later.at, NOW), 4, "19:00 is 4 h 40 min away: 4 full dry hours");
   assert.equal(en.countdown.clearFor(dryHoursUntil(later.at, NOW)), "Clear sky for the next 4 hours");
   assert.equal(en.countdown.clearFor(3), "Clear sky for the next 3 hours");
+  assert.equal(th.countdown.clearFor(3), "ท้องฟ้าโปร่งอีก 3\u00a0ชั่วโมง", "short enough not to wrap on a phone");
   const cloudy = countdownOf(
     scenario({ hours: { 0: { cloudCover: 90 }, 1: { cloudCover: 90 }, 2: { precipitationProbability: 60 } } }),
   );
