@@ -215,6 +215,21 @@ export const en: Messages = {
     },
   },
 
+  reports: {
+    title: "What's the sky like where you are?",
+    kinds: { sunny: "Sunny", cloudy: "Cloudy", lightRain: "Light rain", heavyRain: "Heavy rain" },
+    clear: "Clear",
+    hint: "One tap shares it on the map with people nearby",
+    thanks: "Thanks! It's on the map for the next hour",
+    yours: (kind, ago) => `You reported: ${kind} · ${ago}`,
+    ago: (minutes) => (minutes < 1 ? "just now" : `${minutes} min ago`),
+    nearby: (count) => (count === 1 ? "1 report nearby" : `${count} reports nearby`),
+    you: "You",
+    verified: (people) => `Verified by ${people} local users`,
+    disputed: (agreeing, total) => `Local users differ: ${agreeing} of ${total} agree`,
+    few: (count) => (count === 1 ? "1 local report" : `${count} local reports`),
+  },
+
   hourly: {
     label: "Hourly forecast",
     title: "Next 48 hours",

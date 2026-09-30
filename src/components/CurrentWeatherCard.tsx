@@ -2,6 +2,7 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { Grid3x3, Leaf } from "lucide-react";
+import type { ReactNode } from "react";
 import { FavoriteStar } from "@/components/favorites/FavoriteStar";
 import { RainCountdownPanel } from "@/components/RainCountdownPanel";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -17,10 +18,12 @@ interface CurrentWeatherCardProps {
   /** Today first. */
   daily: DailyForecast[];
   countdown: RainCountdown;
+  /** The one-tap weather report buttons, shown under the rain countdown. */
+  reportBar?: ReactNode;
   className?: string;
 }
 
-export function CurrentWeatherCard({ current, daily, countdown, className = "" }: CurrentWeatherCardProps) {
+export function CurrentWeatherCard({ current, daily, countdown, reportBar, className = "" }: CurrentWeatherCardProps) {
   const { locale, m, f } = useI18n();
   const { sample, place, airQuality, cell } = current;
   const tz = place.timeZone;
@@ -113,6 +116,7 @@ export function CurrentWeatherCard({ current, daily, countdown, className = "" }
 
       {/* Time to rain, from the radar nowcast */}
       <RainCountdownPanel current={current} countdown={countdown} daily={daily} />
+      {reportBar}
 
       {/* Air quality */}
       <div className="mt-4 flex items-center gap-3">
