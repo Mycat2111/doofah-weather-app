@@ -62,6 +62,22 @@ export const en: Messages = {
     language: "Language",
   },
 
+  favorites: {
+    label: "Favorite places",
+    empty: "Tap the star next to a place's name to pin it here",
+    save: (place) => `Save ${place} to favorites`,
+    remove: (place) => `Remove ${place} from favorites`,
+    editFavorite: (place) => `Edit favorite: ${place}`,
+    saved: "Saved to favorites",
+    name: "Name",
+    quickLabels: "Quick labels",
+    home: "Home",
+    office: "Office",
+    removeShort: "Remove",
+    edit: "Edit",
+    done: "Done",
+  },
+
   hero: {
     label: "Current weather",
     updated: (clock) => `Updated ${clock}`,

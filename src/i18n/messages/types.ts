@@ -40,6 +40,24 @@ export interface Messages {
     language: string;
   };
 
+  favorites: {
+    /** The bar of starred places under the header. */
+    label: string;
+    /** Shown in the bar before anything is starred. */
+    empty: string;
+    save: (place: string) => string;
+    remove: (place: string) => string;
+    editFavorite: (place: string) => string;
+    saved: string;
+    name: string;
+    quickLabels: string;
+    home: string;
+    office: string;
+    removeShort: string;
+    edit: string;
+    done: string;
+  };
+
   hero: {
     label: string;
     updated: (clock: string) => string;

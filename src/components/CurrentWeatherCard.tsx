@@ -2,6 +2,7 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { Grid3x3, Leaf, Umbrella } from "lucide-react";
+import { FavoriteStar } from "@/components/favorites/FavoriteStar";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { WeatherIcon } from "@/components/ui/WeatherIcon";
 import { useI18n } from "@/i18n/I18nProvider";
@@ -29,21 +30,26 @@ export function CurrentWeatherCard({ current, today, className = "" }: CurrentWe
       index={0}
       aria-label={m.hero.label}
     >
-      {/* Location */}
-      <div className="flex items-start justify-between gap-4">
+      {/* Location. Relative so the favorite panel spans the card's width. */}
+      <div className="relative flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <AnimatePresence mode="wait">
-            <motion.h1
-              key={place.id}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              className="truncate text-2xl font-medium tracking-tight text-shadow-soft sm:text-[28px]"
-            >
-              {label.name}
-              {label.localName && <span className="ml-2 text-lg font-normal text-white/60">{label.localName}</span>}
-            </motion.h1>
-          </AnimatePresence>
+          <div className="flex items-center gap-1">
+            <AnimatePresence mode="wait">
+              <motion.h1
+                key={place.id}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                className="min-w-0 truncate text-2xl font-medium tracking-tight drop-shadow-[0_2px_24px_rgba(0,0,0,0.25)] sm:text-[28px]"
+              >
+                {label.name}
+                {label.localName && (
+                  <span className="ml-2 hidden text-lg font-normal text-white/60 sm:inline">{label.localName}</span>
+                )}
+              </motion.h1>
+            </AnimatePresence>
+            <FavoriteStar key={place.id} place={place} />
+          </div>
           <p className="mt-0.5 truncate text-sm text-white/60">
             {label.area} · {m.hero.updated(f.clock(current.observedAt, tz))}
           </p>
@@ -53,9 +59,10 @@ export function CurrentWeatherCard({ current, today, className = "" }: CurrentWe
           title={m.hero.cellTitle(cell.id)}
         >
           <Grid3x3 className="size-3.5 text-sky-200" aria-hidden />
-          {m.hero.precisionBefore && <span className="hidden sm:inline">{m.hero.precisionBefore}</span>}
+          {/* The word only shows while the card is full width; beside the map it needs the room for the name. */}
+          {m.hero.precisionBefore && <span className="hidden sm:inline lg:hidden">{m.hero.precisionBefore}</span>}
           5×5 {m.units.km}
-          {m.hero.precisionAfter && <span className="hidden sm:inline">{m.hero.precisionAfter}</span>}
+          {m.hero.precisionAfter && <span className="hidden sm:inline lg:hidden">{m.hero.precisionAfter}</span>}
         </span>
       </div>
 

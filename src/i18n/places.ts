@@ -1,5 +1,7 @@
+import type { Favorite } from "@/lib/favorites";
 import type { Place } from "@/services/weathernext3/types";
 import type { Locale } from "./config";
+import type { Messages } from "./messages/types";
 
 export interface PlaceLabel {
   /** The place's name in the reader's language. */
@@ -20,4 +22,11 @@ export function placeLabel(place: Place, locale: Locale): PlaceLabel {
     localName: place.localName,
     area: [place.region, place.country].filter(Boolean).join(", "),
   };
+}
+
+/** What a favorite is called in the bar: the reader's own name, a quick label, or the place's name. */
+export function favoriteName(favorite: Favorite, locale: Locale, m: Messages): string {
+  return (
+    favorite.name?.trim() || (favorite.kind ? m.favorites[favorite.kind] : placeLabel(favorite.place, locale).name)
+  );
 }
