@@ -1,28 +1,32 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { Grid3x3, Leaf, Umbrella } from "lucide-react";
+import { Grid3x3, Leaf } from "lucide-react";
 import { FavoriteStar } from "@/components/favorites/FavoriteStar";
+import { RainCountdownPanel } from "@/components/RainCountdownPanel";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { WeatherIcon } from "@/components/ui/WeatherIcon";
 import { useI18n } from "@/i18n/I18nProvider";
 import { placeLabel } from "@/i18n/places";
 import { AQI_COLOR } from "@/lib/colors";
+import type { RainCountdown } from "@/lib/rainCountdown";
 import type { CurrentConditions, DailyForecast } from "@/services/WeatherNext3MockService";
 
 interface CurrentWeatherCardProps {
   current: CurrentConditions;
-  today?: DailyForecast;
+  /** Today first. */
+  daily: DailyForecast[];
+  countdown: RainCountdown;
   className?: string;
 }
 
-export function CurrentWeatherCard({ current, today, className = "" }: CurrentWeatherCardProps) {
+export function CurrentWeatherCard({ current, daily, countdown, className = "" }: CurrentWeatherCardProps) {
   const { locale, m, f } = useI18n();
-  const { sample, place, airQuality, cell, nowcast } = current;
+  const { sample, place, airQuality, cell } = current;
   const tz = place.timeZone;
   const label = placeLabel(place, locale);
   const aqiColor = AQI_COLOR[airQuality.category];
-  const maxStep = Math.max(2, ...nowcast.steps.map((s) => s.precipitationMm));
+  const today = daily[0];
 
   return (
     <GlassCard
@@ -107,30 +111,8 @@ export function CurrentWeatherCard({ current, today, className = "" }: CurrentWe
         </motion.div>
       </div>
 
-      {/* Nowcast */}
-      <div className="mt-auto rounded-2xl bg-black/10 p-3.5">
-        <div className="flex items-center gap-2 text-sm">
-          <Umbrella className="size-4 text-sky-200" aria-hidden />
-          <span className="text-white/90">{m.nowcast(nowcast.outlook)}</span>
-        </div>
-        <div className="mt-3 flex h-8 items-end gap-1" aria-hidden>
-          {nowcast.steps.map((s, i) => (
-            <motion.span
-              key={s.time}
-              className="flex-1 rounded-sm bg-sky-300/80"
-              initial={{ height: 2 }}
-              animate={{ height: Math.max(2, (s.precipitationMm / maxStep) * 32) }}
-              transition={{ delay: 0.3 + i * 0.03, type: "spring", stiffness: 200, damping: 20 }}
-              style={{ opacity: s.precipitationMm >= 0.1 ? 1 : 0.25 }}
-            />
-          ))}
-        </div>
-        <div className="mt-1 flex justify-between text-[10px] text-white/45 th:text-[11px]">
-          <span>{m.hero.now}</span>
-          <span>{m.hero.hoursAhead(1)}</span>
-          <span>{m.hero.hoursAhead(2)}</span>
-        </div>
-      </div>
+      {/* Time to rain, from the radar nowcast */}
+      <RainCountdownPanel current={current} countdown={countdown} daily={daily} />
 
       {/* Air quality */}
       <div className="mt-4 flex items-center gap-3">

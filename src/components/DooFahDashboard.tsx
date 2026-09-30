@@ -10,6 +10,7 @@ import { DooFahHeader } from "@/components/DooFahHeader";
 import { DooFahRadarMap } from "@/components/DooFahRadarMap";
 import { FavoritesBar } from "@/components/favorites/FavoritesBar";
 import { HourlyForecastSlider } from "@/components/HourlyForecastSlider";
+import { LifestyleIndex } from "@/components/LifestyleIndex";
 import { TapButton } from "@/components/ui/TapButton";
 import { WeatherAlertBanner } from "@/components/WeatherAlertBanner";
 import { WeatherDetailsGrid } from "@/components/WeatherDetailsGrid";
@@ -18,6 +19,8 @@ import { useGeolocation } from "@/hooks/useGeolocation";
 import { useI18n } from "@/i18n/I18nProvider";
 import { previewAlerts, weatherAlerts, type AlertKind } from "@/lib/alerts";
 import { readOpeningPlace, saveLastPlace } from "@/lib/favorites";
+import { lifestyleIndex } from "@/lib/lifestyle";
+import { previewCountdown, previewNowcast, rainCountdown, type CountdownPreview } from "@/lib/rainCountdown";
 import {
   DEFAULT_PLACE,
   weatherNext3,
@@ -31,11 +34,13 @@ interface DooFahDashboardProps {
   atmosphereOverride?: AtmosphereTheme;
   /** Show sample alerts, e.g. from `?alert=storm`, whatever the weather is doing. */
   alertPreview?: AlertKind[];
+  /** Show a sample rain countdown, e.g. from `?rain=soon`. */
+  rainPreview?: CountdownPreview;
 }
 
 const noSubscription = () => () => {};
 
-export function DooFahDashboard({ atmosphereOverride, alertPreview }: DooFahDashboardProps) {
+export function DooFahDashboard({ atmosphereOverride, alertPreview, rainPreview }: DooFahDashboardProps) {
   const { m } = useI18n();
   // False on the server and while hydrating, true in the browser after that.
   const inBrowser = useSyncExternalStore(
@@ -68,6 +73,23 @@ export function DooFahDashboard({ atmosphereOverride, alertPreview }: DooFahDash
       ? previewAlerts(alertPreview, Date.parse(data.current.observedAt))
       : weatherAlerts(data.current, data.hourly);
 
+  const countdown = !data
+    ? undefined
+    : rainPreview
+      ? previewCountdown(rainPreview, Date.parse(data.current.observedAt))
+      : rainCountdown(data.current, data.hourly, data.daily);
+  // A preview also redraws the radar bars under the badge to match it.
+  const current =
+    data && rainPreview
+      ? {
+          ...data.current,
+          nowcast: { ...data.current.nowcast, steps: previewNowcast(rainPreview, data.current.nowcast.steps) },
+        }
+      : data?.current;
+  // The cards read the same countdown, so they never disagree with the badge.
+  const lifestyle =
+    data && countdown ? lifestyleIndex(data.current, data.hourly, data.daily, undefined, countdown) : [];
+
   return (
     <>
       <AtmosphereBackground theme={atmosphere} />
@@ -92,15 +114,29 @@ export function DooFahDashboard({ atmosphereOverride, alertPreview }: DooFahDash
           </div>
         )}
 
+        {/* Phones: weather, lifestyle, map. Wide screens: weather beside the map, lifestyle below both. */}
         <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(340px,420px)_1fr]">
           <div className={`transition-opacity duration-300 ${loading && data ? "opacity-60" : ""}`}>
-            {data ? (
-              <CurrentWeatherCard current={data.current} today={data.daily[0]} className="h-full" />
+            {data && current && countdown ? (
+              <CurrentWeatherCard current={current} daily={data.daily} countdown={countdown} className="h-full" />
             ) : (
               <Skeleton className="h-[560px]" />
             )}
           </div>
-          <DooFahRadarMap place={place} onLocated={onLocated} className="h-[600px] lg:h-auto lg:min-h-[580px]" />
+          <div
+            className={`transition-opacity duration-300 lg:col-span-2 lg:row-start-2 ${loading && data ? "opacity-60" : ""}`}
+          >
+            {data ? (
+              <LifestyleIndex statuses={lifestyle} timeZone={tz} />
+            ) : (
+              <Skeleton className="h-[330px] lg:h-[210px]" />
+            )}
+          </div>
+          <DooFahRadarMap
+            place={place}
+            onLocated={onLocated}
+            className="h-[600px] lg:col-start-2 lg:row-start-1 lg:h-auto lg:min-h-[580px]"
+          />
         </div>
 
         <div className={`mt-4 transition-opacity duration-300 ${loading && data ? "opacity-60" : ""}`}>

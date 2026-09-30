@@ -132,7 +132,7 @@ async function main() {
 
   // 3. Every static Thai string ---------------------------------------------
   const strings: [string, string][] = [];
-  const skip = new Set(["condition", "aqi", "uv", "compass", "nowcast", "daySummary"]);
+  const skip = new Set(["condition", "aqi", "uv", "compass", "nowcast", "daySummary", "lifestyleReason"]);
   for (const [key, value] of Object.entries(th)) if (!skip.has(key)) collect(value, key, strings);
   for (const [path, text] of strings) {
     assert.ok(!hasStrayLatin(text), `th.${path}: untranslated Latin in "${text}"`);

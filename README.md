@@ -29,6 +29,7 @@ npm run dev          # http://localhost:3000
 | `npm run verify:i18n` | Every Thai phrase is Thai, Thai dates and Thai place search       |
 | `npm run verify:favorites` | Saving, naming and reading back favorite places             |
 | `npm run verify:alerts` | Alert thresholds, time windows, order and tips in both languages |
+| `npm run verify:lifestyle` | Rain countdown timing and the lifestyle card rules          |
 | `npm run icons`       | Re-render the app icons and favicon from `scripts/icons/doofah-icon.svg` |
 
 Preview any sky mood with a query parameter:
@@ -37,6 +38,10 @@ Preview any sky mood with a query parameter:
 
 Preview the alert banner the same way: `/?alert=storm`, `rain`, `air`, a
 list such as `storm,air`, or `all`.
+
+Preview the rain countdown with `/?rain=soon` (rain in 20 minutes), `now`
+(heavy rain easing in 35 minutes), `later` (dry for 3 hours) or `dry`
+(dry for a day). The lifestyle cards follow the previewed countdown.
 
 ## Setting it up from scratch
 
@@ -114,6 +119,34 @@ are in `src/lib/alerts.ts`:
   becomes rain now, or unhealthy air becomes very unhealthy).
 - The simulated air is clean in the rainy season and worst in March, so AQI
   alerts are rare in September; `?alert=air` shows one.
+
+## Rain countdown and lifestyle cards
+
+The hero card opens its rain panel with a badge such as "Rain expected in 20
+min" / "ฝนจะตกในอีก 20 นาที" or "Clear sky for the next 3 hours". The rules are
+in `src/lib/rainCountdown.ts`:
+
+- The first 2 hours come from the 10-minute radar nowcast. The start (or end)
+  of rain is where the rate crosses 0.1 mm/h, interpolated between steps to the
+  minute, and the badge counts down live every 15 seconds. These times carry a
+  "Radar" chip and a marker on the rain bars.
+- After that the hourly forecast takes over: the first hour with a 50% chance
+  of rain or more, looking 24 hours ahead. A dry spell reads "Clear sky" when
+  its cloud cover averages under 40%, otherwise "No rain".
+
+Under the hero card (above the map on phones, a full row on wide screens) six cards
+answer "is now a good time?". Each is good (green), take care (amber) or not
+now (red), with the reason. The rules are in `src/lib/lifestyle.ts` and read
+the same countdown as the badge, so they never disagree with it:
+
+| Card | Red | Amber | Green |
+| ---- | --- | ----- | ----- |
+| Laundry | Raining, or rain within 4 hours | After dark or under 1.5 h of sun left; humidity 85% or more | Dry until sunset |
+| Car wash | Raining, or rain within 12 hours or later today | 50%+ chance of rain tomorrow | Dry for the next days |
+| Outdoor run | Thunderstorm within 2 h, AQI above 150, feels like 41 °C+ | Rain within the hour, feels like 36 °C+ (with the next cooler hour), AQI above 100, UV 8+ | Otherwise |
+| Commute | Heavy rain or a storm now or within 3 hours | Any rain within 3 hours, visibility under 2 km | Otherwise |
+| Sunscreen | UV 8+ still to come today | UV 3–7 | UV under 3, or the sun is down |
+| Stargazing | Rain likely or 70%+ cloud in tonight's first 5 dark hours | 35–70% cloud | Under 35% cloud |
 
 ## Home screen app (PWA)
 
@@ -203,7 +236,7 @@ shapes), and `public/screenshots/*` for the richer install dialog.
 src/
 ├── app/
 │   ├── layout.tsx                 Fonts, language, metadata, viewport, Leaflet CSS
-│   ├── page.tsx                   Renders the dashboard (reads ?sky= and ?alert=)
+│   ├── page.tsx                   Renders the dashboard (reads ?sky=, ?alert= and ?rain=)
 │   ├── manifest.ts                Web app manifest (install name, colours, icons)
 │   ├── icon.svg, apple-icon.png, favicon.ico   App icons (from `npm run icons`)
 │   └── globals.css                Glass surfaces, sky effects, touch rules, Leaflet styling
@@ -217,7 +250,9 @@ src/
 │   │   ├── FavoritesBar.tsx       One-tap chips under the header, edit mode
 │   │   ├── FavoriteStar.tsx       Star beside the place name and the naming panel
 │   │   └── FavoriteIcon.tsx       House / briefcase / pin per favorite
-│   ├── CurrentWeatherCard.tsx     Hero: temperature, feels-like, nowcast, AQI, 5×5 km badge
+│   ├── CurrentWeatherCard.tsx     Hero: temperature, feels-like, rain countdown, AQI, 5×5 km badge
+│   ├── RainCountdownPanel.tsx     Live time-to-rain badge over the radar's 2-hour rain bars
+│   ├── LifestyleIndex.tsx         Laundry, car wash, run, commute, sunscreen and stargazing cards
 │   ├── DooFahRadarMap.tsx         Radar panel: layer switcher, timeline, legend, playback
 │   ├── HourlyForecastSlider.tsx   48 h strip with sunrise/sunset markers
 │   ├── DailyForecastList.tsx      15-day list, range bars, expandable day details
@@ -252,12 +287,15 @@ src/
 │   ├── useForecast.ts             Loads + refreshes the forecast bundle
 │   ├── useRadarFrames.ts          Loads frames for the visible map area
 │   ├── useFavorites.ts            Favorite places from localStorage, synced across tabs
-│   └── useGeolocation.ts          Browser location with status
+│   ├── useGeolocation.ts          Browser location with status
+│   └── useNow.ts                  A shared clock that ticks every 15 s, for countdowns
 ├── lib/
 │   ├── alerts.ts                  When to warn about storms, rain and air, and what to do
 │   ├── colors.ts                  AQI and temperature colours
 │   ├── favorites.ts               Favorite list rules and the localStorage store
 │   ├── haptics.ts                 Short vibrations on Android and iPhone
+│   ├── lifestyle.ts               Lifestyle card rules: good, take care or not now, and why
+│   ├── rainCountdown.ts           Time to the next rain from the radar nowcast, then the hourly forecast
 │   └── pwa.ts                     Service worker registration (production only)
 └── services/
     ├── WeatherNext3MockService.ts The simulated API (start here)
@@ -278,6 +316,7 @@ scripts/verify-mock-service.ts     Checks behind `npm run verify:mock`
 scripts/verify-i18n.ts             Checks behind `npm run verify:i18n`
 scripts/verify-favorites.ts        Checks behind `npm run verify:favorites`
 scripts/verify-alerts.ts           Checks behind `npm run verify:alerts`
+scripts/verify-lifestyle.ts        Checks behind `npm run verify:lifestyle`
 scripts/generate-icons.ts          `npm run icons`, from scripts/icons/doofah-icon.svg
 ```
 

@@ -3,9 +3,11 @@ import type {
   DayOutlook,
   NowcastOutlook,
   RadarLayerType,
+  RainIntensity,
   WeatherCondition,
 } from "@/services/weathernext3/types";
 import type { AlertTip } from "@/lib/alerts";
+import type { Activity, Level, LifestyleReason } from "@/lib/lifestyle";
 
 /**
  * Every piece of UI text. Functions take already-formatted values (times,
@@ -30,6 +32,8 @@ export interface Messages {
   compass: (degrees: number) => string;
   nowcast: (outlook: NowcastOutlook) => string;
   daySummary: (outlook: DayOutlook) => string;
+  /** Why a lifestyle card got its status. `clock` formats an ISO time for the place. */
+  lifestyleReason: (reason: LifestyleReason, clock: (time: string) => string) => string;
 
   header: {
     searchPlaceholder: string;
@@ -90,6 +94,39 @@ export interface Messages {
     now: string;
     hoursAhead: (hours: number) => string;
     aqi: string;
+  };
+
+  /** The time-to-rain badge on the hero card. Durations and times arrive formatted. */
+  countdown: {
+    label: string;
+    /** "Rain expected in 20 min". */
+    rainIn: Record<RainIntensity, (duration: string) => string>;
+    /** The countdown reached zero before the next forecast update. */
+    startingNow: string;
+    raining: Record<RainIntensity, string>;
+    startsAt: (clock: string) => string;
+    easesIn: (duration: string, clock: string) => string;
+    /** When it eases, from the hourly forecast rather than the radar. */
+    easesAround: (clock: string) => string;
+    easingNow: string;
+    noBreak: (hours: number) => string;
+    clearFor: (hours: number) => string;
+    dryFor: (hours: number) => string;
+    rainFrom: (clock: string, chance: number) => string;
+    /** `day` is a weekday name, `date` a short date. */
+    nextRain: (day: string, date: string) => string;
+    nextRainTomorrow: string;
+    noRainAhead: string;
+    /** Marks a time that comes from the radar nowcast. */
+    radar: string;
+    duration: (minutes: number) => string;
+  };
+
+  /** Quick status cards for everyday plans. */
+  lifestyle: {
+    title: string;
+    activities: Record<Activity, string>;
+    status: Record<Activity, Record<Level, string>>;
   };
 
   hourly: {
