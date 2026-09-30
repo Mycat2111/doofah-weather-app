@@ -6,6 +6,7 @@ import type {
   RainIntensity,
   WeatherCondition,
 } from "@/services/weathernext3/types";
+import type { LifestyleReason } from "@/lib/lifestyle";
 import type { Messages } from "./types";
 
 // Thai typesetting notes:
@@ -13,6 +14,8 @@ import type { Messages } from "./types";
 // - "ๆ" takes a space before it (Royal Institute style). That space is a
 //   no-break space so a line never starts with "ๆ".
 const YAMOK = " ๆ";
+// Keeps "น." and units on the same line as the number before them.
+const NB = "\u00a0";
 
 const CONDITION: Record<WeatherCondition, string> = {
   clear: "ท้องฟ้าแจ่มใส",
@@ -96,6 +99,51 @@ function daySummary({ kind, period, precipitationMm, wind }: DayOutlook): string
   return text;
 }
 
+function lifestyleReason(reason: LifestyleReason, clock: (time: string) => string): string {
+  switch (reason.kind) {
+    case "rainNow":
+      return "ฝนกำลังตก";
+    case "rainAt":
+      return `ฝนอาจตกราว ${clock(reason.time)}${NB}น.`;
+    case "heavyRain":
+      return reason.time ? `ฝนตกหนักราว ${clock(reason.time)}${NB}น.` : "ฝนตกหนักขณะนี้";
+    case "rainTomorrow":
+      return `โอกาสฝนพรุ่งนี้ ${reason.chance}%`;
+    case "rainTonight":
+      return "คืนนี้มีแนวโน้มฝนตก";
+    case "dryUntil":
+      return `ไม่มีฝนถึง ${clock(reason.time)}${NB}น.`;
+    case "dryDays":
+      return `ไม่มีฝนอีก ${reason.days} วัน`;
+    case "noSun":
+      return "รอแดดตอนเช้า";
+    case "humid":
+      return `ความชื้น ${reason.humidity}% ผ้าแห้งช้า`;
+    case "storm":
+      return "มีพายุฝนฟ้าคะนองใกล้เคียง";
+    case "air":
+      return `คุณภาพอากาศ AQI ${reason.aqi}`;
+    case "heat":
+      return reason.coolerAt
+        ? `รู้สึกเหมือน ${reason.feelsLikeC}° เย็นลงตั้งแต่ ${clock(reason.coolerAt)}${NB}น.`
+        : `รู้สึกเหมือน ${reason.feelsLikeC}°`;
+    case "pleasant":
+      return `รู้สึกเหมือน ${reason.feelsLikeC}°`;
+    case "uv":
+      return `UV สูงสุด ${reason.peak} ถึง ${clock(reason.until)}${NB}น.`;
+    case "uvLow":
+      return "UV ต่ำตลอดวัน";
+    case "sunDown":
+      return "ไม่มีแดดตอนนี้";
+    case "fog":
+      return `ทัศนวิสัย ${reason.visibilityKm} กม.`;
+    case "clearRoads":
+      return "ไม่มีฝนหรือหมอก";
+    case "clouds":
+      return `คืนนี้มีเมฆ ${reason.percent}%`;
+  }
+}
+
 export const th: Messages = {
   meta: {
     title: "DooFah ดูฟ้า · พยากรณ์อากาศรอบตัวคุณ",
@@ -131,6 +179,7 @@ export const th: Messages = {
   compass: (degrees) => COMPASS[Math.round((((degrees % 360) + 360) % 360) / 45) % 8],
   nowcast,
   daySummary,
+  lifestyleReason,
 
   header: {
     searchPlaceholder: "ค้นหาเมือง… (เช่น เชียงใหม่)",
@@ -196,6 +245,61 @@ export const th: Messages = {
     now: "ตอนนี้",
     hoursAhead: (hours) => `+${hours} ชม.`,
     aqi: "AQI",
+  },
+
+  countdown: {
+    label: "นับถอยหลังฝน",
+    rainIn: {
+      drizzle: (d) => `ฝนปรอยจะมาในอีก ${d}`,
+      light: (d) => `ฝนจะตกเบา${YAMOK} ในอีก ${d}`,
+      moderate: (d) => `ฝนจะตกในอีก ${d}`,
+      heavy: (d) => `ฝนจะตกหนักในอีก ${d}`,
+    },
+    startingNow: "ฝนกำลังจะตก",
+    raining: {
+      drizzle: "มีฝนปรอยอยู่ตอนนี้",
+      light: `ฝนกำลังตกเบา${YAMOK}`,
+      moderate: "ฝนกำลังตก",
+      heavy: "ฝนกำลังตกหนัก",
+    },
+    startsAt: (clock) => `เริ่มราว ${clock}${NB}น.`,
+    easesIn: (d, clock) => `จะหยุดในอีก ${d} ราว ${clock}${NB}น.`,
+    easesAround: (clock) => `น่าจะหยุดราว ${clock}${NB}น.`,
+    easingNow: "ฝนกำลังจะหยุด",
+    noBreak: (hours) => `จะตกต่อเนื่องอีกอย่างน้อย ${hours} ชั่วโมง`,
+    clearFor: (hours) => `ท้องฟ้าโปร่งตลอด ${hours} ชั่วโมงข้างหน้า`,
+    dryFor: (hours) => `ไม่มีฝนตลอด ${hours} ชั่วโมงข้างหน้า`,
+    rainFrom: (clock, chance) => `ฝนมีแนวโน้มตกตั้งแต่ ${clock}${NB}น. · โอกาส ${chance}%`,
+    nextRain: (day, date) => `ฝนรอบถัดไปน่าจะเป็นวัน${day} ${date}`,
+    nextRainTomorrow: "ฝนรอบถัดไปน่าจะเป็นพรุ่งนี้",
+    noRainAhead: "ไม่มีฝนในพยากรณ์ 15 วัน",
+    radar: "เรดาร์",
+    duration: (minutes) => {
+      if (minutes < 60) return `${minutes}${NB}นาที`;
+      const h = Math.floor(minutes / 60);
+      const rest = minutes % 60;
+      return rest ? `${h}${NB}ชม. ${rest}${NB}นาที` : `${h}${NB}ชม.`;
+    },
+  },
+
+  lifestyle: {
+    title: "ดัชนีการใช้ชีวิต",
+    activities: {
+      laundry: "ตากผ้า",
+      carWash: "ล้างรถ",
+      run: "วิ่งกลางแจ้ง",
+      commute: "เดินทาง",
+      sunscreen: "ครีมกันแดด",
+      stargazing: "ดูดาว",
+    },
+    status: {
+      laundry: { good: "ตากได้เลย", fair: "แห้งช้า", poor: "ยังไม่ควรตาก" },
+      carWash: { good: "ล้างได้เลย", fair: "เสี่ยงฝนพรุ่งนี้", poor: "ยังไม่ควรล้าง" },
+      run: { good: "ปลอดภัย", fair: "ควรระวัง", poor: "ไม่แนะนำ" },
+      commute: { good: "สะดวก", fair: "เผื่อเวลา", poor: "อาจล่าช้า" },
+      sunscreen: { good: "ไม่จำเป็น", fair: "ควรทา", poor: "ต้องทา" },
+      stargazing: { good: "ฟ้าเปิด", fair: "เมฆบางส่วน", poor: "ฟ้าปิด" },
+    },
   },
 
   hourly: {

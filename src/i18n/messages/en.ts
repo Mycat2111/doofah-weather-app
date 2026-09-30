@@ -1,5 +1,6 @@
 import { describeDayEn, describeNowcastEn } from "@/services/weathernext3/describe";
 import type { WeatherCondition } from "@/services/weathernext3/types";
+import type { LifestyleReason } from "@/lib/lifestyle";
 import type { Messages } from "./types";
 
 const CONDITION: Record<WeatherCondition, string> = {
@@ -13,6 +14,51 @@ const CONDITION: Record<WeatherCondition, string> = {
   thunderstorm: "Thunderstorms",
   snow: "Snow",
 };
+
+function lifestyleReason(reason: LifestyleReason, clock: (time: string) => string): string {
+  switch (reason.kind) {
+    case "rainNow":
+      return "Raining now";
+    case "rainAt":
+      return `Rain likely around ${clock(reason.time)}`;
+    case "heavyRain":
+      return reason.time ? `Heavy rain around ${clock(reason.time)}` : "Heavy rain now";
+    case "rainTomorrow":
+      return `${reason.chance}% chance of rain tomorrow`;
+    case "rainTonight":
+      return "Rain likely tonight";
+    case "dryUntil":
+      return `Dry until ${clock(reason.time)}`;
+    case "dryDays":
+      return `Dry for the next ${reason.days} days`;
+    case "noSun":
+      return "Wait for the morning sun";
+    case "humid":
+      return `Humid air (${reason.humidity}%) dries slowly`;
+    case "storm":
+      return "Thunderstorms nearby";
+    case "air":
+      return `Air quality AQI ${reason.aqi}`;
+    case "heat":
+      return reason.coolerAt
+        ? `Feels like ${reason.feelsLikeC}°, cooler from ${clock(reason.coolerAt)}`
+        : `Feels like ${reason.feelsLikeC}°`;
+    case "pleasant":
+      return `Feels like ${reason.feelsLikeC}°`;
+    case "uv":
+      return `UV up to ${reason.peak} until ${clock(reason.until)}`;
+    case "uvLow":
+      return "UV stays low today";
+    case "sunDown":
+      return "The sun is down";
+    case "fog":
+      return `Visibility ${reason.visibilityKm} km`;
+    case "clearRoads":
+      return "No rain or fog ahead";
+    case "clouds":
+      return `${reason.percent}% cloud tonight`;
+  }
+}
 
 const COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
 
@@ -51,6 +97,7 @@ export const en: Messages = {
   compass: (degrees) => COMPASS[Math.round((((degrees % 360) + 360) % 360) / 22.5) % 16],
   nowcast: describeNowcastEn,
   daySummary: describeDayEn,
+  lifestyleReason,
 
   header: {
     searchPlaceholder: "Search a city… (e.g. Chiang Mai)",
@@ -116,6 +163,56 @@ export const en: Messages = {
     now: "Now",
     hoursAhead: (hours) => `+${hours} h`,
     aqi: "AQI",
+  },
+
+  countdown: {
+    label: "Rain countdown",
+    rainIn: {
+      drizzle: (d) => `Drizzle expected in ${d}`,
+      light: (d) => `Light rain expected in ${d}`,
+      moderate: (d) => `Rain expected in ${d}`,
+      heavy: (d) => `Heavy rain expected in ${d}`,
+    },
+    startingNow: "Rain starting now",
+    raining: { drizzle: "Drizzle now", light: "Light rain now", moderate: "Raining now", heavy: "Heavy rain now" },
+    startsAt: (clock) => `Starts around ${clock}`,
+    easesIn: (d, clock) => `Easing in ${d}, around ${clock}`,
+    easesAround: (clock) => `Likely to ease around ${clock}`,
+    easingNow: "Easing now",
+    noBreak: (hours) => `No break for at least ${hours} hours`,
+    clearFor: (hours) => `Clear sky for the next ${hours} hours`,
+    dryFor: (hours) => `No rain for the next ${hours} hours`,
+    rainFrom: (clock, chance) => `Rain likely from ${clock} · ${chance}% chance`,
+    nextRain: (day, date) => `Next rain likely ${day}, ${date}`,
+    nextRainTomorrow: "Next rain likely tomorrow",
+    noRainAhead: "No rain in the 15-day outlook",
+    radar: "Radar",
+    duration: (minutes) => {
+      if (minutes < 60) return `${minutes} min`;
+      const h = Math.floor(minutes / 60);
+      const rest = minutes % 60;
+      return rest ? `${h} h ${rest} min` : `${h} h`;
+    },
+  },
+
+  lifestyle: {
+    title: "Lifestyle index",
+    activities: {
+      laundry: "Laundry",
+      carWash: "Car wash",
+      run: "Outdoor run",
+      commute: "Commute",
+      sunscreen: "Sunscreen",
+      stargazing: "Stargazing",
+    },
+    status: {
+      laundry: { good: "Good time", fair: "Slow drying", poor: "Hold off" },
+      carWash: { good: "Good day to wash", fair: "Risk of rain tomorrow", poor: "Not today" },
+      run: { good: "Safe", fair: "Take care", poor: "Not advised" },
+      commute: { good: "Smooth", fair: "Allow extra time", poor: "Delays likely" },
+      sunscreen: { good: "Not needed", fair: "Recommended", poor: "Essential" },
+      stargazing: { good: "Clear skies", fair: "Patchy cloud", poor: "Cloudy" },
+    },
   },
 
   hourly: {
