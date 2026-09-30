@@ -40,7 +40,7 @@ export function useRadarFrames(layer: RadarLayerType, bounds: GeoBounds | null) 
           setState((prev) => ({
             ...prev,
             key: requestKey,
-            error: error instanceof Error ? error.message : "Could not load map layer",
+            error: error instanceof Error ? error.message : String(error),
           }));
         }
       });

@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "verify:mock": "tsx scripts/verify-mock-service.ts"
+    "verify:mock": "tsx scripts/verify-mock-service.ts",
+    "verify:i18n": "tsx scripts/verify-i18n.ts"
   },
   "dependencies": {
     "framer-motion": "^13.4.6",

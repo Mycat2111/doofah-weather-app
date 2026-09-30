@@ -3,7 +3,10 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { LoaderCircle, LocateFixed, MapPin, Search, X } from "lucide-react";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { LanguageToggle } from "@/components/LanguageToggle";
 import type { GeolocationStatus } from "@/hooks/useGeolocation";
+import { useI18n } from "@/i18n/I18nProvider";
+import { placeLabel } from "@/i18n/places";
 import { weatherNext3, type Place } from "@/services/WeatherNext3MockService";
 
 interface DooFahHeaderProps {
@@ -14,6 +17,7 @@ interface DooFahHeaderProps {
 }
 
 export function DooFahHeader({ place, onSelectPlace, onLocate, geoStatus }: DooFahHeaderProps) {
+  const { locale, m } = useI18n();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Place[]>([]);
@@ -72,23 +76,28 @@ export function DooFahHeader({ place, onSelectPlace, onLocate, geoStatus }: DooF
 
   const geoHint =
     geoStatus === "denied"
-      ? "Location permission was denied"
+      ? m.header.locateDenied
       : geoStatus === "unavailable"
-        ? "Location is unavailable"
-        : "Use my location";
+        ? m.header.locateUnavailable
+        : m.header.locate;
 
   return (
     <header className="relative z-30 flex items-center gap-3">
       <motion.div
-        className="flex min-w-0 items-baseline gap-2"
+        className={`min-w-0 items-baseline gap-2 ${open ? "hidden sm:flex" : "flex"}`}
         initial={{ opacity: 0, x: -12 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
       >
-        <span className="bg-gradient-to-r from-white via-sky-100 to-amber-100 bg-clip-text text-2xl font-semibold tracking-tight text-transparent sm:text-[28px]">
+        <span
+          lang="en"
+          className="bg-gradient-to-r from-white via-sky-100 to-amber-100 bg-clip-text text-2xl font-semibold tracking-tight text-transparent sm:text-[28px]"
+        >
           DooFah
         </span>
-        <span className="hidden text-sm font-medium text-white/55 sm:inline">ดูฟ้า</span>
+        <span lang="th" className="hidden text-sm font-medium text-white/55 sm:inline">
+          ดูฟ้า
+        </span>
       </motion.div>
 
       <div className="ml-auto flex items-center gap-2">
@@ -97,7 +106,7 @@ export function DooFahHeader({ place, onSelectPlace, onLocate, geoStatus }: DooF
             layout
             transition={{ type: "spring", stiffness: 420, damping: 36 }}
             className={`glass-chip flex h-11 items-center overflow-hidden rounded-full ${
-              open ? "w-[min(78vw,340px)] pl-4 pr-1.5" : "w-auto"
+              open ? "w-[min(74vw,340px)] pl-4 pr-1.5" : "w-auto"
             }`}
           >
             {open ? (
@@ -109,18 +118,18 @@ export function DooFahHeader({ place, onSelectPlace, onLocate, geoStatus }: DooF
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={onKeyDown}
                   onBlur={() => window.setTimeout(close, 150)}
-                  placeholder="Search a city… (e.g. Chiang Mai)"
+                  placeholder={m.header.searchPlaceholder}
                   className="h-full min-w-0 flex-1 bg-transparent px-2.5 text-sm text-white placeholder:text-white/45 focus:outline-none"
                   role="combobox"
                   aria-expanded={results.length > 0}
                   aria-controls={listId}
-                  aria-label="Search for a place"
+                  aria-label={m.header.searchLabel}
                 />
                 <button
                   type="button"
                   onClick={close}
                   className="grid size-8 place-items-center rounded-full text-white/70 hover:bg-white/10"
-                  aria-label="Close search"
+                  aria-label={m.header.closeSearch}
                 >
                   <X className="size-4" />
                 </button>
@@ -130,10 +139,10 @@ export function DooFahHeader({ place, onSelectPlace, onLocate, geoStatus }: DooF
                 type="button"
                 onClick={() => setOpen(true)}
                 className="flex h-full items-center gap-2 px-4 text-sm text-white/85 hover:text-white"
-                aria-label="Search for a place"
+                aria-label={m.header.searchLabel}
               >
                 <Search className="size-4" />
-                <span className="hidden max-w-[160px] truncate md:inline">{place.name}</span>
+                <span className="hidden max-w-[160px] truncate md:inline">{placeLabel(place, locale).name}</span>
               </button>
             )}
           </motion.div>
@@ -147,33 +156,34 @@ export function DooFahHeader({ place, onSelectPlace, onLocate, geoStatus }: DooF
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -6, scale: 0.98 }}
                 transition={{ duration: 0.18 }}
-                className="glass-dark absolute right-0 mt-2 w-[min(78vw,340px)] overflow-hidden rounded-2xl p-1.5 shadow-2xl"
+                className="glass-dark absolute right-0 mt-2 w-[min(74vw,340px)] overflow-hidden rounded-2xl p-1.5 shadow-2xl"
                 style={{ background: "rgba(12, 16, 34, 0.9)" }}
               >
-                {results.map((r, i) => (
-                  <li key={r.id} role="option" aria-selected={i === active}>
-                    <button
-                      type="button"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => choose(r)}
-                      onMouseEnter={() => setActive(i)}
-                      className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${
-                        i === active ? "bg-white/12" : ""
-                      }`}
-                    >
-                      <MapPin className="size-4 shrink-0 text-sky-300" aria-hidden />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm text-white">
-                          {r.name}
-                          {r.localName && <span className="ml-1.5 text-white/50">{r.localName}</span>}
+                {results.map((r, i) => {
+                  const label = placeLabel(r, locale);
+                  return (
+                    <li key={r.id} role="option" aria-selected={i === active}>
+                      <button
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => choose(r)}
+                        onMouseEnter={() => setActive(i)}
+                        className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${
+                          i === active ? "bg-white/12" : ""
+                        }`}
+                      >
+                        <MapPin className="size-4 shrink-0 text-sky-300" aria-hidden />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm text-white">
+                            {label.name}
+                            {label.localName && <span className="ml-1.5 text-white/50">{label.localName}</span>}
+                          </span>
+                          <span className="block truncate text-xs text-white/50">{label.area}</span>
                         </span>
-                        <span className="block truncate text-xs text-white/50">
-                          {[r.region, r.country].filter(Boolean).join(", ")}
-                        </span>
-                      </span>
-                    </button>
-                  </li>
-                ))}
+                      </button>
+                    </li>
+                  );
+                })}
               </motion.ul>
             )}
           </AnimatePresence>
@@ -196,6 +206,9 @@ export function DooFahHeader({ place, onSelectPlace, onLocate, geoStatus }: DooF
             <LocateFixed className="size-[18px]" />
           )}
         </motion.button>
+
+        {/* Makes room for the open search field on phones. */}
+        <LanguageToggle className={open ? "hidden sm:flex" : "flex"} />
       </div>
     </header>
   );

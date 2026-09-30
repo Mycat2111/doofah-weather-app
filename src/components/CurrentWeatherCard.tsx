@@ -4,7 +4,9 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Grid3x3, Leaf, Umbrella } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { WeatherIcon } from "@/components/ui/WeatherIcon";
-import { AQI_STYLE, conditionLabel, formatClock, formatTemp } from "@/lib/format";
+import { useI18n } from "@/i18n/I18nProvider";
+import { placeLabel } from "@/i18n/places";
+import { AQI_COLOR } from "@/lib/colors";
 import type { CurrentConditions, DailyForecast } from "@/services/WeatherNext3MockService";
 
 interface CurrentWeatherCardProps {
@@ -14,13 +16,19 @@ interface CurrentWeatherCardProps {
 }
 
 export function CurrentWeatherCard({ current, today, className = "" }: CurrentWeatherCardProps) {
+  const { locale, m, f } = useI18n();
   const { sample, place, airQuality, cell, nowcast } = current;
   const tz = place.timeZone;
-  const aqiStyle = AQI_STYLE[airQuality.category];
+  const label = placeLabel(place, locale);
+  const aqiColor = AQI_COLOR[airQuality.category];
   const maxStep = Math.max(2, ...nowcast.steps.map((s) => s.precipitationMm));
 
   return (
-    <GlassCard className={`relative flex flex-col overflow-hidden p-6 sm:p-7 ${className}`} index={0} aria-label="Current weather">
+    <GlassCard
+      className={`relative flex flex-col overflow-hidden p-6 sm:p-7 ${className}`}
+      index={0}
+      aria-label={m.hero.label}
+    >
       {/* Location */}
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
@@ -32,20 +40,22 @@ export function CurrentWeatherCard({ current, today, className = "" }: CurrentWe
               exit={{ opacity: 0, y: -8 }}
               className="truncate text-2xl font-medium tracking-tight text-shadow-soft sm:text-[28px]"
             >
-              {place.name}
-              {place.localName && <span className="ml-2 text-lg font-normal text-white/60">{place.localName}</span>}
+              {label.name}
+              {label.localName && <span className="ml-2 text-lg font-normal text-white/60">{label.localName}</span>}
             </motion.h1>
           </AnimatePresence>
           <p className="mt-0.5 truncate text-sm text-white/60">
-            {[place.region, place.country].filter(Boolean).join(", ")} · Updated {formatClock(current.observedAt, tz)}
+            {label.area} · {m.hero.updated(f.clock(current.observedAt, tz))}
           </p>
         </div>
         <span
           className="glass-chip flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-medium text-white/85"
-          title={`WeatherNext 3 grid cell ${cell.id}`}
+          title={m.hero.cellTitle(cell.id)}
         >
           <Grid3x3 className="size-3.5 text-sky-200" aria-hidden />
-          5×5 km<span className="hidden sm:inline"> precision</span>
+          {m.hero.precisionBefore && <span className="hidden sm:inline">{m.hero.precisionBefore}</span>}
+          5×5 {m.units.km}
+          {m.hero.precisionAfter && <span className="hidden sm:inline">{m.hero.precisionAfter}</span>}
         </span>
       </div>
 
@@ -61,16 +71,18 @@ export function CurrentWeatherCard({ current, today, className = "" }: CurrentWe
               transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
               className="text-[104px] leading-[0.9] font-extralight tracking-[-0.06em] text-shadow-soft sm:text-[128px]"
             >
-              {formatTemp(sample.temperatureC)}
+              {f.temp(sample.temperatureC)}
             </motion.div>
           </AnimatePresence>
-          <p className="mt-3 text-lg font-medium">{conditionLabel(sample.condition, sample.isDay)}</p>
+          <p className="mt-3 text-lg font-medium">{m.condition(sample.condition, sample.isDay)}</p>
           <p className="text-sm text-white/65">
-            Feels like {formatTemp(sample.feelsLikeC)}
+            <span className="whitespace-nowrap">{m.hero.feelsLike(f.temp(sample.feelsLikeC))}</span>
             {today && (
               <>
-                {" "}
-                · H {formatTemp(today.maxTempC)} L {formatTemp(today.minTempC)}
+                {" · "}
+                <span className="whitespace-nowrap">
+                  {m.hero.highLow(f.temp(today.maxTempC), f.temp(today.minTempC))}
+                </span>
               </>
             )}
           </p>
@@ -92,7 +104,7 @@ export function CurrentWeatherCard({ current, today, className = "" }: CurrentWe
       <div className="mt-auto rounded-2xl bg-black/10 p-3.5">
         <div className="flex items-center gap-2 text-sm">
           <Umbrella className="size-4 text-sky-200" aria-hidden />
-          <span className="text-white/90">{nowcast.summary}</span>
+          <span className="text-white/90">{m.nowcast(nowcast.outlook)}</span>
         </div>
         <div className="mt-3 flex h-8 items-end gap-1" aria-hidden>
           {nowcast.steps.map((s, i) => (
@@ -106,23 +118,25 @@ export function CurrentWeatherCard({ current, today, className = "" }: CurrentWe
             />
           ))}
         </div>
-        <div className="mt-1 flex justify-between text-[10px] text-white/45">
-          <span>Now</span>
-          <span>+1 h</span>
-          <span>+2 h</span>
+        <div className="mt-1 flex justify-between text-[10px] text-white/45 th:text-[11px]">
+          <span>{m.hero.now}</span>
+          <span>{m.hero.hoursAhead(1)}</span>
+          <span>{m.hero.hoursAhead(2)}</span>
         </div>
       </div>
 
       {/* Air quality */}
       <div className="mt-4 flex items-center gap-3">
-        <Leaf className="size-4 shrink-0" style={{ color: aqiStyle.color }} aria-hidden />
+        <Leaf className="size-4 shrink-0" style={{ color: aqiColor }} aria-hidden />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between text-sm">
             <span className="text-white/90">
-              AQI <span className="font-semibold">{airQuality.aqi}</span>
-              <span className="ml-1.5 text-white/60">{aqiStyle.short}</span>
+              {m.hero.aqi} <span className="font-semibold">{airQuality.aqi}</span>
+              <span className="ml-1.5 text-white/60">{m.aqi[airQuality.category]}</span>
             </span>
-            <span className="text-xs text-white/50">PM2.5 {airQuality.pm25} µg/m³</span>
+            <span className="text-xs text-white/50">
+              PM2.5 {airQuality.pm25} {m.units.microgramsPerCubicMetre}
+            </span>
           </div>
           <div className="relative mt-1.5 h-1.5 rounded-full bg-[linear-gradient(90deg,#4ade80,#facc15_20%,#fb923c_40%,#f87171_60%,#c084fc_80%,#be123c)]">
             <motion.span

@@ -29,7 +29,8 @@ export function useForecast(place: Place) {
           setState((prev) => ({
             ...prev,
             placeId: place.id,
-            error: error instanceof Error ? error.message : "Could not load the forecast",
+            // Technical detail only; the dashboard shows its own translated message.
+            error: error instanceof Error ? error.message : String(error),
           }));
         }
       });

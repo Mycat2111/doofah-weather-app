@@ -25,8 +25,10 @@ export function GlassCard({ children, className = "", index = 0, ...props }: Gla
 }
 
 export function CardLabel({ icon, children }: { icon?: ReactNode; children: ReactNode }) {
+  // Thai has no capitals and letter-spacing pulls its marks apart, so Thai
+  // labels trade the small spaced caps for a slightly larger plain weight.
   return (
-    <h2 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/55">
+    <h2 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/55 th:text-[13px] th:font-medium th:tracking-normal th:text-white/65">
       {icon}
       {children}
     </h2>

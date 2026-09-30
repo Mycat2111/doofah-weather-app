@@ -1,7 +1,11 @@
 @import "tailwindcss";
 
+/* `th:` styles apply only while the page is in Thai (<html lang="th">). */
+@custom-variant th (&:lang(th));
+
 @theme inline {
-  --font-sans: var(--font-geist-sans);
+  /* Geist sets Latin letters and digits; Thai characters fall through to Anuphan. */
+  --font-sans: var(--font-geist-sans), var(--font-thai);
   --font-mono: var(--font-geist-mono);
 }
 
@@ -17,8 +21,26 @@ html {
 
 body {
   color: #fff;
-  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-geist-sans), var(--font-thai), ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+/* ------------------------------------------------------------------ */
+/* Thai typography                                                     */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Thai stacks vowels and tone marks above and below each letter, so it needs
+ * more line height than Latin text; tight Latin leading clips the marks in
+ * single-line (truncated) text. These override Tailwind's text-size leading.
+ */
+html:lang(th) {
+  --text-xs--line-height: 1.6;
+  --text-sm--line-height: 1.6;
+  --text-base--line-height: 1.6;
+  --text-lg--line-height: 1.6;
+  --text-2xl--line-height: 1.5;
+  line-height: 1.6;
 }
 
 /* ------------------------------------------------------------------ */

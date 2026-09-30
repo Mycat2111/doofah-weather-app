@@ -12,6 +12,7 @@ import { HourlyForecastSlider } from "@/components/HourlyForecastSlider";
 import { WeatherDetailsGrid } from "@/components/WeatherDetailsGrid";
 import { useForecast } from "@/hooks/useForecast";
 import { useGeolocation } from "@/hooks/useGeolocation";
+import { useI18n } from "@/i18n/I18nProvider";
 import {
   DEFAULT_PLACE,
   weatherNext3,
@@ -26,6 +27,7 @@ interface DooFahDashboardProps {
 }
 
 export function DooFahDashboard({ atmosphereOverride }: DooFahDashboardProps) {
+  const { m } = useI18n();
   const [place, setPlace] = useState<Place>(DEFAULT_PLACE);
   const { data, loading, error, refresh } = useForecast(place);
 
@@ -46,9 +48,11 @@ export function DooFahDashboard({ atmosphereOverride }: DooFahDashboardProps) {
         {error && (
           <div role="alert" className="glass mt-5 flex items-center gap-3 rounded-2xl px-4 py-3 text-sm">
             <AlertTriangle className="size-4 text-amber-200" />
-            <span className="flex-1">{error}</span>
+            <span className="flex-1" title={error}>
+              {m.errors.forecast}
+            </span>
             <button type="button" onClick={refresh} className="flex items-center gap-1 text-sky-200 hover:text-white">
-              <RotateCw className="size-3.5" /> Retry
+              <RotateCw className="size-3.5" /> {m.errors.retry}
             </button>
           </div>
         )}
@@ -91,8 +95,13 @@ export function DooFahDashboard({ atmosphereOverride }: DooFahDashboardProps) {
         </div>
 
         <footer className="mt-10 text-center text-xs text-white/45">
-          DooFah ดูฟ้า · Forecast data is simulated in the style of WeatherNext 3 (5 km grid, hourly, 15 days)
-          {data && <> · model run {new Date(data.current.model.runInitTime).toISOString().slice(0, 16).replace("T", " ")} UTC</>}
+          {m.footer.credit}
+          {data && (
+            <>
+              {" · "}
+              {m.footer.modelRun(new Date(data.current.model.runInitTime).toISOString().slice(0, 16).replace("T", " "))}
+            </>
+          )}
         </footer>
       </main>
     </>
