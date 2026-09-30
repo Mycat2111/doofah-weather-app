@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { refreshOfflinePage } from "@/lib/pwa";
 import { LOCALE_COOKIE, type Locale } from "./config";
 import { createFormatters, type Formatters } from "./format";
 import { MESSAGES, type Messages } from "./messages";
@@ -25,6 +26,8 @@ export function I18nProvider({ initialLocale, children }: { initialLocale: Local
     setLocaleState(next);
     // Remembered for the next visit; the server reads it to render in this language.
     document.cookie = `${LOCALE_COOKIE}=${next}; path=/; max-age=${ONE_YEAR_S}; samesite=lax`;
+    // The saved offline copy of the page should open in the new language too.
+    refreshOfflinePage();
   }, []);
 
   // <html lang> drives the Thai typography rules and screen-reader voices.

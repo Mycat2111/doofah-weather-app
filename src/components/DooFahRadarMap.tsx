@@ -1,12 +1,14 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { LoaderCircle, Radar } from "lucide-react";
+import type { Map as LeafletMap } from "leaflet";
+import { Hand, LoaderCircle, Radar } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
 import { LayerSwitcher } from "@/components/radar/LayerSwitcher";
 import { RadarLegend } from "@/components/radar/RadarLegend";
 import { TimelineScrubber } from "@/components/radar/TimelineScrubber";
+import { ZoomButtons } from "@/components/radar/ZoomButtons";
 import { TIMELINE_FROM, TIMELINE_TO, useRadarFrames } from "@/hooks/useRadarFrames";
 import { useI18n } from "@/i18n/I18nProvider";
 import { snapToGrid, type GeoBounds, type Place, type RadarLayerType } from "@/services/WeatherNext3MockService";
@@ -53,6 +55,8 @@ export function DooFahRadarMap({ place, className = "" }: DooFahRadarMapProps) {
   const [bounds, setBounds] = useState<GeoBounds | null>(null);
   const [frameIndex, setFrameIndex] = useState(NOW_INDEX);
   const [playing, setPlaying] = useState(false);
+  const [map, setMap] = useState<LeafletMap | null>(null);
+  const [gestureHint, setGestureHint] = useState(false);
   const { frameSet, loading } = useRadarFrames(layer, bounds);
 
   // Time-lapse playback.
@@ -83,8 +87,33 @@ export function DooFahRadarMap({ place, className = "" }: DooFahRadarMapProps) {
           grid={frameSet?.grid}
           frame={frame}
           onViewChange={onViewChange}
+          onMap={setMap}
+          onGestureHint={setGestureHint}
         />
       </div>
+
+      {/* One finger scrolls the page on touch screens; say how to move the map. */}
+      <AnimatePresence>
+        {gestureHint && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="pointer-events-none absolute inset-0 z-20 grid place-items-center bg-black/45 p-6"
+          >
+            <motion.p
+              initial={{ scale: 0.92 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.96 }}
+              className="glass-dark flex items-center gap-2.5 rounded-full px-4 py-2.5 text-sm font-medium"
+            >
+              <Hand className="size-4 shrink-0 text-sky-200" aria-hidden />
+              {m.radar.twoFingers}
+            </motion.p>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Top overlay */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-wrap items-start justify-between gap-2 bg-gradient-to-b from-black/35 to-transparent p-3 sm:p-4">
@@ -115,6 +144,8 @@ export function DooFahRadarMap({ place, className = "" }: DooFahRadarMapProps) {
         </div>
       </div>
 
+      <ZoomButtons map={map} className="absolute right-3 top-[74px] z-10 sm:right-4" />
+
       {/* Bottom overlay: timeline + legend */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 p-3 sm:p-4">
         <div className="glass-dark pointer-events-auto flex flex-col gap-3 rounded-3xl p-3 sm:flex-row sm:items-center sm:gap-5 sm:p-4">
@@ -134,7 +165,17 @@ export function DooFahRadarMap({ place, className = "" }: DooFahRadarMapProps) {
             />
           </div>
           <div className="border-white/10 sm:border-l sm:pl-5">
-            <RadarLegend layer={layer} />
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={layer}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.16 }}
+              >
+                <RadarLegend layer={layer} />
+              </motion.div>
+            </AnimatePresence>
             <p className="mt-1 text-right text-[9px] text-white/40 th:text-[10px]">
               {m.radar.attribution.before}
               <a

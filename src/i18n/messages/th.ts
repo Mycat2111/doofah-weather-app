@@ -234,6 +234,9 @@ export const th: Messages = {
     analysis: "ข้อมูลล่าสุด",
     forecast: "พยากรณ์",
     outsideArea: "นอกพื้นที่ที่โหลดไว้",
+    zoomIn: "ซูมเข้า",
+    zoomOut: "ซูมออก",
+    twoFingers: "ใช้สองนิ้วเพื่อเลื่อนแผนที่",
     // The wording openstreetmap.org itself uses in Thai.
     attribution: { before: "แผนที่ © ผู้ร่วมให้ข้อมูล ", after: "" },
     probe: {

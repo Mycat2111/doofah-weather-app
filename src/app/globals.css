@@ -23,6 +23,39 @@ body {
   color: #fff;
   font-family: var(--font-geist-sans), var(--font-thai), ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+  /* The page draws under the notch and home indicator (viewport-fit=cover);
+     keep the content clear of them. All zero in a normal browser tab. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* ------------------------------------------------------------------ */
+/* Touch                                                               */
+/* ------------------------------------------------------------------ */
+
+html {
+  /* Pressed states come from the components' own animations instead. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+a {
+  /* No double-tap-to-zoom wait before a tap registers. */
+  touch-action: manipulation;
+}
+
+button {
+  -webkit-user-select: none;
+  user-select: none;
+  /* No "copy / look up" callout on a long press in the iOS app. */
+  -webkit-touch-callout: none;
+}
+
+@media (display-mode: standalone) {
+  /* An installed app should not rubber-band the whole page past its edges. */
+  html,
+  body {
+    overscroll-behavior-y: none;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -212,65 +245,6 @@ html:lang(th) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Timeline scrubber                                                   */
-/* ------------------------------------------------------------------ */
-
-.doofah-range {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 28px;
-  background: transparent;
-  cursor: pointer;
-}
-.doofah-range:focus {
-  outline: none;
-}
-.doofah-range::-webkit-slider-runnable-track {
-  height: 4px;
-  border-radius: 9999px;
-  background: transparent;
-}
-.doofah-range::-moz-range-track {
-  height: 4px;
-  border-radius: 9999px;
-  background: transparent;
-}
-.doofah-range::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  margin-top: -8px;
-  width: 20px;
-  height: 20px;
-  border-radius: 9999px;
-  background: #fff;
-  border: 0;
-  box-shadow:
-    0 0 0 5px rgba(255, 255, 255, 0.18),
-    0 4px 14px rgba(0, 0, 0, 0.4);
-  transition: box-shadow 0.2s;
-}
-.doofah-range::-moz-range-thumb {
-  width: 20px;
-  height: 20px;
-  border-radius: 9999px;
-  background: #fff;
-  border: 0;
-  box-shadow:
-    0 0 0 5px rgba(255, 255, 255, 0.18),
-    0 4px 14px rgba(0, 0, 0, 0.4);
-}
-.doofah-range:focus-visible::-webkit-slider-thumb {
-  box-shadow:
-    0 0 0 6px rgba(125, 211, 252, 0.55),
-    0 4px 14px rgba(0, 0, 0, 0.4);
-}
-.doofah-range:focus-visible::-moz-range-thumb {
-  box-shadow:
-    0 0 0 6px rgba(125, 211, 252, 0.55),
-    0 4px 14px rgba(0, 0, 0, 0.4);
-}
-
-/* ------------------------------------------------------------------ */
 /* Leaflet                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -295,21 +269,6 @@ html:lang(th) {
   color: rgba(186, 230, 253, 0.85);
 }
 
-.doofah-map .leaflet-control-zoom {
-  border: 1px solid rgba(255, 255, 255, 0.14) !important;
-  border-radius: 14px !important;
-  overflow: hidden;
-  backdrop-filter: blur(14px);
-}
-.doofah-map .leaflet-control-zoom a {
-  background: rgba(10, 14, 30, 0.55);
-  color: #fff;
-  border-bottom-color: rgba(255, 255, 255, 0.12);
-}
-.doofah-map .leaflet-control-zoom a:hover {
-  background: rgba(30, 40, 70, 0.75);
-}
-
 .doofah-user-marker {
   position: relative;
 }
@@ -332,10 +291,6 @@ html:lang(th) {
 .doofah-canvas-layer {
   pointer-events: none;
   transition: opacity 0.25s ease;
-}
-
-.doofah-map .leaflet-top.leaflet-right {
-  top: 64px;
 }
 
 .doofah-popup .leaflet-popup-content-wrapper {

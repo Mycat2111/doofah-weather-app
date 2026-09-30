@@ -4,10 +4,12 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Star } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { FavoriteIcon } from "@/components/favorites/FavoriteIcon";
+import { TapButton } from "@/components/ui/TapButton";
 import { useFavorites } from "@/hooks/useFavorites";
 import { useI18n } from "@/i18n/I18nProvider";
 import { placeLabel } from "@/i18n/places";
 import { FAVORITE_KINDS } from "@/lib/favorites";
+import { haptic } from "@/lib/haptics";
 import type { Place } from "@/services/WeatherNext3MockService";
 
 /**
@@ -46,6 +48,7 @@ export function FavoriteStar({ place }: { place: Place }) {
     if (favorite) {
       setOpen((o) => !o);
     } else {
+      haptic("success");
       add(place);
       setOpen(true);
     }
@@ -115,9 +118,9 @@ export function FavoriteStar({ place }: { place: Place }) {
               {FAVORITE_KINDS.map((kind) => {
                 const selected = favorite.kind === kind;
                 return (
-                  <button
+                  <TapButton
                     key={kind}
-                    type="button"
+                    haptic="selection"
                     aria-pressed={selected}
                     // Stored as a kind, not text, so it follows the UI language.
                     onClick={() => rename(place, selected ? { kind: null } : { kind, name: "" })}
@@ -129,14 +132,14 @@ export function FavoriteStar({ place }: { place: Place }) {
                   >
                     <FavoriteIcon kind={kind} className="size-4" />
                     {m.favorites[kind]}
-                  </button>
+                  </TapButton>
                 );
               })}
             </div>
 
             <div className="mt-4 flex items-center justify-between gap-3">
-              <button
-                type="button"
+              <TapButton
+                haptic="light"
                 onClick={() => {
                   remove(place);
                   setOpen(false);
@@ -144,14 +147,13 @@ export function FavoriteStar({ place }: { place: Place }) {
                 className="rounded-full px-1 text-sm text-rose-200 hover:text-rose-100"
               >
                 {m.favorites.removeShort}
-              </button>
-              <button
-                type="button"
+              </TapButton>
+              <TapButton
                 onClick={() => setOpen(false)}
                 className="h-9 rounded-full bg-white px-5 text-sm font-medium text-slate-900 hover:bg-white/90"
               >
                 {m.favorites.done}
-              </button>
+              </TapButton>
             </div>
           </motion.div>
         )}

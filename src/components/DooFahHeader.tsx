@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { LoaderCircle, LocateFixed, MapPin, Search, Star, X } from "lucide-react";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { LanguageToggle } from "@/components/LanguageToggle";
+import { TapButton } from "@/components/ui/TapButton";
 import { useFavorites } from "@/hooks/useFavorites";
 import type { GeolocationStatus } from "@/hooks/useGeolocation";
 import { useI18n } from "@/i18n/I18nProvider";
@@ -127,25 +128,25 @@ export function DooFahHeader({ place, onSelectPlace, onLocate, geoStatus }: DooF
                   aria-controls={listId}
                   aria-label={m.header.searchLabel}
                 />
-                <button
-                  type="button"
+                <TapButton
+                  tapScale={0.85}
                   onClick={close}
                   className="grid size-8 place-items-center rounded-full text-white/70 hover:bg-white/10"
                   aria-label={m.header.closeSearch}
                 >
                   <X className="size-4" />
-                </button>
+                </TapButton>
               </>
             ) : (
-              <button
-                type="button"
+              <TapButton
+                tapScale={0.92}
                 onClick={() => setOpen(true)}
                 className="flex h-full items-center gap-2 px-4 text-sm text-white/85 hover:text-white"
                 aria-label={m.header.searchLabel}
               >
                 <Search className="size-4" />
                 <span className="hidden max-w-[160px] truncate md:inline">{placeLabel(place, locale).name}</span>
-              </button>
+              </TapButton>
             )}
           </motion.div>
 
@@ -188,8 +189,9 @@ export function DooFahHeader({ place, onSelectPlace, onLocate, geoStatus }: DooF
                         </span>
                       </button>
                       {/* Stars a result without leaving the search. */}
-                      <button
-                        type="button"
+                      <TapButton
+                        haptic={saved ? "light" : "success"}
+                        tapScale={0.85}
                         onMouseDown={(e) => e.preventDefault()}
                         onClick={() => (saved ? favorites.remove(r) : favorites.add(r))}
                         aria-pressed={saved}
@@ -201,7 +203,7 @@ export function DooFahHeader({ place, onSelectPlace, onLocate, geoStatus }: DooF
                           className={`size-4 ${saved ? "fill-amber-300 text-amber-300" : "text-white/45"}`}
                           aria-hidden
                         />
-                      </button>
+                      </TapButton>
                     </li>
                   );
                 })}
@@ -210,9 +212,9 @@ export function DooFahHeader({ place, onSelectPlace, onLocate, geoStatus }: DooF
           </AnimatePresence>
         </div>
 
-        <motion.button
-          type="button"
-          whileTap={{ scale: 0.92 }}
+        <TapButton
+          haptic="light"
+          tapScale={0.92}
           onClick={onLocate}
           disabled={geoStatus === "locating"}
           title={geoHint}
@@ -226,7 +228,7 @@ export function DooFahHeader({ place, onSelectPlace, onLocate, geoStatus }: DooF
           ) : (
             <LocateFixed className="size-[18px]" />
           )}
-        </motion.button>
+        </TapButton>
 
         {/* Makes room for the open search field on phones. */}
         <LanguageToggle className={open ? "hidden sm:flex" : "flex"} />

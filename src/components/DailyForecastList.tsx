@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { CalendarDays, ChevronDown, Droplet, Droplets, Navigation2, Sun, Sunrise, Sunset, Wind } from "lucide-react";
 import { useState } from "react";
 import { CardLabel, GlassCard } from "@/components/ui/GlassCard";
+import { TapButton } from "@/components/ui/TapButton";
 import { WeatherIcon } from "@/components/ui/WeatherIcon";
 import { useI18n } from "@/i18n/I18nProvider";
 import { temperatureColor } from "@/lib/colors";
@@ -67,8 +68,9 @@ function DayRow({ day, index, low, high, timeZone, currentTempC, open, onToggle 
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: 0.15 + index * 0.035, duration: 0.4 }}
     >
-      <button
-        type="button"
+      <TapButton
+        haptic="selection"
+        tapScale={0.985}
         onClick={onToggle}
         aria-expanded={open}
         aria-controls={panelId}
@@ -115,7 +117,7 @@ function DayRow({ day, index, low, high, timeZone, currentTempC, open, onToggle 
           className={`size-4 text-white/50 transition-transform duration-300 ${open ? "rotate-180" : ""}`}
           aria-hidden
         />
-      </button>
+      </TapButton>
 
       <AnimatePresence initial={false}>
         {open && (

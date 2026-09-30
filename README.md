@@ -9,6 +9,7 @@ and a 15-day horizon.
 - **No API keys needed.** The forecast service and place search run entirely in the browser.
 - **Thai and English.** A TH / EN switch in the header changes every label, forecast phrase, date and place name.
 - **Favorite places.** Star any place and it joins a one-tap bar under the header, saved in the browser.
+- **Installable app.** Add it to the home screen and it opens full screen like a native app, works offline, and is tuned for touch.
 
 ## Quick start
 
@@ -27,6 +28,7 @@ npm run dev          # http://localhost:3000
 | `npm run verify:mock` | Shape, determinism, consistency and climate checks for the mock service |
 | `npm run verify:i18n` | Every Thai phrase is Thai, Thai dates and Thai place search       |
 | `npm run verify:favorites` | Saving, naming and reading back favorite places             |
+| `npm run icons`       | Re-render the app icons and favicon from `scripts/icons/doofah-icon.svg` |
 
 Preview any sky mood with a query parameter:
 `/?sky=thunderstorm`, `golden-hour`, `clear-night`, `heavy-rain`, `rain`,
@@ -82,6 +84,46 @@ Geolocation API and snaps to the nearest known city within 40 km.
   from the gazetteer pick up its current names when read back. "Use my
   location" within 1 km of a saved place counts as that place.
 
+## Home screen app (PWA)
+
+**Installing.** On Android, Chrome offers **Install app** (or menu → *Add to
+Home screen*). On iPhone and iPad, open the site in Safari and use Share →
+*Add to Home Screen*. Desktop Chrome and Edge show an install button in the
+address bar. The installed app opens full screen, draws its sky behind the
+status bar and around the notch, and colours the browser bar to match the sky.
+
+**Offline.** The forecast model runs in the browser, so once the page has
+loaded the whole app works without a connection. `public/sw.js` keeps the page
+(network first, falling back to the saved copy when offline or very slow), the
+Next.js build files, the icons and the last 400 map tiles you looked at. It is
+only registered in production builds (`npm run build && npm start`); in
+development it removes itself. Bump `VERSION` in `sw.js` to drop saved pages on
+the next visit; build files are content-hashed and need nothing.
+
+**Files.** `src/app/manifest.ts` (served as `/manifest.webmanifest`),
+`public/icons/*` and `src/app/{icon.svg,apple-icon.png,favicon.ico}` (all made by
+`npm run icons`, including maskable versions for Android's round and squircle
+shapes), and `public/screenshots/*` for the richer install dialog.
+
+**Touch.**
+
+- **Radar map.** The weather layers scale with the map during a pinch instead
+  of jumping when it ends, and a pinch settles in quarter zoom steps. On touch
+  screens one finger scrolls the page and two fingers move and zoom the map,
+  as on an embedded Google map, because the map fills most of a phone screen
+  and would otherwise trap the scroll; a one-finger drag shows a short hint.
+  The zoom buttons are 44 px on touch screens. Mouse and trackpad work as
+  before. To let one finger drag the map, remove `TouchGestures` from
+  `RadarLeafletView.tsx`.
+- **Timeline.** The thumb follows the finger smoothly and springs onto the
+  nearest hour when released, with the hour shown above the finger. Sideways
+  drags scrub; up and down swipes still scroll the page. Tapping the track
+  jumps to that hour. Keyboard: arrows, Page Up / Page Down (6 h), Home, End.
+- **Feedback.** Buttons squeeze slightly when pressed (`TapButton`), picked
+  layers pop, and choices give a short vibration (`src/lib/haptics.ts`): the
+  Vibration API on Android and the system switch tick in Safari on iOS 18 and
+  later. Animations follow the system's reduced-motion setting.
+
 ## Thai and English
 
 - **Switching.** The TH / EN control in the header switches instantly and is
@@ -113,10 +155,13 @@ Geolocation API and snaps to the nearest known city within 40 km.
 ```
 src/
 ├── app/
-│   ├── layout.tsx                 Fonts, language, metadata, Leaflet CSS
+│   ├── layout.tsx                 Fonts, language, metadata, viewport, Leaflet CSS
 │   ├── page.tsx                   Renders the dashboard (reads ?sky=)
-│   └── globals.css                Glass surfaces, sky effects, slider + Leaflet styling
+│   ├── manifest.ts                Web app manifest (install name, colours, icons)
+│   ├── icon.svg, apple-icon.png, favicon.ico   App icons (from `npm run icons`)
+│   └── globals.css                Glass surfaces, sky effects, touch rules, Leaflet styling
 ├── components/
+│   ├── AppProviders.tsx           Language, reduced-motion setting, service worker registration
 │   ├── DooFahDashboard.tsx        Page composition, place state, loading states
 │   ├── DooFahHeader.tsx           Logo, animated search, geolocation button, language switch
 │   ├── LanguageToggle.tsx         TH / EN switch
@@ -132,18 +177,20 @@ src/
 │   ├── AtmosphereBackground.tsx   Animated sky per condition (rain, stars, lightning, …)
 │   ├── radar/
 │   │   ├── LayerSwitcher.tsx      Rain / Wind / Temp / Pressure segmented control
-│   │   ├── TimelineScrubber.tsx   −3 h … +24 h scrubber with play/pause
+│   │   ├── TimelineScrubber.tsx   −3 h … +24 h touch scrubber with play/pause
+│   │   ├── ZoomButtons.tsx        Map zoom buttons, finger-sized on touch screens
 │   │   ├── RadarLegend.tsx        Colour legend per layer
 │   │   ├── colorScales.ts         Radar, temperature, wind and pressure colour ramps
 │   │   ├── isobars.ts             Marching-squares isobars + H/L centres
 │   │   └── leaflet/
-│   │       ├── RadarLeafletView.tsx   MapContainer, user marker, 5 km cell, tap-to-probe
-│   │       ├── useCanvasLayer.ts      Full-viewport canvas pane that follows the map
+│   │       ├── RadarLeafletView.tsx   MapContainer, touch gestures, user marker, 5 km cell, tap-to-probe
+│   │       ├── useCanvasLayer.ts      Full-viewport canvas pane that follows pans, pinches and zooms
 │   │       ├── FieldRasterLayer.tsx   Bicubic-smoothed raster (rain, temperature, wind speed)
 │   │       ├── WindParticleLayer.tsx  Animated wind streamlines
 │   │       └── IsobarLayer.tsx        Isobar lines, labels, H/L markers
 │   └── ui/
 │       ├── GlassCard.tsx          Translucent card with entrance animation
+│       ├── TapButton.tsx          Button that squeezes when pressed, with optional haptics
 │       └── WeatherIcon.tsx        Condition → Lucide icon, day/night aware
 ├── i18n/
 │   ├── config.ts                  Locales, cookie name, Accept-Language matching
@@ -159,7 +206,9 @@ src/
 │   └── useGeolocation.ts          Browser location with status
 ├── lib/
 │   ├── colors.ts                  AQI and temperature colours
-│   └── favorites.ts               Favorite list rules and the localStorage store
+│   ├── favorites.ts               Favorite list rules and the localStorage store
+│   ├── haptics.ts                 Short vibrations on Android and iPhone
+│   └── pwa.ts                     Service worker registration (production only)
 └── services/
     ├── WeatherNext3MockService.ts The simulated API (start here)
     └── weathernext3/
@@ -171,9 +220,14 @@ src/
         ├── solar.ts               Sun elevation, sunrise and sunset (NOAA)
         ├── time.ts                IANA time-zone helpers (Intl only)
         └── places.ts              Offline gazetteer and search
+public/
+├── sw.js                          Service worker: offline page, build files, icons, map tiles
+├── icons/                         Install icons, regular and maskable
+└── screenshots/                   Phone and desktop screenshots for the install dialog
 scripts/verify-mock-service.ts     Checks behind `npm run verify:mock`
 scripts/verify-i18n.ts             Checks behind `npm run verify:i18n`
 scripts/verify-favorites.ts        Checks behind `npm run verify:favorites`
+scripts/generate-icons.ts          `npm run icons`, from scripts/icons/doofah-icon.svg
 ```
 
 ## The WeatherNext 3 mock service
