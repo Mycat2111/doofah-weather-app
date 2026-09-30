@@ -79,6 +79,8 @@ export class OpenMeteoService implements WeatherService {
   private readonly storage: Store | null | undefined;
   private readonly recent = new Map<string, { until: number; reply: Promise<unknown> }>();
   private readonly savedReplies = new WeakSet<ForecastResponse>();
+  /** When each reply was downloaded (a reused one is older than the request that got it). */
+  private readonly downloadedAt = new WeakMap<object, number>();
 
   constructor(options: OpenMeteoOptions = {}) {
     this.proxy = options.proxy ?? false;
@@ -101,7 +103,7 @@ export class OpenMeteoService implements WeatherService {
       const savedModelsAt = saved?.modelsAt ?? saved?.savedAt ?? 0;
       const [modelsReply, modelsAt] =
         models.status === "fulfilled"
-          ? [models.value, now]
+          ? [models.value, this.downloadedAt.get(models.value) ?? now]
           : saved?.models && now - savedModelsAt < MODELS_MAX_AGE_MS
             ? [saved.models, savedModelsAt]
             : [null, undefined];
@@ -168,6 +170,7 @@ export class OpenMeteoService implements WeatherService {
       if (!response.ok || !body || error?.error) {
         throw new OpenMeteoError(error?.reason ?? `Open-Meteo answered ${response.status}`, response.status);
       }
+      if (typeof body === "object") this.downloadedAt.set(body, this.now());
       return body as T;
     } finally {
       clearTimeout(timer);

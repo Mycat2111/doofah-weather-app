@@ -186,9 +186,12 @@ export type ConfidenceLevel = "high" | "medium" | "low";
 export interface ModelVote {
   /** Models with a forecast for it. */
   models: number;
-  /** Of them, how many have rain. */
+  /** Of them, how many have rain... */
   wet: number;
-  /** Of the models stepping hourly then, how many have heavy rain (none for a day). */
+  /** ...and which (their ids). */
+  wetModels: string[];
+  /** Of the models stepping hourly then, how many have rain, and how many heavy rain (none for a day). */
+  hourlyWet: number;
   heavy: number;
   /** Of the models that can forecast thunder (not the AI ones), how many answered, and how many have it. */
   stormModels: number;

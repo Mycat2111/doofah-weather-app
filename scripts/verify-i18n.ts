@@ -156,56 +156,82 @@ async function main() {
       `route ${JSON.stringify(o)}`,
     );
   const LEVELS = ["high", "medium", "low"] as const;
-  const rainOutlook = { kind: "rain", clock: "15:00", total: 7, chance: 70, heavy: false, storm: false } as const;
+  const rainOutlook = {
+    kind: "rain",
+    hour: "15:00",
+    total: 7,
+    chance: 70,
+    doubtful: false,
+    heavy: 0,
+    storm: 0,
+  } as const;
   const modelOutlooks: ModelOutlook[] = [
     ...LEVELS.flatMap((level) => [
       { ...rainOutlook, level, agree: 6 },
-      { ...rainOutlook, level, agree: 2, chance: 22 },
-      { ...rainOutlook, level, agree: 0, chance: 8 },
-      { ...rainOutlook, level, agree: 4, clock: null },
-      { ...rainOutlook, level, agree: 5, heavy: true },
-      { ...rainOutlook, level, agree: 5, heavy: true, storm: true },
+      { ...rainOutlook, level, agree: 7 },
+      { ...rainOutlook, level, agree: 2, chance: 22, doubtful: true },
+      { ...rainOutlook, level, agree: 0, chance: 8, doubtful: true },
+      { ...rainOutlook, level, agree: 3, chance: 60 },
+      { ...rainOutlook, level, agree: 4, hour: null },
+      { ...rainOutlook, level, agree: 1, hour: null, chance: 12, doubtful: true },
+      { ...rainOutlook, level, agree: 5, heavy: 3 },
+      { ...rainOutlook, level, agree: 5, heavy: 3, storm: 2 },
     ]),
     ...LEVELS.flatMap((level) =>
-      [7, 5].map((agree) => ({
-        kind: "dry" as const,
-        hours: 24,
-        agree,
-        total: 7,
-        showerClock: "16:00",
-        chance: 30,
-        level,
-      })),
+      [7, 5].flatMap((agree) =>
+        ["16:00", null].map((shower) => ({
+          kind: "dry" as const,
+          hours: 24,
+          agree,
+          total: 7,
+          shower,
+          chance: 30,
+          level,
+        })),
+      ),
     ),
   ];
   for (const o of modelOutlooks) {
     assertThai(th.modelOutlook(o), `models ${JSON.stringify(o)}`);
     assert.ok(!/undefined|null|NaN/.test(th.modelOutlook(o) + en.modelOutlook(o)), `models ${JSON.stringify(o)}`);
   }
-  const later = { at: "2026-09-30T10:00:00Z", chance: 40, likely: false, heavy: false, storm: false, tomorrow: false };
+  const later = {
+    at: "2026-09-30T10:00:00Z",
+    thisHour: false,
+    chance: 40,
+    likely: false,
+    heavy: false,
+    storm: false,
+    tomorrow: false,
+  };
   const facts: SummaryFact[] = [
     ...(["morning", "afternoon", "evening", "night"] as const).map((part) => ({ kind: "greeting" as const, part })),
     { kind: "now", tempC: 32, condition: "cloudy", isDay: true, feelsLikeC: 38 },
     ...CONDITIONS.map((condition) => ({ kind: "now" as const, tempC: 25, condition, isDay: false, feelsLikeC: null })),
     ...INTENSITIES.map((intensity) => ({ kind: "rainStarting" as const, minutes: 12, intensity })),
+    { kind: "rainStarting", minutes: 25, intensity: "moderate", doubtful: true },
     ...INTENSITIES.map((intensity) => ({ kind: "raining" as const, intensity, until: "2026-09-30T11:00:00Z" })),
     { kind: "raining", intensity: "light", until: null },
     { kind: "rainLater", ...later },
     { kind: "rainLater", ...later, chance: 80, likely: true, tomorrow: true },
     { kind: "rainLater", ...later, heavy: true },
     { kind: "rainLater", ...later, storm: true },
+    { kind: "rainLater", ...later, thisHour: true },
+    { kind: "rainLater", ...later, thisHour: true, chance: 80, likely: true, heavy: true },
     { kind: "dry", hours: 24, weekday: 4 },
     { kind: "dry", hours: 24, weekday: null },
     ...(["rain", "dry"] as const).flatMap((about) =>
       LEVELS.flatMap((level) =>
-        [7, 5, 2, 0].map((agree) => ({
-          kind: "models" as const,
-          about,
-          agree,
-          total: 7,
-          chance: 20 + agree * 10,
-          level,
-        })),
+        [7, 5, 2, 0].flatMap((agree) =>
+          [false, true].map((doubtful) => ({
+            kind: "models" as const,
+            about,
+            agree,
+            total: 7,
+            level,
+            doubtful,
+          })),
+        ),
       ),
     ),
     { kind: "today", maxC: 34 },

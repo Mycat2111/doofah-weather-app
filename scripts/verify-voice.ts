@@ -145,7 +145,17 @@ async function main() {
   console.log("✓ Mornings talk about today, evenings about tonight and tomorrow; a GPS spot is where you are");
 
   // 6. Real forecasts say how many weather models back it ------------------------
-  const vote = { models: 7, wet: 6, heavy: 3, stormModels: 5, storm: 0, ensembles: 4, members: 143 };
+  const vote = {
+    models: 7,
+    wet: 6,
+    wetModels: [],
+    hourlyWet: 5,
+    heavy: 3,
+    stormModels: 5,
+    storm: 0,
+    ensembles: 4,
+    members: 143,
+  };
   const backed: SummaryInput = {
     ...example,
     countdown: { ...heavyAt5, vote: { ...vote, chance: 85, confidence: 0.8 } },
@@ -166,10 +176,32 @@ async function main() {
     },
   };
   const doubtedEn = weatherSummary(doubted, "en").sentences;
+  assert.ok(doubtedEn.includes("Rain might start in about 20 minutes."), doubtedEn.join(" | "));
   assert.ok(
     doubtedEn.includes("Only 1 of 7 weather models expect it, though, so it may stay dry."),
     doubtedEn.join(" | "),
   );
+  const doubtedTh = weatherSummary(doubted, "th").sentences;
+  assert.ok(doubtedTh.includes("อาจมีฝนตกในอีกประมาณ 20 นาที"), doubtedTh.join(" | "));
+  // Rain the models expect this hour, though the 15-minute forecast has none: no clock time that has passed.
+  const thisHour: SummaryInput = {
+    ...example,
+    countdown: {
+      kind: "later",
+      at: new Date(NOW).toISOString(),
+      chance: 80,
+      clear: false,
+      soon: true,
+      vote: { ...vote, chance: 80, confidence: 0.6 },
+      voteHour: new Date(Math.floor(NOW / 3_600_000) * 3_600_000).toISOString(),
+    },
+  };
+  const thisHourEn = weatherSummary(thisHour, "en").sentences;
+  assert.ok(
+    thisHourEn.some((s) => /^(Rain is likely|Expect heavy rain|Expect thunderstorms) within the hour/.test(s)),
+    thisHourEn.join(" | "),
+  );
+  assert.ok(weatherSummary(thisHour, "th").sentences.some((s) => s.includes("ภายในชั่วโมงนี้")));
   const split: SummaryInput = {
     ...example,
     countdown: { ...heavyAt5, chance: 69, vote: { ...vote, wet: 3, chance: 69, confidence: 0.3 } },
@@ -177,6 +209,12 @@ async function main() {
   assert.ok(
     weatherSummary(split, "en").sentences.includes("The weather models are split on it, though: 3 of 7 expect rain."),
   );
+  // Doubt follows the badge's rule: under an even chance with most models dry, whatever the confidence.
+  const doubtFacts = summaryFacts({
+    ...example,
+    countdown: { ...heavyAt5, chance: 45, vote: { ...vote, wet: 3, chance: 45, confidence: 0.1 } },
+  }).filter((f) => f.kind === "models");
+  assert.deepEqual(doubtFacts, [{ kind: "models", about: "rain", agree: 3, total: 7, level: "low", doubtful: true }]);
   const dryDay: SummaryInput = {
     ...example,
     countdown: {
@@ -186,9 +224,16 @@ async function main() {
       nextRainDay: null,
       vote: { ...vote, wet: 0, heavy: 0, chance: 4, confidence: 0.9 },
       showerAt: example.hourly[3].time,
+      models: { dry: 7, total: 7 },
     },
   };
   assert.ok(weatherSummary(dryDay, "en").sentences.includes("All 7 weather models agree."));
+  // A dry day counts the models dry through all of it, not at its wettest hour.
+  const showery: SummaryInput = {
+    ...dryDay,
+    countdown: { ...dryDay.countdown, models: { dry: 4, total: 7 } } as SummaryInput["countdown"],
+  };
+  assert.ok(weatherSummary(showery, "en").sentences.includes("4 of 7 weather models agree."));
   assert.equal(
     summaryFacts(example).filter((f) => f.kind === "models").length,
     0,

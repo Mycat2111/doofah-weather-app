@@ -18,11 +18,6 @@ export const RAIN_LIKELY = 50;
 export const COUNTDOWN_HOURS = 24;
 /** A dry spell reads as "clear sky" when its cloud cover averages below this, in percent. */
 export const CLEAR_SKY_CLOUD = 40;
-/**
- * Rain the nowcast shows but that the weather models, together, give less
- * than this chance, in percent, reads as "possible" rather than "expected".
- */
-export const DOUBTFUL_CHANCE = 35;
 
 const HOUR_MS = 3_600_000;
 const MINUTE_MS = 60_000;
@@ -33,14 +28,22 @@ const MINUTE_MS = 60_000;
  * Open-Meteo's 15-minute forecast for real data), timed to the minute; after
  * that the hourly forecast takes over.
  *
- * With real data, `vote` says how the weather models see that hour (see
- * openmeteo/consensus.ts), and they have a say: rain the nowcast shows but
- * most models doubt is `doubtful`, and rain most of them expect within the
- * nowcast's two hours is reported even when the nowcast is dry.
+ * With real data, `vote` says how the weather models see the hour from
+ * `voteHour` (see openmeteo/consensus.ts), and they have a say: rain the
+ * nowcast shows but the models doubt (modelsDoubt) is `doubtful`, and rain
+ * they expect within the nowcast's two hours is reported even when the
+ * nowcast is dry.
  */
 export type RainCountdown =
   /** Dry now; the radar shows rain arriving at `at`, within 2 hours. */
-  | { kind: "starting"; at: string; intensity: RainIntensity; vote?: ModelVote; doubtful?: boolean }
+  | {
+      kind: "starting";
+      at: string;
+      intensity: RainIntensity;
+      vote?: ModelVote;
+      voteHour?: string;
+      doubtful?: boolean;
+    }
   /**
    * Raining now. `until` is when it eases: to the minute from the radar when
    * `precise`, else the hour from the forecast; null when it lasts past the horizon.
@@ -50,15 +53,36 @@ export type RainCountdown =
    * Dry for now; rain is likely from `at` (an hour of the forecast): after
    * the nowcast's 2 hours, or within them when the models say so (`soon`).
    */
-  | { kind: "later"; at: string; chance: number; clear: boolean; vote?: ModelVote; soon?: boolean }
+  | {
+      kind: "later";
+      at: string;
+      chance: number;
+      clear: boolean;
+      vote?: ModelVote;
+      voteHour?: string;
+      soon?: boolean;
+    }
   /**
    * No rain likely for the next `hours` hours. `nextRainDay` indexes the
-   * daily forecast, or is null. `vote` is the models' wettest hour in that
-   * time, which is at `showerAt`.
+   * daily forecast, or is null. With the models: `vote` is the hour they give
+   * the best chance of a shower, from `showerAt`, and `models` counts those
+   * that keep every hour dry.
    */
-  | { kind: "dry"; hours: number; clear: boolean; nextRainDay: number | null; vote?: ModelVote; showerAt?: string };
+  | {
+      kind: "dry";
+      hours: number;
+      clear: boolean;
+      nextRainDay: number | null;
+      vote?: ModelVote;
+      showerAt?: string;
+      models?: { dry: number; total: number };
+    };
 
 export const isWetHour = (h: HourlyForecast) => h.precipitationProbability >= RAIN_LIKELY;
+
+/** The models doubt rain: under an even chance, with most of them dry. */
+export const modelsDoubt = (vote: Pick<ModelVote, "chance" | "wet" | "models">) =>
+  vote.chance < RAIN_LIKELY && vote.wet * 2 < vote.models;
 
 /**
  * When the rate crosses WET_RATE between two nowcast steps, by linear
@@ -86,9 +110,9 @@ export function hoursBetween(hourly: HourlyForecast[], from: number, to: number)
 const meanCloud = (hours: HourlyForecast[], fallback: number) =>
   hours.length ? hours.reduce((sum, h) => sum + h.cloudCover, 0) / hours.length : fallback;
 
-/** The models' vote for the hour `at` falls in, if they cover it. */
-function voteAt(hourly: HourlyForecast[], at: number): ModelVote | undefined {
-  return hoursBetween(hourly, at, at + 1).find((h) => h.vote)?.vote;
+/** The hour `at` falls in, if the models cover it. */
+function votedHour(hourly: HourlyForecast[], at: number): HourlyForecast | undefined {
+  return hoursBetween(hourly, at, at + 1).find((h) => h.vote);
 }
 
 export function rainCountdown(
@@ -108,7 +132,7 @@ export function rainCountdown(
 
   if (wet(steps[0])) {
     const intensity = rainIntensity(Math.max(...steps.filter(wet).map((s) => s.precipitationMm)));
-    const vote = voteAt(hourly, now);
+    const vote = votedHour(hourly, now)?.vote;
     const stop = steps.findIndex((s) => !wet(s));
     if (stop > 0)
       return withVote(
@@ -132,12 +156,12 @@ export function rainCountdown(
     // Name the rain by its heaviest step in the half hour after it arrives.
     const peak = Math.max(...steps.slice(start, start + 3).map((s) => s.precipitationMm));
     const at = crossing(steps[start - 1], steps[start]);
-    const vote = voteAt(hourly, at);
     const countdown: RainCountdown = { kind: "starting", at: iso(at), intensity: rainIntensity(peak) };
-    // Most models see no rain then: it may not come.
-    if (vote && vote.chance < DOUBTFUL_CHANCE && vote.wet * 2 < vote.models)
-      return { ...countdown, vote, doubtful: true };
-    return withVote(countdown, vote);
+    const hour = votedHour(hourly, at);
+    if (!hour?.vote) return countdown;
+    const voted = { ...countdown, vote: hour.vote, voteHour: hour.time };
+    // The models see no rain then: it may not come.
+    return modelsDoubt(hour.vote) ? { ...voted, doubtful: true } : voted;
   }
 
   const cloudUntil = (at: number) =>
@@ -153,6 +177,7 @@ export function rainCountdown(
       chance: soon.precipitationProbability,
       clear: cloudUntil(at),
       vote: soon.vote,
+      voteHour: soon.time,
       soon: true,
     };
   }
@@ -160,10 +185,13 @@ export function rainCountdown(
   const rainHour = after.find(isWetHour);
   if (rainHour) {
     const at = Math.max(Date.parse(rainHour.time), radarEnd);
-    return withVote(
-      { kind: "later", at: iso(at), chance: rainHour.precipitationProbability, clear: cloudUntil(at) },
-      rainHour.vote,
-    );
+    const later: RainCountdown = {
+      kind: "later",
+      at: iso(at),
+      chance: rainHour.precipitationProbability,
+      clear: cloudUntil(at),
+    };
+    return rainHour.vote ? { ...later, vote: rainHour.vote, voteHour: rainHour.time } : later;
   }
 
   const nextRainDay = daily.findIndex((d, i) => i > 0 && d.precipitationProbability >= RAIN_LIKELY);
@@ -173,14 +201,22 @@ export function rainCountdown(
     clear: cloudUntil(horizon),
     nextRainDay: nextRainDay === -1 ? null : nextRainDay,
   };
-  // The hour the models give the best chance of a shower, if they cover the whole time.
+  // With the models covering the whole time: the hour they give the best chance of a shower...
   const ahead = hoursBetween(hourly, now, horizon);
   if (!ahead.length || !ahead.every((h) => h.vote)) return dry;
   const wettest = ahead.reduce((a, b) => {
     const [va, vb] = [a.vote!, b.vote!];
     return vb.chance > va.chance || (vb.chance === va.chance && vb.wet > va.wet) ? b : a;
   });
-  return { ...dry, vote: wettest.vote, showerAt: wettest.time };
+  // ...and how many keep every hour dry.
+  const total = Math.max(...ahead.map((h) => h.vote!.models));
+  const wetAtSomePoint = new Set(ahead.flatMap((h) => h.vote!.wetModels));
+  return {
+    ...dry,
+    vote: wettest.vote,
+    showerAt: wettest.time,
+    models: { dry: Math.max(0, total - wetAtSomePoint.size), total },
+  };
 }
 
 /**
@@ -191,33 +227,34 @@ export function rainCountdown(
 export type ModelOutlook =
   | {
       kind: "rain";
-      /** About when; null when it is less than 15 minutes away. */
-      clock: string | null;
+      /** The hour the models voted on, by its start; null when it is this hour. */
+      hour: string | null;
       agree: number;
       total: number;
       chance: number;
       level: ConfidenceLevel;
-      /** Enough of the models have heavy rain, or thunder, to say so. */
-      heavy: boolean;
-      storm: boolean;
+      /** The models doubt it (modelsDoubt), as the badge does. */
+      doubtful: boolean;
+      /** How many models have heavy rain, or thunder, when enough do to say so; else 0. */
+      heavy: number;
+      storm: number;
     }
   | {
       kind: "dry";
       hours: number;
+      /** Models that keep every hour dry. */
       agree: number;
       total: number;
-      /** The hour most likely to see a shower, and its chance. */
-      showerClock: string;
+      /** The hour most likely to see a shower, by its start (null when it is this hour), and its chance. */
+      shower: string | null;
       chance: number;
       level: ConfidenceLevel;
     };
 
-/** Rain closer than this is "soon". */
-const SOON_MS = 15 * MINUTE_MS;
-
 /**
  * The models' view of a countdown, or null when they have none (the
- * simulation, rain already falling, or hours they don't cover). `clock`
+ * simulation, rain already falling, or hours they don't cover). It names
+ * hours, never minutes: the models step an hour at a time at best. `clock`
  * formats a time for the place.
  */
 export function modelOutlook(
@@ -227,35 +264,35 @@ export function modelOutlook(
 ): ModelOutlook | null {
   const { vote } = countdown;
   if (!vote) return null;
+  const hourOf = (start: string) => (Date.parse(start) <= now ? null : clock(start));
   switch (countdown.kind) {
     case "raining":
       return null;
     case "dry":
-      if (!countdown.showerAt) return null;
+      if (!countdown.showerAt || !countdown.models) return null;
       return {
         kind: "dry",
         hours: countdown.hours,
-        agree: vote.models - vote.wet,
-        total: vote.models,
-        showerClock: clock(countdown.showerAt),
+        agree: countdown.models.dry,
+        total: countdown.models.total,
+        shower: hourOf(countdown.showerAt),
         chance: vote.chance,
         level: support(vote, false),
       };
     case "starting":
-    case "later": {
-      const at = Date.parse(countdown.at);
+    case "later":
       return {
         kind: "rain",
-        clock: at - now < SOON_MS ? null : clock(countdown.at),
+        hour: hourOf(countdown.voteHour ?? countdown.at),
         agree: vote.wet,
         total: vote.models,
         chance: vote.chance,
         level: support(vote, true),
-        // At least two models, and half of those with rain (a third of those that forecast thunder).
-        heavy: vote.heavy >= 2 && vote.heavy * 2 >= vote.wet,
-        storm: vote.storm >= 2 && vote.storm * 3 >= vote.stormModels,
+        doubtful: modelsDoubt(vote),
+        // At least two models, and half of those stepping hourly with rain (a third of those that forecast thunder).
+        heavy: vote.heavy >= 2 && vote.heavy * 2 >= vote.hourlyWet ? vote.heavy : 0,
+        storm: vote.storm >= 2 && vote.storm * 3 >= vote.stormModels ? vote.storm : 0,
       };
-    }
   }
 }
 

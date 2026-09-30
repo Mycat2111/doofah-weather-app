@@ -12,8 +12,12 @@ import { RouteError, type Route, type RouteRequest } from "./types";
 export * from "./types";
 
 export interface RouteOptions {
-  /** The OSRM server; FOSSGIS's public car router unless the page was given another. */
-  osrmUrl?: string;
+  /**
+   * The OSRM server; FOSSGIS's public car router when left out. Null when the
+   * site has none it may use (FOSSGIS's needs the operator's address shown):
+   * every trip then fails with "unavailable".
+   */
+  osrmUrl?: string | null;
   signal?: AbortSignal;
   fetch?: typeof fetch;
 }
@@ -25,19 +29,47 @@ const TIMEOUT_MS = 15_000;
 /** Routes kept in memory, so another departure time or a swap back asks nothing new. */
 const CACHED_ROUTES = 20;
 
-const cache = new Map<string, Promise<RouteShape>>();
-let nextSlot = 0;
-
-/** Waits for this page's next free slot with the router. */
-async function slot() {
-  const now = Date.now();
-  const at = Math.max(now, nextSlot);
-  nextSlot = at + MIN_GAP_MS;
-  if (at > now) await new Promise((resolve) => setTimeout(resolve, at - now));
+/** A trip's route, asked for once and shared by everyone who wants it. */
+interface Download {
+  shape: Promise<RouteShape>;
+  /** How many are waiting for it; when none are left by its turn, the router is never asked. */
+  wanted: number;
 }
 
-async function download(url: string, fetcher: typeof fetch): Promise<RouteShape> {
-  await slot();
+const cache = new Map<string, Download>();
+/** The downloads waiting for their turn with the router, one after another. */
+let queue: Promise<unknown> = Promise.resolve();
+let lastRequest = -Infinity;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Waits for this page's next turn with the router, at least MIN_GAP_MS after
+ * its last request. A download nobody is `wanted` for any more gives up its
+ * turn (and throws) instead of spending it.
+ */
+function turn(wanted: () => boolean): Promise<void> {
+  const mine = queue.then(async () => {
+    const abandoned = () => new RouteError("failed", "Nobody wants this route any more");
+    if (!wanted()) throw abandoned();
+    const wait = lastRequest + MIN_GAP_MS - Date.now();
+    if (wait > 0) await sleep(wait);
+    if (!wanted()) throw abandoned();
+    lastRequest = Date.now();
+  });
+  queue = mine.catch(() => undefined);
+  return mine;
+}
+
+function download(url: string, fetcher: typeof fetch): Download {
+  const entry: Download = {
+    wanted: 0,
+    shape: turn(() => entry.wanted > 0).then(() => fetchRoute(url, fetcher)),
+  };
+  return entry;
+}
+
+async function fetchRoute(url: string, fetcher: typeof fetch): Promise<RouteShape> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
@@ -76,21 +108,31 @@ function unlessAborted<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T>
 export async function getRoute(request: RouteRequest, options: RouteOptions = {}): Promise<Route> {
   checkTrip(request);
   const { osrmUrl = FOSSGIS_OSRM_URL, signal, fetch: fetcher = (input, init) => fetch(input, init) } = options;
+  if (!osrmUrl) throw new RouteError("unavailable", "No route planner set up for this site");
   const url = osrmRouteUrl(osrmUrl, request.origin, request.destination);
-  let shape = cache.get(url);
-  if (!shape) {
+  let trip = cache.get(url);
+  if (!trip) {
     // Shared by everyone asking for this trip, so it is never cut short by one of them giving up.
-    shape = download(url, fetcher);
-    cache.set(url, shape);
+    const entry = download(url, fetcher);
+    cache.set(url, entry);
     // Only routes are kept: after a failure the trip is asked again next time.
-    shape.catch(() => cache.delete(url));
+    entry.shape.catch(() => {
+      if (cache.get(url) === entry) cache.delete(url);
+    });
     while (cache.size > CACHED_ROUTES) cache.delete(cache.keys().next().value!);
+    trip = entry;
   }
-  return atDeparture(await unlessAborted(shape, signal), request.departure);
+  trip.wanted++;
+  try {
+    return atDeparture(await unlessAborted(trip.shape, signal), request.departure);
+  } finally {
+    trip.wanted--;
+  }
 }
 
-/** Forgets the routes kept in memory (for tests). */
+/** Forgets the routes kept in memory, and the router's last request (for tests). */
 export function clearRouteCache() {
   cache.clear();
-  nextSlot = 0;
+  queue = Promise.resolve();
+  lastRequest = -Infinity;
 }

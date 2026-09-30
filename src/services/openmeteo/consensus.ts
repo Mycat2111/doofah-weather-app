@@ -30,8 +30,6 @@ import { CONSENSUS_MODELS, type ConsensusModel, type ConsensusResponse, type Val
 
 /** Rain in an hour that counts as rain, mm. */
 export const WET_MM = 0.1;
-/** A day with this much rain counts as a rainy day, mm (the usual climate definition). */
-export const WET_DAY_MM = 1;
 /** Rain in an hour that counts as heavy, mm (as on route stops). */
 export const HEAVY_MM = 4;
 /** The ensembles' share of the chance of rain; the models' votes have the rest. */
@@ -141,6 +139,8 @@ export function consensusFrom(raw: ConsensusResponse | null, now: number): Conse
     if (i === undefined) continue;
     const lead = Math.max(0, Math.round((start - thisHour) / HOUR_MS));
     const evidence: Evidence = { votes: [], ensembles: [] };
+    const wetModels: string[] = [];
+    let hourlyWet = 0;
     let heavy = 0;
     let storm = 0;
     let stormModels = 0;
@@ -148,7 +148,11 @@ export function consensusFrom(raw: ConsensusResponse | null, now: number): Conse
       const mm = rain[i];
       if (present(mm)) {
         const step = stepAt(model, lead);
-        evidence.votes.push({ wet: mm >= WET_MM, weight: model.skill / Math.sqrt(step) });
+        const wet = mm >= WET_MM;
+        evidence.votes.push({ wet, weight: model.skill / Math.sqrt(step) });
+        if (wet) wetModels.push(model.id);
+        // Only a model stepping hourly then says how hard it rains in the hour.
+        if (step === 1 && wet) hourlyWet++;
         if (step === 1 && mm >= HEAVY_MM) heavy++;
         if (forecastsThunder(model) && present(code?.[i])) {
           stormModels++;
@@ -162,7 +166,9 @@ export function consensusFrom(raw: ConsensusResponse | null, now: number): Conse
     if (!weighed) continue;
     hours.set(start, {
       models: evidence.votes.length,
-      wet: evidence.votes.filter((v) => v.wet).length,
+      wet: wetModels.length,
+      wetModels,
+      hourlyWet,
       heavy,
       stormModels,
       storm,
@@ -177,8 +183,8 @@ export function consensusFrom(raw: ConsensusResponse | null, now: number): Conse
 
 /**
  * The models' view of a whole day from its hours' raw values: a model votes
- * wet with WET_DAY_MM or more in the day, each ensemble brings its highest
- * hourly chance. Null unless every hour of the day is in the reply.
+ * wet when any hour has rain (WET_MM, as for each hour), each ensemble brings
+ * its highest hourly chance. Null unless every hour of the day is in the reply.
  */
 export function dayVote(raw: ConsensusResponse | null, hourStarts: number[]): ModelVote | null {
   const h = raw?.hourly;
@@ -188,14 +194,16 @@ export function dayVote(raw: ConsensusResponse | null, hourStarts: number[]): Mo
   if (records.some((i) => i === undefined)) return null;
   const rows = records as number[];
   const evidence: Evidence = { votes: [], ensembles: [] };
+  const wetModels: string[] = [];
   let storm = 0;
   let stormModels = 0;
   for (const model of CONSENSUS_MODELS) {
     const rain = h[`precipitation_${model.id}`] as Values | undefined;
     const values = rows.map((i) => rain?.[i]);
     if (values.every(present)) {
-      const total = (values as number[]).reduce((s, v) => s + v, 0);
-      evidence.votes.push({ wet: total >= WET_DAY_MM, weight: model.skill });
+      const wet = (values as number[]).some((v) => v >= WET_MM);
+      evidence.votes.push({ wet, weight: model.skill });
+      if (wet) wetModels.push(model.id);
       const codes = rows.map((i) => (h[`weather_code_${model.id}`] as Values | undefined)?.[i]);
       if (forecastsThunder(model) && codes.some(present)) {
         stormModels++;
@@ -214,7 +222,9 @@ export function dayVote(raw: ConsensusResponse | null, hourStarts: number[]): Mo
   if (!weighed) return null;
   return {
     models: evidence.votes.length,
-    wet: evidence.votes.filter((v) => v.wet).length,
+    wet: wetModels.length,
+    wetModels,
+    hourlyWet: 0,
     heavy: 0,
     stormModels,
     storm,

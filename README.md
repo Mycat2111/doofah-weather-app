@@ -128,13 +128,19 @@ and Google's WeatherNext (separate, experimental terms).
   well those sources agree (1 minus twice their standard deviation) and how
   clearly the chance leans wet or dry, so a 50% chance is never confident.
   High is 75% or more, medium 50%.
-- **Each day.** A model votes wet with 1 mm or more in the day, each
-  ensemble brings its highest hourly chance.
+- **Each day.** A model votes wet when any hour of the day has 0.1 mm or
+  more, as for each hour, and each ensemble brings its highest hourly chance.
+  The day's chance is never below its wettest hour's.
 - **Where it shows.** The hourly and daily chance of rain and the confidence
   for this week (the rain amounts and the sky stay the 9 km forecast's). The
   hero card's "7 models" badge. Under the rain countdown, a chip such as
   "6/7 models" and a line such as "High confidence of rain from about 15:00:
-  6 of 7 models agree." The spoken summary adds how many models agree. The
+  all 7 models agree, 4 with thunderstorms." Thunder is named when at least
+  2 models, and a third of those that forecast it, have it; heavy rain (4 mm
+  in the hour) when at least 2, and half of those stepping hourly with rain,
+  do. For a dry spell the line counts the models dry through all of it. The
+  spoken summary adds how many models agree. Stops of a road trip within 10
+  km of the place on screen take its chance of rain, so the two agree. The
   footer credits the centres.
 - **What it can't do.** None of these models is finer than 9 km over
   Thailand, and none has real 15-minute steps there (Open-Meteo's 15-minute
@@ -240,8 +246,10 @@ in `src/lib/rainCountdown.ts`:
   of rain or more, looking 24 hours ahead. A dry spell reads "Clear sky" when
   its cloud cover averages under 40%, otherwise "No rain".
 - With real data, the [models' blend](#the-models-blend) has a say. Rain the
-  15-minute forecast shows but under 35% likely by the blend, with most models
-  dry, reads "Rain possible in 20 min". Rain the blend puts at 50% or more
+  15-minute forecast shows but under 50% likely by the blend, with most models
+  dry, reads "Rain possible in 20 min" (and "Rain possible now", never "Rain
+  starting now", once its time comes); the line under it and the spoken
+  summary say it may stay dry. Rain the blend puts at 50% or more
   within the 2 hours, though the 15-minute forecast is dry, reads "Rain
   likely around 15:00". A chip says how many models back the badge, and a
   line says how firmly (`modelOutlook` in `src/lib/rainCountdown.ts`, worded
@@ -313,10 +321,16 @@ The "Route weather" card under the radar map shows the weather along a drive.
     OpenStreetMap credit and a "fix the map" link beside the route (both under
     the card); and an email address for the site's operator that is easy to
     find. Set it as `CONTACT_EMAIL` in Vercel and the footer shows it.
+    Without `CONTACT_EMAIL` (or `OSRM_URL`), DooFah doesn't use FOSSGIS's
+    router at all: the card says route planning isn't available yet.
   - **`OSRM_URL` (optional).** Another OSRM server's address, for example a
     self-hosted one for commercial use; FOSSGIS also asks that the address
     isn't hard-coded.
-  - Routes need a connection; offline, the card says so.
+  - Routes need a connection; offline, the card says so. When the route comes
+    back but the weather along it doesn't, the card says that instead, with
+    "Try again".
+  - A trip you give up on before its turn with the router (another
+    destination, another departure time) is never asked.
   - Google's Routes API is not an option: its terms don't allow showing its
     routes on a non-Google map, and DooFah's map is OpenStreetMap.
 - **Stops.** Every 15 minutes to 3 hours of driving, at most 10 stops. Each

@@ -183,7 +183,7 @@ export function RouteWeatherCard({
               <Fade key="error">
                 <div className="flex items-center gap-3 rounded-2xl bg-amber-400/10 p-4 text-sm text-amber-100 ring-1 ring-amber-300/25">
                   <span className="flex-1">{m.route.errors[error]}</span>
-                  {(error === "failed" || error === "offline") && (
+                  {(error === "failed" || error === "offline" || error === "weather") && (
                     <TapButton onClick={state.retry} className="flex items-center gap-1 text-sky-200 hover:text-white">
                       <RotateCw className="size-3.5" /> {m.route.retry}
                     </TapButton>

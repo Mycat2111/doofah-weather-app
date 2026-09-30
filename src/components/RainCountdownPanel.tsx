@@ -110,13 +110,16 @@ export function RainCountdownPanel({ current, countdown, daily }: RainCountdownP
     case "starting": {
       const minutes = minutesUntil(countdown.at, now);
       const wait = m.countdown.duration(minutes);
-      title =
-        minutes <= 0
+      // Rain the models doubt stays "possible", even once its time has come.
+      const doubtful = !!vote && !!countdown.doubtful;
+      title = doubtful
+        ? minutes <= 0
+          ? m.countdown.maybeNow
+          : m.countdown.maybeIn(wait)
+        : minutes <= 0
           ? m.countdown.startingNow
-          : vote && countdown.doubtful
-            ? m.countdown.maybeIn(wait)
-            : m.countdown.rainIn[countdown.intensity](wait);
-      detail = m.countdown.startsAt(clock(countdown.at));
+          : m.countdown.rainIn[countdown.intensity](wait);
+      detail = (doubtful ? m.countdown.maybeAt : m.countdown.startsAt)(clock(countdown.at));
       Icon = RAIN_ICON[countdown.intensity];
       tone = "rain";
       fromRadar = true;
@@ -147,9 +150,10 @@ export function RainCountdownPanel({ current, countdown, daily }: RainCountdownP
     case "later":
     case "dry": {
       if (countdown.kind === "later" && countdown.soon) {
-        // The models expect rain within the nowcast's 2 hours, though it shows none.
+        // The models expect rain within the nowcast's 2 hours, though it shows none:
+        // this hour, or from the start of a later one.
         const minutes = minutesUntil(countdown.at, now);
-        title = minutes < 15 ? m.countdown.likelyNow : m.countdown.likelyAround(clock(countdown.at));
+        title = minutes <= 0 ? m.countdown.likelyNow : m.countdown.likelyAround(clock(countdown.at));
         Icon = CloudRain;
         tone = "rain";
         urgent = minutes <= 30;
@@ -178,11 +182,12 @@ export function RainCountdownPanel({ current, countdown, daily }: RainCountdownP
     }
   }
 
-  // Rain, or a dry spell: the models that back what the badge says.
-  const backing = vote && {
-    agree: countdown.kind === "dry" ? vote.models - vote.wet : vote.wet,
-    level: support(vote, countdown.kind !== "dry"),
-  };
+  // Rain, or a dry spell: the models that back what the badge says (for a dry spell, dry all through it).
+  const backing = outlook
+    ? { agree: outlook.agree, total: outlook.total, level: outlook.level }
+    : vote && countdown.kind !== "dry"
+      ? { agree: vote.wet, total: vote.models, level: support(vote, true) }
+      : null;
 
   // Bar i is centred on its step, so the marker lines up with the bar it falls on.
   const markerLeft =
@@ -234,12 +239,12 @@ export function RainCountdownPanel({ current, countdown, daily }: RainCountdownP
             {m.countdown.radar}
           </span>
         )}
-        {vote && backing && (
+        {backing && (
           <span
             className={`glass-chip flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium th:text-[11px] ${LEVEL_CHIP[backing.level]}`}
           >
             <Layers className="size-3" aria-hidden />
-            {m.countdown.modelsAgree(backing.agree, vote.models)}
+            {m.countdown.modelsAgree(backing.agree, backing.total)}
           </span>
         )}
       </div>

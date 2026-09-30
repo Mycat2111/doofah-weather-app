@@ -553,12 +553,25 @@ async function main() {
     storage: modelsStore,
   }).getForecastBundle(bangkok);
   assert.equal(in1h.current.blend?.length, 6, "the saved models fill in when the new ones fail");
-  const in7h = await new OpenMeteoService({
+  const savedEntry = (store: ReturnType<typeof memoryStorage>) =>
+    JSON.parse(store.items.get("doofah-saved-forecasts")!)["13.756,100.502"] as { savedAt: number; modelsAt?: number };
+  assert.equal(savedEntry(modelsStore).savedAt, NOW + HOUR_MS);
+  assert.equal(savedEntry(modelsStore).modelsAt, NOW, "saved again, with when the models were downloaded");
+  const in6h = await new OpenMeteoService({
     fetch: modelsDown().fetch,
-    now: () => NOW + 7 * HOUR_MS,
+    now: () => NOW + 6.5 * HOUR_MS,
     storage: modelsStore,
   }).getForecastBundle(bangkok);
-  assert.equal(in7h.current.blend, undefined, "but not once they are 6 hours old, though saved again since");
+  assert.equal(in6h.current.blend, undefined, "but not once they are 6 hours old, though saved again since");
+  // A models' reply reused from earlier in the page is saved with when it was downloaded.
+  let clockNow = NOW;
+  const reuseStore = memoryStorage();
+  const reusing = new OpenMeteoService({ fetch: good().fetch, now: () => clockNow, storage: reuseStore });
+  await reusing.getForecastBundle(bangkok);
+  clockNow = NOW + 20 * MIN;
+  await reusing.getForecastBundle(bangkok);
+  assert.equal(savedEntry(reuseStore).savedAt, NOW + 20 * MIN, "a new forecast...");
+  assert.equal(savedEntry(reuseStore).modelsAt, NOW, "...with the models downloaded 20 minutes before");
   await assert.rejects(
     new OpenMeteoService({ fetch: offline.fetch, now: () => NOW + 49 * HOUR_MS, storage }).getForecastBundle(bangkok),
     TypeError,
@@ -720,8 +733,10 @@ async function main() {
   const { chance: chance16, confidence: confidence16, ...counts16 } = at16;
   assert.deepEqual(counts16, {
     models: 6,
-    // Heavy rain counts only from models stepping hourly then (not the 6-hourly AI models).
     wet: 6,
+    wetModels: CONSENSUS_MODELS.map((m) => m.id).filter((id) => id !== "cma_grapes_global"),
+    // Heavy rain counts only from models stepping hourly then (not the 6-hourly AI models).
+    hourlyWet: 4,
     heavy: 4,
     // Thunder only from models that forecast it (not the AI models).
     stormModels: 4,
@@ -742,7 +757,7 @@ async function main() {
     modelsReply(midnight, (_, t) => (t === farAhead ? 5 : 0)),
     NOW,
   )!.hours.get(farAhead)!;
-  assert.deepEqual([far.wet, far.heavy], [7, 1], "100 hours ahead only GFS still steps hourly");
+  assert.deepEqual([far.wet, far.hourlyWet, far.heavy], [7, 1, 1], "100 hours ahead only GFS still steps hourly");
   const gap = consensusFrom(
     modelsReply(midnight, (m, t) => (m.id === "dwd_icon_global" && t === storm ? null : 0)),
     NOW,
@@ -766,7 +781,13 @@ async function main() {
   assert.equal(dayVote(stormReply, startsOf(1))!.wet, 0);
   const drizzle = modelsReply(midnight, () => 0.05);
   assert.equal(consensusFrom(drizzle, NOW)!.hours.get(storm)!.wet, 0, "0.05 mm in an hour isn't rain...");
-  assert.equal(dayVote(drizzle, startsOf(0))!.wet, 7, "...but 1.2 mm in a day is a rainy day");
+  assert.equal(
+    dayVote(drizzle, startsOf(0))!.wet,
+    0,
+    "...nor is a day of it: a model votes on the day as on its hours",
+  );
+  const oneShower = modelsReply(midnight, (m, t) => (m.id === "ecmwf_ifs" && t === storm ? 0.3 : 0));
+  assert.deepEqual(dayVote(oneShower, startsOf(0))!.wetModels, ["ecmwf_ifs"], "one wet hour makes a wet day");
   assert.equal(dayVote(stormReply, startsOf(7)), null, "a day the reply doesn't cover whole");
 
   const blended = forecastBundle(reply, null, bangkok, NOW, undefined, stormReply);
@@ -787,7 +808,9 @@ async function main() {
     if (i < 7) {
       assert.ok(day.vote, `the models' view of ${day.date}`);
       assert.equal(day.confidence, day.vote.confidence);
-      assert.equal(day.precipitationProbability, day.vote.chance);
+      // The day's chance is the models' for the day, or its wettest hour's when that is higher.
+      const hourly = day.hours.map((x) => hourAt(blended, Date.parse(x.time))?.precipitationProbability ?? 0);
+      assert.equal(day.precipitationProbability, Math.max(day.vote.chance, ...hourly));
     } else {
       assert.equal(day.vote, undefined, `${day.date} is past the models' week`);
       assert.equal(day.confidence, null);
@@ -833,13 +856,14 @@ async function main() {
   assert.equal(doubted.kind === "starting" && doubted.doubtful, true, "rain no model has is only possible");
   assert.deepEqual(modelOutlook(doubted, NOW, clockAt), {
     kind: "rain",
-    clock: "14:41",
+    hour: null,
     agree: 0,
     total: 7,
     chance: 3,
     level: "low",
-    heavy: false,
-    storm: false,
+    doubtful: true,
+    heavy: 0,
+    storm: 0,
   });
   const backed = withModels(showerQuarters, wetFrom(thisHour));
   assert.equal(backed.kind === "starting" && backed.doubtful, undefined);
@@ -852,7 +876,10 @@ async function main() {
   );
   const soonNow = withModels(dryQuarters, wetFrom(thisHour));
   assert.equal(soonNow.kind === "later" && soonNow.at, iso(NOW));
-  assert.equal((modelOutlook(soonNow, NOW, clockAt) as Extract<ModelOutlook, { kind: "rain" }>).clock, null);
+  const hourOfRain = (c: RainCountdown) =>
+    (modelOutlook(c, NOW, clockAt) as Extract<ModelOutlook, { kind: "rain" }>).hour;
+  assert.equal(hourOfRain(soonNow), null, "this hour, with no clock time");
+  assert.equal(hourOfRain(soon), "15:00", "else the hour the models voted on");
   const showerAt18 = withModels(
     dryQuarters,
     modelsReply(midnight, (m, t) =>
@@ -862,7 +889,23 @@ async function main() {
   assert.equal(showerAt18.kind, "dry");
   assert.equal(showerAt18.kind === "dry" && showerAt18.showerAt, iso(thisHour + 4 * HOUR_MS));
   const dryOutlook = modelOutlook(showerAt18, NOW, clockAt) as Extract<ModelOutlook, { kind: "dry" }>;
-  assert.deepEqual([dryOutlook.agree, dryOutlook.total, dryOutlook.showerClock], [5, 7, "18:00"]);
+  assert.deepEqual([dryOutlook.agree, dryOutlook.total, dryOutlook.shower], [5, 7, "18:00"]);
+  // Models with a shower at different hours: none of them keeps the whole day dry.
+  const twoShowers = withModels(
+    dryQuarters,
+    modelsReply(midnight, (m, t) =>
+      (m.id === "ncep_gfs_global" && t === thisHour + 4 * HOUR_MS) ||
+      (m.id === "dwd_icon_global" && t === thisHour + 8 * HOUR_MS)
+        ? 0.5
+        : 0,
+    ),
+  );
+  assert.equal(twoShowers.kind, "dry");
+  assert.deepEqual(
+    twoShowers.kind === "dry" && twoShowers.models,
+    { dry: 5, total: 7 },
+    "5 of 7 dry through all 24 hours, though at any one hour 6 are",
+  );
   const allDry = withModels(
     dryQuarters,
     modelsReply(midnight, () => 0),
@@ -872,7 +915,8 @@ async function main() {
     hours: 24,
     agree: 7,
     total: 7,
-    showerClock: clockAt(allDry.kind === "dry" ? allDry.showerAt! : ""),
+    // Every hour alike: the first, this one, which has no clock time.
+    shower: null,
     chance: 3,
     level: "high",
   });
@@ -880,6 +924,8 @@ async function main() {
   const vote = (fields: Partial<ModelVote> = {}): ModelVote => ({
     models: 7,
     wet: 4,
+    wetModels: [],
+    hourlyWet: 4,
     heavy: 0,
     stormModels: 5,
     storm: 0,
@@ -889,36 +935,53 @@ async function main() {
     confidence: 0.8,
     ...fields,
   });
-  const rainIn = (v: ModelVote, minutes = 60) =>
+  const rainIn = (v: ModelVote, hour = thisHour + HOUR_MS) =>
     modelOutlook(
-      { kind: "later", at: iso(NOW + minutes * MIN), chance: v.chance, clear: false, vote: v },
+      { kind: "later", at: iso(Math.max(hour, NOW)), chance: v.chance, clear: false, vote: v, voteHour: iso(hour) },
       NOW,
       clockAt,
     ) as Extract<ModelOutlook, { kind: "rain" }>;
-  assert.equal(rainIn(vote(), 10).clock, null, "under 15 minutes away is soon");
-  assert.equal(rainIn(vote(), 38).clock, "14:58", "else when");
-  assert.equal(rainIn(vote({ heavy: 2, wet: 4 })).heavy, true);
-  assert.equal(rainIn(vote({ heavy: 2, wet: 5 })).heavy, false, "heavy in under half the models with rain");
-  assert.equal(rainIn(vote({ heavy: 1, wet: 1 })).heavy, false, "one model is not enough");
-  assert.equal(rainIn(vote({ storm: 2, stormModels: 6 })).storm, true);
-  assert.equal(rainIn(vote({ storm: 2, stormModels: 7 })).storm, false);
+  assert.equal(rainIn(vote(), thisHour).hour, null, "the hour it is now has no clock time");
+  assert.equal(rainIn(vote(), thisHour + HOUR_MS).hour, "15:00", "hours, never minutes");
+  assert.equal(rainIn(vote({ heavy: 2, hourlyWet: 4 })).heavy, 2);
+  assert.equal(rainIn(vote({ heavy: 2, hourlyWet: 5 })).heavy, 0, "heavy in under half the hourly models with rain");
+  assert.equal(rainIn(vote({ heavy: 1, hourlyWet: 1 })).heavy, 0, "one model is not enough");
+  assert.equal(rainIn(vote({ storm: 2, stormModels: 6 })).storm, 2);
+  assert.equal(rainIn(vote({ storm: 2, stormModels: 7 })).storm, 0);
   assert.equal(rainIn(vote({ chance: 30 })).level, "low", "the models lean dry");
+  assert.equal(rainIn(vote({ chance: 30, wet: 3 })).doubtful, true, "under an even chance, with most models dry");
+  assert.equal(rainIn(vote({ chance: 30, wet: 4 })).doubtful, false, "not with most models wet");
   assert.equal(
     modelOutlook({ kind: "raining", intensity: "light", until: null, precise: false, vote: vote() }, NOW, clockAt),
     null,
   );
   assert.equal(modelOutlook({ kind: "later", at: iso(NOW + HOUR_MS), chance: 70, clear: false }, NOW, clockAt), null);
-  const split = { kind: "rain", clock: "23:00", agree: 3, total: 7, level: "low", heavy: false, storm: false } as const;
+  const split = {
+    kind: "rain",
+    hour: "23:00",
+    agree: 3,
+    total: 7,
+    level: "low",
+    doubtful: false,
+    heavy: 0,
+    storm: 0,
+  } as const;
   assert.equal(
     MESSAGES.en.modelOutlook({ ...split, chance: 69 }),
     "Models are split on rain around 23:00: 3 of 7 expect it (69%).",
     "a likely chance from the ensembles never reads as 'may stay dry'",
   );
   assert.equal(
-    MESSAGES.en.modelOutlook({ ...split, chance: 31 }),
+    MESSAGES.en.modelOutlook({ ...split, chance: 31, doubtful: true }),
     "Only 3 of 7 models expect rain around 23:00, so it may stay dry (31%).",
   );
-  for (const c of [doubted, backed, soon, showerAt18, allDry]) console.log(`  ${c.kind}: ${say(c)}`);
+  assert.equal(
+    MESSAGES.en.modelOutlook({ ...split, agree: 7, level: "high", chance: 94, storm: 4 }),
+    "High confidence of rain from about 23:00: all 7 models agree, 4 with thunderstorms.",
+    "the count is of rain; thunder is its own count",
+  );
+  for (const c of [doubted, backed, soon, soonNow, showerAt18, twoShowers, allDry])
+    console.log(`  ${c.kind}: ${say(c)}`);
   console.log("✓ the countdown doubts rain the models don't see, and warns of rain they agree on");
 }
 

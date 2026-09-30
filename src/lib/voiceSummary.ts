@@ -15,7 +15,7 @@ import type {
   WeatherCondition,
 } from "@/services/WeatherNext3MockService";
 import { AIR_CAUTION, HEAT_DANGER, UV_HIGH } from "./lifestyle";
-import { hoursBetween, minutesUntil, type RainCountdown } from "./rainCountdown";
+import { hoursBetween, minutesUntil, modelsDoubt, type RainCountdown } from "./rainCountdown";
 import { HEAVY_RATE } from "./routeWeather";
 
 /**
@@ -43,12 +43,14 @@ export type DayPart = "morning" | "afternoon" | "evening" | "night";
 export type SummaryFact =
   | { kind: "greeting"; part: DayPart }
   | { kind: "now"; tempC: number; condition: WeatherCondition; isDay: boolean; feelsLikeC: number | null }
-  | { kind: "rainStarting"; minutes: number; intensity: RainIntensity }
+  /** `doubtful` when the weather models doubt it (see rainCountdown). */
+  | { kind: "rainStarting"; minutes: number; intensity: RainIntensity; doubtful?: boolean }
   | { kind: "raining"; intensity: RainIntensity; until: string | null }
-  /** `likely` from RAIN_SURE; below it the wording gives the chance. */
+  /** `likely` from RAIN_SURE; below it the wording gives the chance. `thisHour`: it starts within the hour, so no clock time. */
   | {
       kind: "rainLater";
       at: string;
+      thisHour: boolean;
       chance: number;
       likely: boolean;
       heavy: boolean;
@@ -59,9 +61,18 @@ export type SummaryFact =
   | { kind: "dry"; hours: number; weekday: number | null }
   /**
    * After a rain or dry fact, for real forecasts: `agree` of the `total`
-   * weather models back it, and how firmly (see openmeteo/consensus.ts).
+   * weather models back it (for a dry spell, those dry through all of it),
+   * how firmly (see openmeteo/consensus.ts), and whether they doubt the rain
+   * (as the countdown's badge does).
    */
-  | { kind: "models"; about: "rain" | "dry"; agree: number; total: number; chance: number; level: ConfidenceLevel }
+  | {
+      kind: "models";
+      about: "rain" | "dry";
+      agree: number;
+      total: number;
+      level: ConfidenceLevel;
+      doubtful: boolean;
+    }
   | { kind: "today"; maxC: number }
   | { kind: "tonight"; minC: number }
   | { kind: "tomorrow"; outlook: DayOutlook; minC: number; maxC: number }
@@ -92,16 +103,14 @@ function dayPart(hour: number): DayPart {
   return "night";
 }
 
-function modelsFact(about: "rain" | "dry", vote: ModelVote): SummaryFact {
-  return {
-    kind: "models",
-    about,
-    agree: about === "rain" ? vote.wet : vote.models - vote.wet,
-    total: vote.models,
-    chance: vote.chance,
-    level: support(vote, about === "rain"),
-  };
-}
+const rainModels = (vote: ModelVote): SummaryFact => ({
+  kind: "models",
+  about: "rain",
+  agree: vote.wet,
+  total: vote.models,
+  level: support(vote, true),
+  doubtful: modelsDoubt(vote),
+});
 
 export function summaryFacts({ current, hourly, daily, countdown, now }: SummaryInput): SummaryFact[] {
   const at = now ?? Date.parse(current.observedAt);
@@ -125,8 +134,9 @@ export function summaryFacts({ current, hourly, daily, countdown, now }: Summary
         kind: "rainStarting",
         minutes: Math.max(1, minutesUntil(countdown.at, at)),
         intensity: countdown.intensity,
+        ...(countdown.vote && countdown.doubtful ? { doubtful: true } : {}),
       });
-      if (countdown.vote) facts.push(modelsFact("rain", countdown.vote));
+      if (countdown.vote) facts.push(rainModels(countdown.vote));
       break;
     case "raining":
       facts.push({ kind: "raining", intensity: countdown.intensity, until: countdown.until });
@@ -139,13 +149,15 @@ export function summaryFacts({ current, hourly, daily, countdown, now }: Summary
       facts.push({
         kind: "rainLater",
         at: countdown.at,
+        // Rain the models expect this hour starts "now" in the countdown: no clock time to say.
+        thisHour: start <= at,
         chance: countdown.chance,
         likely: countdown.chance >= RAIN_SURE,
         heavy: hours.some((h) => h.precipitationMm >= HEAVY_RATE || h.condition === "heavy-rain"),
         storm: hours.some((h) => h.condition === "thunderstorm"),
         tomorrow: zonedParts(start, tz).day !== zonedParts(at, tz).day,
       });
-      if (countdown.vote) facts.push(modelsFact("rain", countdown.vote));
+      if (countdown.vote) facts.push(rainModels(countdown.vote));
       break;
     }
     case "dry": {
@@ -155,7 +167,15 @@ export function summaryFacts({ current, hourly, daily, countdown, now }: Summary
         hours: countdown.hours,
         weekday: next ? new Date(`${next.date}T12:00:00Z`).getUTCDay() : null,
       });
-      if (countdown.vote) facts.push(modelsFact("dry", countdown.vote));
+      if (countdown.vote && countdown.models)
+        facts.push({
+          kind: "models",
+          about: "dry",
+          agree: countdown.models.dry,
+          total: countdown.models.total,
+          level: support(countdown.vote, false),
+          doubtful: false,
+        });
       break;
     }
   }

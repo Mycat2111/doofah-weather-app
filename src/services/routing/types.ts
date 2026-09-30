@@ -61,6 +61,10 @@ export type RouteErrorCode =
   | "tooFar"
   /** No connection to the routing service. */
   | "offline"
+  /** The route came back, but not the weather along it. */
+  | "weather"
+  /** This site has no route planner it may use (see RouteOptions.osrmUrl). */
+  | "unavailable"
   /** Something else went wrong planning the trip. */
   | "failed";
 

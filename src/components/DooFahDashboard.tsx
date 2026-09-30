@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { AlertTriangle, RotateCw, WifiOff } from "lucide-react";
-import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { AtmosphereBackground } from "@/components/AtmosphereBackground";
 import { CurrentWeatherCard } from "@/components/CurrentWeatherCard";
 import { DailyForecastList } from "@/components/DailyForecastList";
@@ -28,6 +28,7 @@ import { previewAlerts, weatherAlerts, type AlertKind } from "@/lib/alerts";
 import { readOpeningPlace, saveLastPlace } from "@/lib/favorites";
 import { lifestyleIndex } from "@/lib/lifestyle";
 import { previewCountdown, previewNowcast, rainCountdown, type CountdownPreview } from "@/lib/rainCountdown";
+import { blendTrip } from "@/lib/routeWeather";
 import { weatherSummary } from "@/lib/voiceSummary";
 import { weatherService, type WeatherSetup } from "@/services/weatherService";
 import {
@@ -47,8 +48,8 @@ interface DooFahDashboardProps {
   rainPreview?: CountdownPreview;
   /** Where the forecast comes from, decided on the server. */
   weather: WeatherSetup;
-  /** The OSRM server road trips are routed by. */
-  osrmUrl: string;
+  /** The OSRM server road trips are routed by, or null when the site has none it may use. */
+  osrmUrl: string | null;
   /** The site operator's email, shown in the footer. */
   contactEmail?: string;
 }
@@ -122,8 +123,12 @@ export function DooFahDashboard({
       ? weatherSummary({ current: data.current, hourly: data.hourly, daily: data.daily, countdown }, locale)
       : null;
 
+  // Stops near the dashboard's place show its chance of rain, so the two never disagree.
+  const trip = useMemo(
+    () => (route.trip && data ? blendTrip(route.trip, data.current.place.point, data.hourly) : route.trip),
+    [route.trip, data],
+  );
   // The trip's stops: the start and end by their places, the rest by the nearest town, else the distance.
-  const trip = route.trip;
   const stopName = (i: number) => {
     if (!trip) return "";
     if (i === 0) return placeLabel(route.origin, locale).name;
@@ -216,7 +221,7 @@ export function DooFahDashboard({
             className="h-[600px] lg:col-start-2 lg:row-start-1 lg:h-auto lg:min-h-[580px]"
           />
           <RouteWeatherCard
-            state={route}
+            state={trip === route.trip ? route : { ...route, trip }}
             place={place}
             timeZone={place.timeZone}
             stopName={stopName}

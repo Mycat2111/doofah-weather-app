@@ -300,7 +300,9 @@ function dailyForecasts(
       dayHours.map((h) => Date.parse(h.time)),
     );
     if (!vote) return { ...summariseDay(date, dayHours, sun, timeZone), confidence: null };
-    return { ...summariseDay(date, dayHours, sun, timeZone, vote.chance), confidence: vote.confidence, vote };
+    // Rain at some point in the day is never less likely than in any one of its hours.
+    const chance = Math.max(vote.chance, ...dayHours.map((h) => h.precipitationProbability));
+    return { ...summariseDay(date, dayHours, sun, timeZone, chance), confidence: vote.confidence, vote };
   });
 }
 

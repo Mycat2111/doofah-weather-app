@@ -227,14 +227,16 @@ function voiceSummary(facts: SummaryFact[], { place, clock }: SummaryContext): s
         return `ตอนนี้${where} อุณหภูมิ ${fact.tempC} องศา ${sky}${feels}`;
       }
       case "rainStarting":
-        return RAIN_STARTING[fact.intensity](spokenWaitTh(fact.minutes));
+        return fact.doubtful
+          ? `อาจมีฝนตกในอีกประมาณ ${spokenWaitTh(fact.minutes)}`
+          : RAIN_STARTING[fact.intensity](spokenWaitTh(fact.minutes));
       case "raining":
         if (!fact.until) return "ฝนน่าจะตกต่อไปอีกพักใหญ่ ถ้าจะออกไปข้างนอกอย่าลืมพกร่มนะ";
         return fact.intensity === "heavy"
           ? `ฝนน่าจะซาลงประมาณ${at(fact.until)} ระหว่างนี้ระวังน้ำท่วมขังบนถนนด้วยนะ`
           : `ฝนน่าจะซาลงประมาณ${at(fact.until)}`;
       case "rainLater": {
-        const when = `${fact.tomorrow ? "พรุ่งนี้" : ""}ช่วงประมาณ${at(fact.at)}`;
+        const when = fact.thisHour ? "ภายในชั่วโมงนี้" : `${fact.tomorrow ? "พรุ่งนี้" : ""}ช่วงประมาณ${at(fact.at)}`;
         if (fact.storm) return `คาดว่าจะมีพายุฝนฟ้าคะนอง${when} ควรหาที่หลบให้เรียบร้อยก่อนนะ`;
         if (fact.heavy) return `คาดว่าฝนจะตกหนัก${when} อย่าลืมพกร่มนะ`;
         if (fact.likely) return `ฝนน่าจะตก${when} พกร่มไปด้วยก็ดีนะ`;
@@ -246,16 +248,18 @@ function voiceSummary(facts: SummaryFact[], { place, clock }: SummaryContext): s
           : `ไม่มีฝนตลอด ${fact.hours} ชั่วโมงข้างหน้า ฝนรอบถัดไปน่าจะเป็นวัน${WEEKDAYS[fact.weekday]}`;
       case "models": {
         const of = fact.agree === fact.total ? `ทั้ง ${fact.total} ตัว` : ` ${fact.agree} จาก ${fact.total} ตัว`;
-        if (fact.about === "dry")
-          return fact.level === "low"
-            ? `แต่โมเดลพยากรณ์ยังไม่แน่ใจนัก มี ${fact.agree} จาก ${fact.total} ตัวที่ว่าไม่มีฝน`
-            : `โมเดลพยากรณ์${of}เห็นตรงกัน`;
-        if (fact.level === "high") return `โมเดลพยากรณ์${of}เห็นตรงกัน ค่อนข้างแน่นอน`;
-        if (fact.level === "medium") return `โมเดลพยากรณ์${of}เห็นตรงกัน`;
-        if (fact.chance < 50 && fact.agree * 2 < fact.total)
+        if (fact.about === "dry") {
+          if (fact.level !== "low") return `โมเดลพยากรณ์${of}เห็นตรงกัน`;
+          return fact.agree === fact.total
+            ? `แต่ยังมีโอกาสฝนเล็กน้อย แม้โมเดลพยากรณ์ทั้ง ${fact.total} ตัวจะว่าไม่มีฝน`
+            : `แต่โมเดลพยากรณ์ยังไม่แน่ใจนัก มี ${fact.agree} จาก ${fact.total} ตัวที่ว่าไม่มีฝน`;
+        }
+        if (fact.doubtful)
           return fact.agree === 0
             ? `แต่โมเดลพยากรณ์ทั้ง ${fact.total} ตัวไม่มีตัวไหนเห็นด้วย ฝนอาจไม่ตกก็ได้`
             : `แต่มีโมเดลพยากรณ์เห็นด้วยเพียง ${fact.agree} จาก ${fact.total} ตัว ฝนอาจไม่ตกก็ได้`;
+        if (fact.level === "high") return `โมเดลพยากรณ์${of}เห็นตรงกัน ค่อนข้างแน่นอน`;
+        if (fact.level === "medium") return `โมเดลพยากรณ์${of}เห็นตรงกัน`;
         return `แต่โมเดลพยากรณ์ยังเห็นไม่ตรงกัน มี ${fact.agree} จาก ${fact.total} ตัวที่คาดว่าฝนจะตก`;
       }
       case "today":
@@ -274,27 +278,31 @@ function voiceSummary(facts: SummaryFact[], { place, clock }: SummaryContext): s
   });
 }
 
-const RAIN_KIND = { storm: "พายุฝนฟ้าคะนอง", heavy: "ฝนตกหนัก", rain: "ฝน" };
-
 function modelOutlook(o: ModelOutlook): string {
   if (o.kind === "dry") {
-    const shower = `${o.showerClock}${NB}น.`;
+    const at = o.shower ? `ราว ${o.shower}${NB}น.` : "ในชั่วโมงนี้";
     if (o.level === "low")
-      return `ยังไม่แน่นอน มีโอกาสฝนเล็กน้อย ${o.chance}% ราว ${shower} โมเดล ${o.agree} จาก ${o.total} ตัวว่าไม่มีฝน`;
+      return o.agree === o.total
+        ? `ยังไม่แน่นอน มีโอกาสฝนเล็กน้อย ${o.chance}% ${at} แม้โมเดลทั้ง ${o.total} ตัวจะว่าไม่มีฝน`
+        : `ยังไม่แน่นอน มีโอกาสฝนเล็กน้อย ${o.chance}% ${at} โมเดล ${o.agree} จาก ${o.total} ตัวว่าไม่มีฝน`;
     if (o.agree === o.total) return `โมเดลทั้ง ${o.total} ตัวเห็นตรงกันว่าไม่มีฝนใน ${o.hours} ชั่วโมงข้างหน้า`;
-    return `โมเดล ${o.total - o.agree} จาก ${o.total} ตัวมีฝนเล็กน้อยราว ${shower} ที่เหลือว่าไม่มีฝน`;
+    return `โมเดล ${o.total - o.agree} จาก ${o.total} ตัวมีฝนเล็กน้อยใน ${o.hours} ชั่วโมงข้างหน้า น่าจะเป็น${at} (${o.chance}%)`;
   }
-  const what = RAIN_KIND[o.storm ? "storm" : o.heavy ? "heavy" : "rain"];
-  const when = o.clock ? `ตั้งแต่ราว ${o.clock}${NB}น.` : "เร็ว ๆ นี้";
-  const around = o.clock ? `ราว ${o.clock}${NB}น.` : "เร็ว ๆ นี้";
+  const when = o.hour ? `ตั้งแต่ราว ${o.hour}${NB}น.` : "ในชั่วโมงนี้";
+  const around = o.hour ? `ราว ${o.hour}${NB}น.` : "ในชั่วโมงนี้";
   const of = o.agree === o.total ? `ทั้ง ${o.total} ตัว` : ` ${o.agree} จาก ${o.total} ตัว`;
-  if (o.level === "high") return `มั่นใจสูงว่าจะมี${what}${when} โมเดล${of}เห็นตรงกัน`;
-  if (o.level === "medium") return `โมเดล ${o.agree} จาก ${o.total} ตัวคาดว่าจะมี${what}${when} (${o.chance}%)`;
-  if (o.chance < 50 && o.agree * 2 < o.total)
+  const also = o.storm
+    ? ` มี ${o.storm} ตัวที่คาดว่าจะมีพายุฝนฟ้าคะนอง`
+    : o.heavy
+      ? ` มี ${o.heavy} ตัวที่คาดว่าฝนจะตกหนัก`
+      : "";
+  if (o.doubtful)
     return o.agree === 0
       ? `ไม่มีโมเดลใดใน ${o.total} ตัวคาดว่าฝนจะตก${around} อาจไม่ตกก็ได้ (${o.chance}%)`
       : `มีเพียง ${o.agree} จาก ${o.total} โมเดลที่คาดว่าฝนจะตก${around} อาจไม่ตกก็ได้ (${o.chance}%)`;
-  return `โมเดลยังเห็นไม่ตรงกันเรื่องฝน${around} มี ${o.agree} จาก ${o.total} ตัวที่คาดว่าจะตก (${o.chance}%)`;
+  if (o.level === "high") return `มั่นใจสูงว่าฝนจะตก${when} โมเดล${of}เห็นตรงกัน${also}`;
+  if (o.level === "medium") return `โมเดล ${o.agree} จาก ${o.total} ตัวคาดว่าฝนจะตก${when}${also} (${o.chance}%)`;
+  return `โมเดลยังเห็นไม่ตรงกันเรื่องฝน${around} มี ${o.agree} จาก ${o.total} ตัวที่คาดว่าจะตก${also} (${o.chance}%)`;
 }
 
 export const th: Messages = {
@@ -433,6 +441,8 @@ export const th: Messages = {
     noRainAhead: "ไม่มีฝนในพยากรณ์ 15 วัน",
     radar: "เรดาร์",
     maybeIn: (duration) => `อาจมีฝนในอีก ${duration}`,
+    maybeNow: "อาจมีฝนตอนนี้",
+    maybeAt: (clock) => `อาจเริ่มตกราว ${clock}${NB}น.`,
     likelyAround: (clock) => `ฝนน่าจะตกราว ${clock}${NB}น.`,
     likelyNow: "ฝนน่าจะตกในชั่วโมงนี้",
     modelsAgree: (agree, total) => `${agree}/${total} โมเดล`,
@@ -519,6 +529,8 @@ export const th: Messages = {
       tooFar: "ไกลเกินกว่าจะวางแผนขับรถ",
       offline: "ต้องต่ออินเทอร์เน็ตเพื่อวางเส้นทาง",
       failed: "ติดต่อระบบวางเส้นทางไม่ได้",
+      weather: "โหลดสภาพอากาศตลอดเส้นทางไม่สำเร็จ",
+      unavailable: "เว็บไซต์นี้ยังวางเส้นทางไม่ได้",
     },
     retry: "ลองอีกครั้ง",
     routeBy: "เส้นทางโดย",

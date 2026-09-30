@@ -9,6 +9,7 @@ import {
   MAX_STOPS,
   positionAt,
   routeOutlook,
+  blendTrip,
   routeStops,
   stopInterval,
   stopRain,
@@ -28,7 +29,7 @@ import { clearRouteCache, getRoute } from "../src/services/routing/routeService"
 import { TOWNS } from "../src/services/routing/towns";
 import { RouteError, type Route, type RouteRequest } from "../src/services/routing/types";
 import { distanceKm } from "../src/services/weathernext3/places";
-import type { GeoPoint } from "../src/services/weathernext3/types";
+import type { GeoPoint, HourlyForecast } from "../src/services/weathernext3/types";
 import { PLACES, WeatherNext3MockService, type AtmosphericSample } from "../src/services/WeatherNext3MockService";
 
 const NOW = Date.UTC(2026, 8, 30, 7, 20); // 30 Sep 2026, 14:20 in Bangkok
@@ -292,6 +293,30 @@ async function main() {
   assert.equal(flaky.calls.length, 6, "the given-up request was still used");
   await assert.rejects(getRoute(trip("bangkok", "tokyo"), { fetch: flaky.fetch }), rejectsWith("tooFar"));
   assert.equal(flaky.calls.length, 6, "too far is decided without the router");
+  // A trip given up on while it waits for its turn never reaches the router, nor holds up the next one.
+  clearRouteCache();
+  const queued = fakeFetch(() => ({ body: SAMUI }));
+  await getRoute(trip("bangkok", "hua-hin"), { fetch: queued.fetch });
+  const drop = new AbortController();
+  const dropped = getRoute(trip("bangkok", "pattaya"), { fetch: queued.fetch, signal: drop.signal });
+  const next = getRoute(trip("bangkok", "chiang-mai"), { fetch: queued.fetch });
+  drop.abort();
+  await assert.rejects(dropped);
+  await next;
+  assert.equal(queued.calls.length, 2, "the trip given up on was never asked");
+  assert.ok(queued.calls[1].url.includes("98.98530"), "the next trip took its turn");
+  const gap = queued.calls[1].at - queued.calls[0].at;
+  assert.ok(gap >= 1100 && gap < 2000, `${gap} ms: one gap, not two`);
+  // No router the site may use (no operator address for FOSSGIS): every trip says so, without asking anyone.
+  await assert.rejects(
+    getRoute(trip("bangkok", "pattaya"), { fetch: queued.fetch, osrmUrl: null }),
+    rejectsWith("unavailable"),
+  );
+  await assert.rejects(
+    getRoute(trip("bangkok", "tokyo"), { fetch: queued.fetch, osrmUrl: null }),
+    rejectsWith("tooFar"),
+  );
+  assert.equal(queued.calls.length, 2);
   console.log("✓ OSRM routes follow real roads: ferries found, lines thinned, one request a second, errors explained");
 
   const routes: Record<string, Route> = { "chiang-mai": chiangMai, samui: samuiRoute };
@@ -383,6 +408,24 @@ async function main() {
     "พายุฝนฟ้าคะนองเป็นช่วง\u00a0ๆ ตั้งแต่นครสวรรค์ถึงเชียงใหม่ ช่วง 18:00–21:00\u00a0น.",
   );
   console.log(`  ${th.routeOutlook(outlook, (i) => ["กรุงเทพฯ", "นครสวรรค์", "ตาก"][i], clock)}`);
+  // Stops near the dashboard's place take its blended chance of rain for their hour, so the two agree.
+  const legs = withWeather(dry, dry, dry);
+  const start = legs[0];
+  const hourStart = Math.floor(Date.parse(start.eta) / 3_600_000) * 3_600_000;
+  const blendHour = (chance: number, vote = true) =>
+    ({
+      ...dry,
+      time: new Date(hourStart).toISOString(),
+      precipitationProbability: chance,
+      ...(vote ? { vote: { chance } } : {}),
+    }) as unknown as HourlyForecast;
+  const plain = { stops: legs, outlook: routeOutlook(legs) };
+  const blendedTrip = blendTrip(plain, start.point, [blendHour(40)]);
+  assert.equal(blendedTrip.stops[0].weather.precipitationProbability, 40, "the start reads the dashboard's hour");
+  assert.deepEqual(blendedTrip.outlook, { kind: "possible", stop: 0, chance: 40 }, "and the outlook follows");
+  assert.equal(blendedTrip.stops[1], legs[1], "stops away from the place keep their own forecast");
+  assert.equal(blendTrip(plain, start.point, [blendHour(40, false)]), plain, "only hours the models voted on");
+  assert.equal(blendTrip(plain, { lat: 0, lon: 0 }, [blendHour(40)]), plain, "nowhere near the place");
   console.log("✓ Weather at each stop for when you get there, and the trip's rain in one line");
 }
 

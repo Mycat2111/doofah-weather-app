@@ -9,6 +9,7 @@ const ALERT_KINDS: AlertKind[] = ["storm", "rain", "air"];
 
 export default async function Home({ searchParams }: PageProps<"/">) {
   const { sky, alert, rain, data } = await searchParams;
+  const contactEmail = process.env.CONTACT_EMAIL || undefined;
   const override = ATMOSPHERE_THEMES.find((t) => t === sky) as AtmosphereTheme | undefined;
   // `?alert=storm`, `?alert=rain,air` or `?alert=all` previews the alert banner.
   const requested = typeof alert === "string" ? alert.split(",") : [];
@@ -27,10 +28,10 @@ export default async function Home({ searchParams }: PageProps<"/">) {
       alertPreview={alertPreview.length ? alertPreview : undefined}
       rainPreview={rainPreview}
       weather={weather}
-      // Road routes from OSRM: FOSSGIS's public server unless OSRM_URL names another.
-      osrmUrl={process.env.OSRM_URL || FOSSGIS_OSRM_URL}
-      // The operator's address, which FOSSGIS's terms ask every site using its router to show.
-      contactEmail={process.env.CONTACT_EMAIL || undefined}
+      // Road routes from OSRM: FOSSGIS's public server unless OSRM_URL names another. FOSSGIS's
+      // terms ask every site using it to show the operator's address, so without one there are no routes.
+      osrmUrl={process.env.OSRM_URL || (contactEmail ? FOSSGIS_OSRM_URL : null)}
+      contactEmail={contactEmail}
     />
   );
 }

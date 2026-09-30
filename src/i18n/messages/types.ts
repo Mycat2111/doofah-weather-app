@@ -137,8 +137,10 @@ export interface Messages {
     noRainAhead: string;
     /** Marks a time that comes from the radar nowcast. */
     radar: string;
-    /** Rain the nowcast shows but most weather models doubt. */
+    /** Rain the nowcast shows but most weather models doubt: the badge, then the detail. */
     maybeIn: (duration: string) => string;
+    maybeNow: string;
+    maybeAt: (clock: string) => string;
     /** Rain the weather models expect within 2 hours though the nowcast is dry. */
     likelyAround: (clock: string) => string;
     likelyNow: string;

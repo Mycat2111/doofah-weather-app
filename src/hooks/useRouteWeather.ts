@@ -23,10 +23,10 @@ interface TripState {
 /**
  * A road trip and the weather along it. The origin follows the dashboard's
  * place until another one is picked; setting a destination plans the drive
- * (over real roads, from the OSRM server at `osrmUrl`) and fetches the
+ * (over real roads, from the OSRM server at `osrmUrl`; null, none) and fetches the
  * forecast from `weather` at every stop for the time you get there.
  */
-export function useRouteWeather(weather: WeatherService, place: Place, osrmUrl?: string) {
+export function useRouteWeather(weather: WeatherService, place: Place, osrmUrl: string | null) {
   const [pickedOrigin, setOrigin] = useState<Place | null>(null);
   const [destination, setDestination] = useState<Place | null>(null);
   const [leaveInHours, setLeaveInHours] = useState(0);
@@ -50,7 +50,12 @@ export function useRouteWeather(weather: WeatherService, place: Place, osrmUrl?:
           { osrmUrl, signal: controller.signal },
         );
         const stops = routeStops(route);
-        const along = await weather.getWeatherAlong(stops.map((s) => ({ point: s.point, time: s.eta })));
+        const along = await weather
+          .getWeatherAlong(stops.map((s) => ({ point: s.point, time: s.eta })))
+          .catch((error) => {
+            const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+            throw new RouteError(offline ? "offline" : "weather", String(error));
+          });
         const withWeather = stops.map((s, i) => ({ ...s, weather: along[i] }));
         if (!controller.signal.aborted)
           setState({ key, trip: { route, stops: withWeather, outlook: routeOutlook(withWeather) } });
