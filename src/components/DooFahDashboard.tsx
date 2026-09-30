@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { AlertTriangle, RotateCw } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { AtmosphereBackground } from "@/components/AtmosphereBackground";
 import { CurrentWeatherCard } from "@/components/CurrentWeatherCard";
 import { DailyForecastList } from "@/components/DailyForecastList";
@@ -17,6 +17,7 @@ import { useForecast } from "@/hooks/useForecast";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import { useI18n } from "@/i18n/I18nProvider";
 import { previewAlerts, weatherAlerts, type AlertKind } from "@/lib/alerts";
+import { readOpeningPlace, saveLastPlace } from "@/lib/favorites";
 import {
   DEFAULT_PLACE,
   weatherNext3,
@@ -32,10 +33,26 @@ interface DooFahDashboardProps {
   alertPreview?: AlertKind[];
 }
 
+const noSubscription = () => () => {};
+
 export function DooFahDashboard({ atmosphereOverride, alertPreview }: DooFahDashboardProps) {
   const { m } = useI18n();
-  const [place, setPlace] = useState<Place>(DEFAULT_PLACE);
+  // False on the server and while hydrating, true in the browser after that.
+  const inBrowser = useSyncExternalStore(
+    noSubscription,
+    () => true,
+    () => false,
+  );
+  const [chosen, setPlace] = useState<Place | null>(null);
+  // Until a place is picked, open on a saved favorite (the server, which
+  // cannot see localStorage, renders the default place first).
+  const place = chosen ?? (inBrowser ? readOpeningPlace() : undefined) ?? DEFAULT_PLACE;
   const { data, loading, error, refresh } = useForecast(place);
+
+  // Remember what is on screen, so the app reopens on it if it is a favorite.
+  useEffect(() => {
+    if (inBrowser) saveLastPlace(place);
+  }, [inBrowser, place]);
 
   const onLocated = useCallback((point: GeoPoint) => setPlace(weatherNext3.placeForPoint(point)), []);
   const geo = useGeolocation(onLocated);
@@ -54,7 +71,7 @@ export function DooFahDashboard({ atmosphereOverride, alertPreview }: DooFahDash
   return (
     <>
       <AtmosphereBackground theme={atmosphere} />
-      <main className="relative mx-auto w-full max-w-[1400px] px-4 pb-14 pt-5 sm:px-6 lg:px-8">
+      <main className="relative mx-auto w-full min-w-0 max-w-[1400px] px-4 pb-14 pt-5 sm:px-6 lg:px-8">
         <DooFahHeader place={place} onSelectPlace={setPlace} onLocate={geo.locate} geoStatus={geo.status} />
         <FavoritesBar
           place={place}
@@ -75,7 +92,7 @@ export function DooFahDashboard({ atmosphereOverride, alertPreview }: DooFahDash
           </div>
         )}
 
-        <div className="mt-3 grid gap-4 lg:grid-cols-[minmax(340px,420px)_1fr]">
+        <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(340px,420px)_1fr]">
           <div className={`transition-opacity duration-300 ${loading && data ? "opacity-60" : ""}`}>
             {data ? (
               <CurrentWeatherCard current={data.current} today={data.daily[0]} className="h-full" />
@@ -83,7 +100,7 @@ export function DooFahDashboard({ atmosphereOverride, alertPreview }: DooFahDash
               <Skeleton className="h-[560px]" />
             )}
           </div>
-          <DooFahRadarMap place={place} className="h-[600px] lg:h-auto lg:min-h-[580px]" />
+          <DooFahRadarMap place={place} onLocated={onLocated} className="h-[600px] lg:h-auto lg:min-h-[580px]" />
         </div>
 
         <div className={`mt-4 transition-opacity duration-300 ${loading && data ? "opacity-60" : ""}`}>
@@ -95,7 +112,7 @@ export function DooFahDashboard({ atmosphereOverride, alertPreview }: DooFahDash
         </div>
 
         <div
-          className={`mt-4 grid items-start gap-4 lg:grid-cols-[1fr_minmax(340px,420px)] ${
+          className={`mt-4 grid grid-cols-1 items-start gap-4 lg:grid-cols-[1fr_minmax(340px,420px)] ${
             loading && data ? "opacity-60" : ""
           } transition-opacity duration-300`}
         >

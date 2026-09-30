@@ -95,6 +95,9 @@ async function main() {
   assert.equal(fth.clock(NOW, "Asia/Bangkok"), "14:20");
   assert.equal(fth.hour(NOW, "Asia/Bangkok"), "14");
   assert.equal(fen.dayName("2026-09-28", 2), "Mon");
+  // The 15-day list shows the date under each day: "Mon / Oct 12", "จันทร์ / 12 ต.ค.".
+  assert.equal(fen.shortDate("2026-10-12"), "Oct 12");
+  assert.equal(fth.shortDate("2026-10-12"), "12 ต.ค.");
   assert.equal(fen.clock(NOW, "Asia/Bangkok"), "14:20");
   console.log(
     `✓ ฝนตกหนัก, ท้องฟ้าแจ่มใส, ${fth.dayName("2026-09-28", 2)}, ${fth.dayName("2026-09-29", 2)}, ` +

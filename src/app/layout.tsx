@@ -40,6 +40,11 @@ export const viewport: Viewport = {
   themeColor: "#0b1026",
   width: "device-width",
   initialScale: 1,
+  // The page itself never zooms, like a native app; only the radar map does
+  // (Leaflet handles its own pinch). globals.css and AppProviders also block
+  // pinch and double-tap zoom where browsers ignore these two.
+  maximumScale: 1,
+  userScalable: false,
   // Draw under the notch and home indicator; globals.css pads the content back in.
   viewportFit: "cover",
 };

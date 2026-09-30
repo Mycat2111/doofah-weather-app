@@ -1,8 +1,8 @@
 "use client";
 
 import L from "leaflet";
-import { useEffect, useRef, useState } from "react";
-import { MapContainer, Marker, Popup, Rectangle, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { Messages } from "@/i18n/messages";
 import { haptic } from "@/lib/haptics";
@@ -20,7 +20,6 @@ import { WindParticleLayer } from "./WindParticleLayer";
 
 export interface RadarLeafletViewProps {
   center: GeoPoint;
-  cellBounds: GeoBounds;
   grid?: RadarGridSpec;
   frame?: RadarFrame;
   onViewChange: (bounds: GeoBounds, zoom: number) => void;
@@ -28,17 +27,27 @@ export interface RadarLeafletViewProps {
   onMap?: (map: L.Map | null) => void;
   /** Show or hide the "use two fingers" hint (touch screens only). */
   onGestureHint?: (show: boolean) => void;
+  /** Zoom for the next fly to a new centre (set by "go to my location"); otherwise at least 9. */
+  nextZoomRef?: RefObject<number | null>;
 }
 
+/** Closest zoom level (street level). */
+const MAX_ZOOM = 20;
+
+/**
+ * "You are here": a deep blue bullseye with a thick white rim and drop shadow,
+ * over two rings that ripple outwards, so it stands out on dark and light maps
+ * and on top of heavy rain, wind and temperature colours.
+ */
 const userIcon = L.divIcon({
   className: "doofah-user-marker",
-  html: '<span class="ring"></span><span class="dot"></span>',
-  iconSize: [26, 26],
-  iconAnchor: [13, 13],
+  html: '<span class="ripple"></span><span class="ripple late"></span><span class="pin"></span>',
+  iconSize: [120, 120],
+  iconAnchor: [60, 60],
 });
 
 /** Fly to a new place when the selected location changes. */
-function Recenter({ center }: { center: GeoPoint }) {
+function Recenter({ center, nextZoomRef }: { center: GeoPoint; nextZoomRef?: RefObject<number | null> }) {
   const map = useMap();
   const first = useRef(true);
   useEffect(() => {
@@ -46,8 +55,27 @@ function Recenter({ center }: { center: GeoPoint }) {
       first.current = false;
       return;
     }
-    map.flyTo([center.lat, center.lon], Math.max(map.getZoom(), 9), { duration: 1.4 });
-  }, [map, center.lat, center.lon]);
+    const zoom = nextZoomRef?.current ?? Math.max(map.getZoom(), 9);
+    if (nextZoomRef) nextZoomRef.current = null;
+    map.flyTo([center.lat, center.lon], zoom, { duration: 1.4 });
+  }, [map, center.lat, center.lon, nextZoomRef]);
+  return null;
+}
+
+/**
+ * Double-click (or double-tap) zoom that stops cleanly at the zoom limits.
+ * Leaflet's own handler works out the new centre for the unclamped zoom, so a
+ * double click near the closest zoom level shifted the map somewhere else.
+ */
+function DoubleClickZoom() {
+  const map = useMap();
+  useMapEvents({
+    dblclick: (e) => {
+      const step = e.originalEvent.shiftKey ? -1 : 1;
+      const zoom = Math.min(map.getMaxZoom(), Math.max(map.getMinZoom(), map.getZoom() + step));
+      if (zoom !== map.getZoom()) map.setZoomAround(e.containerPoint, zoom);
+    },
+  });
   return null;
 }
 
@@ -216,6 +244,8 @@ function Probe({ grid, frame }: { grid?: RadarGridSpec; frame?: RadarFrame }) {
       position={[point.lat, point.lon]}
       className="doofah-popup"
       closeButton={false}
+      // Never move the map to fit the reading: a tap near the edge would shift the view.
+      autoPan={false}
       eventHandlers={{ remove: () => setPoint(null) }}
     >
       {describe(grid, frame, point, m)}
@@ -225,25 +255,34 @@ function Probe({ grid, frame }: { grid?: RadarGridSpec; frame?: RadarFrame }) {
 
 export default function RadarLeafletView({
   center,
-  cellBounds,
   grid,
   frame,
   onViewChange,
   onMap,
   onGestureHint,
+  nextZoomRef,
 }: RadarLeafletViewProps) {
+  // The same array between renders, so playback and new frames never make
+  // react-leaflet move the marker (which would fight a zoom in progress).
+  const position = useMemo<L.LatLngTuple>(() => [center.lat, center.lon], [center.lat, center.lon]);
   return (
     <MapContainer
       ref={onMap}
-      center={[center.lat, center.lon]}
+      center={position}
       zoom={9}
       minZoom={5}
-      maxZoom={12}
-      // Quarter steps: a pinch settles close to where the fingers left it
-      // instead of jumping to the nearest whole zoom level.
-      zoomSnap={0.25}
+      // Street level. The weather is a 5 km grid, smoothed, so this is for
+      // seeing exactly where rain sits relative to your street.
+      maxZoom={MAX_ZOOM}
+      // No snapping: a pinch or wheel zoom stays exactly where it was left.
+      // Snapping animates to the nearest step around the map centre, which
+      // pulls the place under your fingers or cursor away after you let go.
+      zoomSnap={0}
+      // Buttons and double taps still zoom by whole levels.
+      zoomDelta={1}
       // Pinching past the zoom limits stops there instead of bouncing back.
       bounceAtZoomLimits={false}
+      doubleClickZoom={false}
       zoomControl={false}
       attributionControl={false}
       worldCopyJump
@@ -252,20 +291,18 @@ export default function RadarLeafletView({
       <TileLayer
         url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
         className="doofah-tiles"
-        maxZoom={19}
+        maxZoom={MAX_ZOOM}
+        // OpenStreetMap draws tiles up to level 19; closer, those are enlarged.
+        maxNativeZoom={19}
         // CORS requests, so the service worker can keep viewed tiles for offline use.
         crossOrigin
       />
       <TouchGestures onHint={onGestureHint} />
-      <Recenter center={center} />
+      <DoubleClickZoom />
+      <Recenter center={center} nextZoomRef={nextZoomRef} />
       <ViewReporter onViewChange={onViewChange} />
       {grid && frame && <FrameLayers grid={grid} frame={frame} />}
-      <Rectangle
-        bounds={cellBounds}
-        pathOptions={{ color: "#ffffff", weight: 1.5, dashArray: "4 4", fillColor: "#7dd3fc", fillOpacity: 0.08 }}
-        interactive={false}
-      />
-      <Marker position={[center.lat, center.lon]} icon={userIcon} keyboard={false} />
+      <Marker position={position} icon={userIcon} keyboard={false} interactive={false} />
       <Probe grid={grid} frame={frame} />
     </MapContainer>
   );

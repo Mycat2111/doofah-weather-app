@@ -6,7 +6,9 @@ import assert from "node:assert/strict";
 import {
   addFavorite,
   findFavorite,
+  openingPlace,
   parseFavorites,
+  parseLastPlace,
   removeFavorite,
   renameFavorite,
   serializeFavorites,
@@ -83,3 +85,18 @@ const spot = parseFavorites(JSON.stringify({ favorites: [{ place: located }] }))
 assert.equal(spot.place.id, located.id, "a located spot keeps its own id and point");
 assert.deepEqual(spot.place.point, located.point);
 console.log("✓ Saved lists read back unchanged; broken or old data never breaks the page");
+
+// 4. Where the app opens --------------------------------------------------------
+const chiangMai = place("chiang-mai");
+let saved: Favorite[] = [];
+assert.equal(openingPlace(saved, bangkok), undefined, "no favorites: the app keeps its default place");
+saved = addFavorite(addFavorite(saved, tokyo), chiangMai);
+assert.equal(openingPlace(saved, null)?.id, "tokyo", "with nothing else to go on, the first favorite");
+saved = renameFavorite(saved, chiangMai, { kind: "home" });
+assert.equal(openingPlace(saved, null)?.id, "chiang-mai", "Home wins over the first favorite");
+assert.equal(openingPlace(saved, tokyo)?.id, "tokyo", "the favorite on screen last time wins over Home");
+assert.equal(openingPlace(saved, bangkok)?.id, "chiang-mai", "a last place that is not a favorite is ignored");
+assert.equal(openingPlace(addFavorite(saved, located), bangkok)?.id, located.id, "a located favorite matches nearby");
+assert.equal(parseLastPlace(JSON.stringify(tokyo))?.id, "tokyo");
+for (const raw of [null, "", "{oops", "42", '{"id":"x"}']) assert.equal(parseLastPlace(raw), null);
+console.log("✓ Opens on the favorite viewed last, else Home, else the first favorite");

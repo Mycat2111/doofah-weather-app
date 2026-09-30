@@ -87,6 +87,9 @@ Geolocation API and snaps to the nearest known city within 40 km.
   Unreadable or old data is skipped rather than breaking the page, and places
   from the gazetteer pick up its current names when read back. "Use my
   location" within 1 km of a saved place counts as that place.
+- **Opening.** The app opens on a favorite instead of Bangkok: the favorite
+  that was on screen last time (kept under `doofah-last-place`), else the one
+  named Home, else the first in the bar. With no favorites it opens on Bangkok.
 
 ## Weather alerts
 
@@ -136,11 +139,27 @@ shapes), and `public/screenshots/*` for the richer install dialog.
 **Touch.**
 
 - **Radar map.** The weather layers scale with the map during a pinch instead
-  of jumping when it ends, and a pinch settles in quarter zoom steps. On touch
+  of jumping when it ends. Zoom is not snapped to steps, so a pinch or wheel
+  zoom stays exactly where it was left, and double-click zoom stops cleanly at
+  the closest zoom. Tapping for a reading never pans the map. On touch
   screens one finger scrolls the page and two fingers move and zoom the map,
   as on an embedded Google map, because the map fills most of a phone screen
   and would otherwise trap the scroll; a one-finger drag shows a short hint.
-  The zoom buttons are 44 px on touch screens. Mouse and trackpad work as
+  The navigation-arrow button under the zoom buttons finds you by GPS, makes
+  that the dashboard's place and flies the map there at zoom 13; without a fix
+  it flies back to the marker and turns amber with the reason.
+  The map zooms from level 5 to 20 (street level; OpenStreetMap tiles are
+  enlarged past 19). The zoom buttons are 44 px on touch screens.
+- **Vertical scrolling only.** `html` and `body` clip sideways overflow
+  (`overflow-x: clip`, `hidden` as a fallback) with no sideways overscroll, the
+  dashboard grids use `minmax(0, 1fr)` columns so no card can widen the page,
+  and on phones under 380 px the map's layer switcher names only the picked
+  layer. Sideways strips such as the hourly forecast still swipe.
+- **Page zoom.** Like a native app, the page itself never zooms: the viewport
+  sets `maximum-scale=1, user-scalable=no`, `html` has `touch-action: pan-x
+  pan-y` (no pinch or double-tap zoom), and Safari's own `gesturestart` is
+  cancelled in `AppProviders.tsx`. Only the radar map zooms, because Leaflet
+  reads the touches itself. Mouse and trackpad work as
   before. To let one finger drag the map, remove `TouchGestures` from
   `RadarLeafletView.tsx`.
 - **Timeline.** The thumb follows the finger smoothly and springs onto the
@@ -208,13 +227,14 @@ src/
 │   │   ├── LayerSwitcher.tsx      Rain / Wind / Temp / Pressure segmented control
 │   │   ├── TimelineScrubber.tsx   −3 h … +24 h touch scrubber with play/pause
 │   │   ├── ZoomButtons.tsx        Map zoom buttons, finger-sized on touch screens
+│   │   ├── RecenterButton.tsx     Go to my location: GPS fix, then fly the map there
 │   │   ├── RadarLegend.tsx        Colour legend per layer
 │   │   ├── colorScales.ts         Radar, temperature, wind and pressure colour ramps
 │   │   ├── isobars.ts             Marching-squares isobars + H/L centres
 │   │   └── leaflet/
-│   │       ├── RadarLeafletView.tsx   MapContainer, touch gestures, user marker, 5 km cell, tap-to-probe
+│   │       ├── RadarLeafletView.tsx   MapContainer, touch gestures, GPS marker, tap-to-probe
 │   │       ├── useCanvasLayer.ts      Full-viewport canvas pane that follows pans, pinches and zooms
-│   │       ├── FieldRasterLayer.tsx   Bicubic-smoothed raster (rain, temperature, wind speed)
+│   │       ├── FieldRasterLayer.tsx   Smooth colour field painted at screen resolution (rain, temperature, wind)
 │   │       ├── WindParticleLayer.tsx  Animated wind streamlines
 │   │       └── IsobarLayer.tsx        Isobar lines, labels, H/L markers
 │   └── ui/

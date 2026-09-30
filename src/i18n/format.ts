@@ -7,7 +7,7 @@ export interface Formatters {
   hour: (time: string | number, timeZone: string) => string;
   /** "Today", "Tomorrow", then "Tue" / "วันนี้", "พรุ่งนี้", then "อังคาร". */
   dayName: (dateKey: string, index: number) => string;
-  /** "30 Sep" / "30 ก.ย." */
+  /** "Sep 30" / "30 ก.ย." */
   shortDate: (dateKey: string) => string;
   /** "31°" */
   temp: (celsius: number) => string;
@@ -53,7 +53,10 @@ export function createFormatters(locale: Locale): Formatters {
       return dateTimeFormat(locale, { timeZone: "UTC", weekday: "short" }).format(date);
     },
     shortDate: (dateKey) =>
-      dateTimeFormat(locale, { timeZone: "UTC", day: "numeric", month: "short" }).format(dateOf(dateKey)),
+      locale === "en"
+        ? // Month first ("Oct 12"), which reads naturally under a weekday: "Mon / Oct 12".
+          new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric" }).format(dateOf(dateKey))
+        : dateTimeFormat(locale, { timeZone: "UTC", day: "numeric", month: "short" }).format(dateOf(dateKey)),
     temp: (celsius) => `${Math.round(celsius)}°`,
   };
 }

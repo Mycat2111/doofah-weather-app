@@ -129,6 +129,59 @@ export function serializeFavorites(favorites: readonly Favorite[]): string {
 }
 
 /* ------------------------------------------------------------------ */
+/* Where the app opens                                                 */
+/* ------------------------------------------------------------------ */
+
+/** The place on screen when the app was last used, so it can reopen there. */
+export const LAST_PLACE_KEY = "doofah-last-place";
+
+/**
+ * The place to open with: the favorite you were looking at last time, else
+ * the one named Home, else the first in the bar. Undefined with no favorites.
+ */
+export function openingPlace(favorites: readonly Favorite[], lastPlace?: Place | null): Place | undefined {
+  const last = lastPlace ? findFavorite(favorites, lastPlace) : undefined;
+  return (last ?? favorites.find((f) => f.kind === "home") ?? favorites[0])?.place;
+}
+
+export function parseLastPlace(raw: string | null): Place | null {
+  if (!raw) return null;
+  try {
+    const place: unknown = JSON.parse(raw);
+    return isStoredPlace(place) ? place : null;
+  } catch {
+    return null;
+  }
+}
+
+let opening: { place: Place | undefined } | null = null;
+
+/**
+ * The opening place for this visit, read once in the browser so the app does
+ * not jump somewhere else later (for example after a favorite is removed).
+ */
+export function readOpeningPlace(): Place | undefined {
+  if (!opening) {
+    let last: Place | null = null;
+    try {
+      last = parseLastPlace(window.localStorage.getItem(LAST_PLACE_KEY));
+    } catch {
+      // Storage blocked: fall back to Home or the first favorite.
+    }
+    opening = { place: openingPlace(favoritesStore.getSnapshot(), last) };
+  }
+  return opening.place;
+}
+
+export function saveLastPlace(place: Place) {
+  try {
+    window.localStorage.setItem(LAST_PLACE_KEY, JSON.stringify(place));
+  } catch {
+    // Not remembered when storage is full or blocked; the app still opens on a favorite.
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Browser store (for useSyncExternalStore)                            */
 /* ------------------------------------------------------------------ */
 

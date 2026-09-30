@@ -35,6 +35,22 @@ body {
 html {
   /* Pressed states come from the components' own animations instead. */
   -webkit-tap-highlight-color: transparent;
+  /* Scroll with one finger, but no browser pinch or double-tap zoom anywhere
+     on the page. The radar map still zooms: Leaflet reads the touches itself.
+     pan-x stays so sideways strips (hourly forecast) can still be swiped. */
+  touch-action: pan-x pan-y;
+}
+
+/* The page scrolls up and down only: nothing may push it sideways, and there
+   is no sideways rubber-banding. "clip" (unlike "hidden") does not turn the
+   page into a scroll box, so it keeps working with the window's own scroll;
+   older browsers fall back to "hidden". */
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-x: clip;
+  overscroll-behavior-x: none;
 }
 
 button,
@@ -179,17 +195,6 @@ html:lang(th) {
   }
 }
 
-@keyframes doofah-pulse {
-  0% {
-    transform: scale(0.6);
-    opacity: 0.9;
-  }
-  100% {
-    transform: scale(2.8);
-    opacity: 0;
-  }
-}
-
 .fx-rain {
   position: absolute;
   top: 0;
@@ -269,23 +274,70 @@ html:lang(th) {
   color: rgba(186, 230, 253, 0.85);
 }
 
+/* "You are here": a deep blue bullseye with a thick white rim, a drop shadow
+   and two rings rippling outwards, visible on any map and any weather layer. */
 .doofah-user-marker {
   position: relative;
+  background: none;
+  border: 0;
+  outline: none;
+  pointer-events: none;
 }
-.doofah-user-marker .dot {
+.doofah-user-marker .pin {
   position: absolute;
-  inset: 5px;
+  top: 50%;
+  left: 50%;
+  width: 30px;
+  height: 30px;
+  margin: -15px 0 0 -15px;
   border-radius: 9999px;
-  background: #38bdf8;
-  border: 3px solid #fff;
-  box-shadow: 0 0 12px rgba(56, 189, 248, 0.9);
+  /* Bullseye: white centre, deep blue ring, thick white rim. */
+  background: radial-gradient(circle, #fff 0 22%, #1d4ed8 25% 100%);
+  border: 4px solid #fff;
+  box-shadow:
+    0 0 0 2px rgba(29, 78, 216, 0.75),
+    0 0 14px 4px rgba(255, 255, 255, 0.7),
+    0 0 26px 8px rgba(37, 99, 235, 0.6),
+    0 4px 10px rgba(0, 0, 0, 0.6);
 }
-.doofah-user-marker .ring {
+.doofah-user-marker .ripple {
   position: absolute;
-  inset: 0;
+  top: 50%;
+  left: 50%;
+  width: 30px;
+  height: 30px;
+  margin: -15px 0 0 -15px;
   border-radius: 9999px;
-  background: rgba(56, 189, 248, 0.45);
-  animation: doofah-pulse 2.2s ease-out infinite;
+  background: rgba(37, 99, 235, 0.28);
+  /* A white edge inside a blue one reads on blue rain and on dark streets. */
+  box-shadow:
+    inset 0 0 0 3px rgba(255, 255, 255, 0.85),
+    0 0 0 3px rgba(29, 78, 216, 0.9);
+  animation: doofah-locate-ripple 2.4s cubic-bezier(0.2, 0.6, 0.35, 1) infinite;
+}
+.doofah-user-marker .ripple.late {
+  animation-delay: 1.2s;
+}
+@keyframes doofah-locate-ripple {
+  0% {
+    transform: scale(1);
+    opacity: 0.95;
+  }
+  100% {
+    transform: scale(4);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* One still ring instead of the ripple. */
+  .doofah-user-marker .ripple {
+    animation: none;
+    transform: scale(1.9);
+    opacity: 0.6;
+  }
+  .doofah-user-marker .ripple.late {
+    display: none;
+  }
 }
 
 .doofah-canvas-layer {

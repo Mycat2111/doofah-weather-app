@@ -13,6 +13,19 @@ export function AppProviders({ locale, children }: { locale: Locale; children: R
     else window.addEventListener("load", registerServiceWorker, { once: true });
   }, []);
 
+  // Safari on iPhone ignores user-scalable=no; its own pinch starts with a
+  // "gesturestart" event, which Leaflet does not use, so cancelling it stops
+  // the page zooming while the map keeps its pinch.
+  useEffect(() => {
+    const stop = (e: Event) => e.preventDefault();
+    document.addEventListener("gesturestart", stop, { passive: false });
+    document.addEventListener("gesturechange", stop, { passive: false });
+    return () => {
+      document.removeEventListener("gesturestart", stop);
+      document.removeEventListener("gesturechange", stop);
+    };
+  }, []);
+
   return (
     // "user": movement is dropped (opacity kept) for readers who ask the OS for reduced motion.
     <MotionConfig reducedMotion="user">

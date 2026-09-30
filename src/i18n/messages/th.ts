@@ -263,6 +263,7 @@ export const th: Messages = {
     outsideArea: "นอกพื้นที่ที่โหลดไว้",
     zoomIn: "ซูมเข้า",
     zoomOut: "ซูมออก",
+    recenter: "ไปที่ตำแหน่งของฉัน",
     twoFingers: "ใช้สองนิ้วเพื่อเลื่อนแผนที่",
     // The wording openstreetmap.org itself uses in Thai.
     attribution: { before: "แผนที่ © ผู้ร่วมให้ข้อมูล ", after: "" },

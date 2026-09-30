@@ -152,6 +152,8 @@ export interface Messages {
     outsideArea: string;
     zoomIn: string;
     zoomOut: string;
+    /** The map button that flies to your GPS location. */
+    recenter: string;
     /** Shown when one finger drags the map on a touch screen (one finger scrolls the page). */
     twoFingers: string;
     /** Text around the "OpenStreetMap" link in the map credit. */

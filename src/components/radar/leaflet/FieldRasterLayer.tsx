@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { sampleGrid, type RadarGridSpec } from "@/services/WeatherNext3MockService";
 import { PRECIP_SCALE, lutIndex, type ColorScale } from "../colorScales";
 import { useCanvasLayer, type CanvasHandle } from "./useCanvasLayer";
@@ -16,97 +16,129 @@ interface FieldRasterLayerProps {
   label?: (value: number) => string;
 }
 
-/** Bitmap pixels per grid cell. Values are interpolated before colouring. */
-const UPSAMPLE = 4;
+/**
+ * CSS pixels per painted pixel. The field is sampled at this spacing across the
+ * visible map and the result is scaled up with smoothing, so the cost stays the
+ * same at every zoom level and edges never show the 5 km cells as blocks.
+ */
+const PIXEL_STEP = 2;
 
-// One bitmap per frame, reused across pans, zooms and time-lapse loops.
-const bitmapCache = new WeakMap<Float32Array, HTMLCanvasElement>();
-
-/** Catmull-Rom cubic through p1..p2. */
-const cubic = (p0: number, p1: number, p2: number, p3: number, t: number) =>
-  p1 + 0.5 * t * (p2 - p0 + t * (2 * p0 - 5 * p1 + 4 * p2 - p3 + t * (3 * (p1 - p2) + p3 - p0)));
-
-/** Separable bicubic upsampling of a row-major grid by an integer factor. */
-function upsample(values: Float32Array, rows: number, cols: number, k: number): Float32Array {
-  const W = cols * k;
-  const H = rows * k;
-  const clampCol = (j: number) => Math.min(cols - 1, Math.max(0, j));
-  const clampRow = (j: number) => Math.min(rows - 1, Math.max(0, j));
-
-  const horizontal = new Float32Array(rows * W);
-  for (let r = 0; r < rows; r++) {
-    const base = r * cols;
-    for (let x = 0; x < W; x++) {
-      const fx = (x + 0.5) / k - 0.5;
-      const i = Math.floor(fx);
-      horizontal[r * W + x] = cubic(
-        values[base + clampCol(i - 1)],
-        values[base + clampCol(i)],
-        values[base + clampCol(i + 1)],
-        values[base + clampCol(i + 2)],
-        fx - i,
-      );
-    }
-  }
-
-  const out = new Float32Array(H * W);
-  for (let y = 0; y < H; y++) {
-    const fy = (y + 0.5) / k - 0.5;
-    const i = Math.floor(fy);
-    const t = fy - i;
-    const r0 = clampRow(i - 1) * W;
-    const r1 = clampRow(i) * W;
-    const r2 = clampRow(i + 1) * W;
-    const r3 = clampRow(i + 2) * W;
-    for (let x = 0; x < W; x++) {
-      out[y * W + x] = cubic(horizontal[r0 + x], horizontal[r1 + x], horizontal[r2 + x], horizontal[r3 + x], t);
-    }
-  }
-  return out;
+/**
+ * Cubic B-spline weights for the four grid points around a sample. Unlike an
+ * interpolating spline it never overshoots and is smooth in its slope too, so
+ * rain reads as soft cloud rather than a grid of bumps, however far you zoom in.
+ */
+function bspline(t: number, out: Float32Array, o: number) {
+  const u = 1 - t;
+  const t2 = t * t;
+  out[o] = (u * u * u) / 6;
+  out[o + 1] = (3 * t2 * t - 6 * t2 + 4) / 6;
+  out[o + 2] = (-3 * t2 * t + 3 * t2 + 3 * t + 1) / 6;
+  out[o + 3] = (t2 * t) / 6;
 }
 
-function bitmapFor(grid: RadarGridSpec, values: Float32Array, scale: ColorScale, cloud?: Float32Array) {
-  const cached = bitmapCache.get(values);
-  if (cached) return cached;
-
-  const W = grid.cols * UPSAMPLE;
-  const H = grid.rows * UPSAMPLE;
-  const field = upsample(values, grid.rows, grid.cols, UPSAMPLE);
-  const cloudField = cloud ? upsample(cloud, grid.rows, grid.cols, UPSAMPLE) : null;
-
-  const canvas = document.createElement("canvas");
-  canvas.width = W;
-  canvas.height = H;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return canvas;
-  const image = ctx.createImageData(W, H);
-  const px = image.data;
-  const isPrecip = scale === PRECIP_SCALE;
-
-  for (let i = 0; i < field.length; i++) {
-    const v = field[i];
-    const o = i * 4;
-    const k = lutIndex(scale, v);
-    if (!isPrecip) {
-      px[o] = scale.lut[k];
-      px[o + 1] = scale.lut[k + 1];
-      px[o + 2] = scale.lut[k + 2];
-      px[o + 3] = scale.lut[k + 3];
+/**
+ * Taps for one axis: for each painted pixel, the four grid indices (clamped
+ * to the grid) and their weights, or -1 when the pixel is outside the grid.
+ */
+function axisTaps(positions: Float64Array, count: number) {
+  const index = new Int32Array(positions.length * 4);
+  const weight = new Float32Array(positions.length * 4);
+  for (let p = 0; p < positions.length; p++) {
+    const f = positions[p];
+    const o = p * 4;
+    if (!(f >= -0.5 && f <= count - 0.5)) {
+      index[o] = -1;
       continue;
     }
-    // Soft cloud where it is dry (fading in above ~35% cover), blended into
-    // the rain colours over a small value range so echo edges are anti-aliased.
-    const c = cloudField ? Math.min(1, Math.max(0, cloudField[i])) : 0;
-    const cloudAlpha = Math.max(0, c - 0.35) ** 1.5 * 150;
-    const t = v <= 0.05 ? 0 : v >= 0.18 ? 1 : ((v - 0.05) / 0.13) ** 2 * (3 - (2 * (v - 0.05)) / 0.13);
-    px[o] = 225 + (scale.lut[k] - 225) * t;
-    px[o + 1] = 232 + (scale.lut[k + 1] - 232) * t;
-    px[o + 2] = 245 + (scale.lut[k + 2] - 245) * t;
-    px[o + 3] = cloudAlpha + (scale.lut[k + 3] - cloudAlpha) * t;
+    const i = Math.floor(f);
+    bspline(f - i, weight, o);
+    for (let k = 0; k < 4; k++) index[o + k] = Math.min(count - 1, Math.max(0, i - 1 + k));
   }
-  ctx.putImageData(image, 0, 0);
-  bitmapCache.set(values, canvas);
-  return canvas;
+  return { index, weight };
+}
+
+type Taps = ReturnType<typeof axisTaps>;
+
+function sample(values: Float32Array, cols: number, xs: Taps, x: number, ys: Taps, y: number) {
+  let sum = 0;
+  for (let r = 0; r < 4; r++) {
+    const row = ys.index[y + r] * cols;
+    let line = 0;
+    for (let c = 0; c < 4; c++) line += xs.weight[x + c] * values[row + xs.index[x + c]];
+    sum += ys.weight[y + r] * line;
+  }
+  return sum;
+}
+
+interface Paint {
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  image?: ImageData;
+}
+
+/** Colour the visible part of the field into `paint`, one pixel per PIXEL_STEP CSS pixels. */
+function paintField(
+  h: CanvasHandle,
+  paint: Paint,
+  grid: RadarGridSpec,
+  values: Float32Array,
+  scale: ColorScale,
+  cloud?: Float32Array,
+) {
+  const W = Math.ceil(h.width / PIXEL_STEP);
+  const H = Math.ceil(h.height / PIXEL_STEP);
+  if (paint.canvas.width !== W || paint.canvas.height !== H || !paint.image) {
+    paint.canvas.width = W;
+    paint.canvas.height = H;
+    paint.image = paint.ctx.createImageData(W, H);
+  }
+  const image = paint.image;
+  const px = image.data;
+
+  // Web Mercator keeps longitude a function of x and latitude a function of y,
+  // so each pixel column and row maps to one fractional grid position.
+  const [[, west], [north]] = grid.bounds;
+  const colPos = new Float64Array(W);
+  const rowPos = new Float64Array(H);
+  for (let x = 0; x < W; x++) colPos[x] = (h.unproject((x + 0.5) * PIXEL_STEP, 0).lon - west) / grid.lonStep - 0.5;
+  for (let y = 0; y < H; y++) rowPos[y] = (north - h.unproject(0, (y + 0.5) * PIXEL_STEP).lat) / grid.latStep - 0.5;
+  const xs = axisTaps(colPos, grid.cols);
+  const ys = axisTaps(rowPos, grid.rows);
+
+  const isPrecip = scale === PRECIP_SCALE;
+  const { lut } = scale;
+  for (let y = 0; y < H; y++) {
+    const yo = y * 4;
+    const inRow = ys.index[yo] >= 0;
+    for (let x = 0; x < W; x++) {
+      const o = (y * W + x) * 4;
+      const xo = x * 4;
+      if (!inRow || xs.index[xo] < 0) {
+        px[o + 3] = 0;
+        continue;
+      }
+      const v = sample(values, grid.cols, xs, xo, ys, yo);
+      const k = lutIndex(scale, v);
+      if (!isPrecip) {
+        px[o] = lut[k];
+        px[o + 1] = lut[k + 1];
+        px[o + 2] = lut[k + 2];
+        px[o + 3] = lut[k + 3];
+        continue;
+      }
+      // Soft cloud where it is dry (fading in above ~35% cover), blended into
+      // the rain colours over a small value range so echo edges are anti-aliased.
+      const c = cloud ? Math.min(1, Math.max(0, sample(cloud, grid.cols, xs, xo, ys, yo))) : 0;
+      const cloudAlpha = Math.max(0, c - 0.35) ** 1.5 * 150;
+      const t = v <= 0.05 ? 0 : v >= 0.18 ? 1 : ((v - 0.05) / 0.13) ** 2 * (3 - (2 * (v - 0.05)) / 0.13);
+      px[o] = 225 + (lut[k] - 225) * t;
+      px[o + 1] = 232 + (lut[k + 1] - 232) * t;
+      px[o + 2] = 245 + (lut[k + 2] - 245) * t;
+      px[o + 3] = cloudAlpha + (lut[k + 3] - cloudAlpha) * t;
+    }
+  }
+  paint.ctx.putImageData(image, 0, 0);
 }
 
 /** Power-of-two degree step so label positions stay put while panning. */
@@ -141,18 +173,23 @@ function drawLabels(h: CanvasHandle, grid: RadarGridSpec, values: Float32Array, 
 
 /** Smooth colour field (rain radar, temperature heatmap, wind speed tint). */
 export function FieldRasterLayer({ grid, values, scale, cloud, opacity = 1, label }: FieldRasterLayerProps) {
+  const paintRef = useRef<Paint | null>(null);
   const handle = useCanvasLayer("doofah-field", 350, (h: CanvasHandle) => {
     const { ctx } = h;
     ctx.clearRect(0, 0, h.width, h.height);
-    const bitmap = bitmapFor(grid, values, scale, cloud);
-    const [[south, west], [north, east]] = grid.bounds;
-    const nw = h.project(north, west);
-    const se = h.project(south, east);
+    if (!paintRef.current) {
+      const canvas = document.createElement("canvas");
+      const paintCtx = canvas.getContext("2d");
+      if (!paintCtx) return;
+      paintRef.current = { canvas, ctx: paintCtx };
+    }
+    const paint = paintRef.current;
+    paintField(h, paint, grid, values, scale, cloud);
     ctx.save();
     ctx.globalAlpha = opacity;
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(bitmap, nw.x, nw.y, se.x - nw.x, se.y - nw.y);
+    ctx.drawImage(paint.canvas, 0, 0, paint.canvas.width * PIXEL_STEP, paint.canvas.height * PIXEL_STEP);
     ctx.restore();
     if (label) drawLabels(h, grid, values, label);
   });

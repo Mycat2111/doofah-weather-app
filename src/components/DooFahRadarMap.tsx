@@ -4,14 +4,15 @@ import { AnimatePresence, motion } from "framer-motion";
 import type { Map as LeafletMap } from "leaflet";
 import { Hand, LoaderCircle, Radar } from "lucide-react";
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { LayerSwitcher } from "@/components/radar/LayerSwitcher";
 import { RadarLegend } from "@/components/radar/RadarLegend";
+import { RecenterButton } from "@/components/radar/RecenterButton";
 import { TimelineScrubber } from "@/components/radar/TimelineScrubber";
 import { ZoomButtons } from "@/components/radar/ZoomButtons";
 import { TIMELINE_FROM, TIMELINE_TO, useRadarFrames } from "@/hooks/useRadarFrames";
 import { useI18n } from "@/i18n/I18nProvider";
-import { snapToGrid, type GeoBounds, type Place, type RadarLayerType } from "@/services/WeatherNext3MockService";
+import type { GeoBounds, GeoPoint, Place, RadarLayerType } from "@/services/WeatherNext3MockService";
 
 // Leaflet touches `window`, so the map itself only renders in the browser.
 const RadarLeafletView = dynamic(() => import("@/components/radar/leaflet/RadarLeafletView"), {
@@ -41,6 +42,8 @@ const sameBounds = (a: GeoBounds | null, b: GeoBounds) =>
 
 interface DooFahRadarMapProps {
   place: Place;
+  /** Makes a GPS fix the dashboard's place ("go to my location" on the map). */
+  onLocated: (point: GeoPoint) => void;
   className?: string;
 }
 
@@ -49,7 +52,7 @@ interface DooFahRadarMapProps {
  * (rain, wind streamlines, temperature, isobars) and a time-lapse scrubber
  * from 3 hours ago to 24 hours ahead.
  */
-export function DooFahRadarMap({ place, className = "" }: DooFahRadarMapProps) {
+export function DooFahRadarMap({ place, onLocated, className = "" }: DooFahRadarMapProps) {
   const { m, f } = useI18n();
   const [layer, setLayer] = useState<RadarLayerType>("precipitation");
   const [bounds, setBounds] = useState<GeoBounds | null>(null);
@@ -57,6 +60,7 @@ export function DooFahRadarMap({ place, className = "" }: DooFahRadarMapProps) {
   const [playing, setPlaying] = useState(false);
   const [map, setMap] = useState<LeafletMap | null>(null);
   const [gestureHint, setGestureHint] = useState(false);
+  const nextZoomRef = useRef<number | null>(null);
   const { frameSet, loading } = useRadarFrames(layer, bounds);
 
   // Time-lapse playback.
@@ -73,7 +77,6 @@ export function DooFahRadarMap({ place, className = "" }: DooFahRadarMapProps) {
 
   const frames = frameSet?.frames ?? [];
   const frame = frames[Math.min(frameIndex, frames.length - 1)];
-  const cell = snapToGrid(place.point);
 
   return (
     <section
@@ -83,12 +86,12 @@ export function DooFahRadarMap({ place, className = "" }: DooFahRadarMapProps) {
       <div className="absolute inset-0 z-0">
         <RadarLeafletView
           center={place.point}
-          cellBounds={cell.bounds}
           grid={frameSet?.grid}
           frame={frame}
           onViewChange={onViewChange}
           onMap={setMap}
           onGestureHint={setGestureHint}
+          nextZoomRef={nextZoomRef}
         />
       </div>
 
@@ -144,7 +147,10 @@ export function DooFahRadarMap({ place, className = "" }: DooFahRadarMapProps) {
         </div>
       </div>
 
-      <ZoomButtons map={map} className="absolute right-3 top-[74px] z-10 sm:right-4" />
+      <div className="absolute right-3 top-[74px] z-10 flex flex-col items-center gap-2 sm:right-4">
+        <ZoomButtons map={map} />
+        <RecenterButton map={map} current={place.point} onLocated={onLocated} nextZoomRef={nextZoomRef} />
+      </div>
 
       {/* Bottom overlay: timeline + legend */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 p-3 sm:p-4">
