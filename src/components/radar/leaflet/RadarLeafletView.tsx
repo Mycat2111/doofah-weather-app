@@ -29,12 +29,19 @@ export interface RadarLeafletViewProps {
   onGestureHint?: (show: boolean) => void;
 }
 
-/** A glowing blue dot, like the "you are here" dot in Apple or Google Maps. */
+/** Closest zoom level (street level). */
+const MAX_ZOOM = 20;
+
+/**
+ * "You are here": a deep blue bullseye with a thick white rim and drop shadow,
+ * over two rings that ripple outwards, so it stands out on dark and light maps
+ * and on top of heavy rain, wind and temperature colours.
+ */
 const userIcon = L.divIcon({
   className: "doofah-user-marker",
-  html: '<span class="halo"></span><span class="dot"></span>',
-  iconSize: [44, 44],
-  iconAnchor: [22, 22],
+  html: '<span class="ripple"></span><span class="ripple late"></span><span class="pin"></span>',
+  iconSize: [120, 120],
+  iconAnchor: [60, 60],
 });
 
 /** Fly to a new place when the selected location changes. */
@@ -259,7 +266,9 @@ export default function RadarLeafletView({
       center={position}
       zoom={9}
       minZoom={5}
-      maxZoom={12}
+      // Street level. The weather is a 5 km grid, smoothed, so this is for
+      // seeing exactly where rain sits relative to your street.
+      maxZoom={MAX_ZOOM}
       // No snapping: a pinch or wheel zoom stays exactly where it was left.
       // Snapping animates to the nearest step around the map centre, which
       // pulls the place under your fingers or cursor away after you let go.
@@ -277,7 +286,9 @@ export default function RadarLeafletView({
       <TileLayer
         url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
         className="doofah-tiles"
-        maxZoom={19}
+        maxZoom={MAX_ZOOM}
+        // OpenStreetMap draws tiles up to level 19; closer, those are enlarged.
+        maxNativeZoom={19}
         // CORS requests, so the service worker can keep viewed tiles for offline use.
         crossOrigin
       />

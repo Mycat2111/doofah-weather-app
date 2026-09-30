@@ -145,7 +145,13 @@ shapes), and `public/screenshots/*` for the richer install dialog.
   screens one finger scrolls the page and two fingers move and zoom the map,
   as on an embedded Google map, because the map fills most of a phone screen
   and would otherwise trap the scroll; a one-finger drag shows a short hint.
-  The zoom buttons are 44 px on touch screens. Mouse and trackpad work as
+  The map zooms from level 5 to 20 (street level; OpenStreetMap tiles are
+  enlarged past 19). The zoom buttons are 44 px on touch screens.
+- **Page zoom.** Like a native app, the page itself never zooms: the viewport
+  sets `maximum-scale=1, user-scalable=no`, `html` has `touch-action: pan-x
+  pan-y` (no pinch or double-tap zoom), and Safari's own `gesturestart` is
+  cancelled in `AppProviders.tsx`. Only the radar map zooms, because Leaflet
+  reads the touches itself. Mouse and trackpad work as
   before. To let one finger drag the map, remove `TouchGestures` from
   `RadarLeafletView.tsx`.
 - **Timeline.** The thumb follows the finger smoothly and springs onto the
@@ -217,7 +223,7 @@ src/
 │   │   ├── colorScales.ts         Radar, temperature, wind and pressure colour ramps
 │   │   ├── isobars.ts             Marching-squares isobars + H/L centres
 │   │   └── leaflet/
-│   │       ├── RadarLeafletView.tsx   MapContainer, touch gestures, glowing location dot, tap-to-probe
+│   │       ├── RadarLeafletView.tsx   MapContainer, touch gestures, GPS marker, tap-to-probe
 │   │       ├── useCanvasLayer.ts      Full-viewport canvas pane that follows pans, pinches and zooms
 │   │       ├── FieldRasterLayer.tsx   Smooth colour field painted at screen resolution (rain, temperature, wind)
 │   │       ├── WindParticleLayer.tsx  Animated wind streamlines
