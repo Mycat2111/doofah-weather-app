@@ -76,9 +76,9 @@ function DayRow({ day, index, low, high, timeZone, currentTempC, open, onToggle 
         aria-controls={panelId}
         className="grid w-full grid-cols-[76px_30px_44px_1fr_62px_16px] items-center gap-2 rounded-xl py-3 text-left transition-colors hover:bg-white/[0.06] sm:grid-cols-[96px_40px_52px_36px_1fr_36px_20px] sm:px-1"
       >
-        <span className="text-[15px] font-medium">
+        <span className="text-[15px] font-medium leading-tight">
           {f.dayName(day.date, index)}
-          <span className="hidden text-xs font-normal text-white/45 sm:block">{f.shortDate(day.date)}</span>
+          <span className="mt-0.5 block text-xs font-normal text-white/55 th:text-[13px]">{f.shortDate(day.date)}</span>
         </span>
         <WeatherIcon condition={day.condition} className="size-6" />
         <span

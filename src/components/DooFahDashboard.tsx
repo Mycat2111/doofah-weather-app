@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { AlertTriangle, RotateCw } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { AtmosphereBackground } from "@/components/AtmosphereBackground";
 import { CurrentWeatherCard } from "@/components/CurrentWeatherCard";
 import { DailyForecastList } from "@/components/DailyForecastList";
@@ -17,6 +17,7 @@ import { useForecast } from "@/hooks/useForecast";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import { useI18n } from "@/i18n/I18nProvider";
 import { previewAlerts, weatherAlerts, type AlertKind } from "@/lib/alerts";
+import { readOpeningPlace, saveLastPlace } from "@/lib/favorites";
 import {
   DEFAULT_PLACE,
   weatherNext3,
@@ -32,10 +33,26 @@ interface DooFahDashboardProps {
   alertPreview?: AlertKind[];
 }
 
+const noSubscription = () => () => {};
+
 export function DooFahDashboard({ atmosphereOverride, alertPreview }: DooFahDashboardProps) {
   const { m } = useI18n();
-  const [place, setPlace] = useState<Place>(DEFAULT_PLACE);
+  // False on the server and while hydrating, true in the browser after that.
+  const inBrowser = useSyncExternalStore(
+    noSubscription,
+    () => true,
+    () => false,
+  );
+  const [chosen, setPlace] = useState<Place | null>(null);
+  // Until a place is picked, open on a saved favorite (the server, which
+  // cannot see localStorage, renders the default place first).
+  const place = chosen ?? (inBrowser ? readOpeningPlace() : undefined) ?? DEFAULT_PLACE;
   const { data, loading, error, refresh } = useForecast(place);
+
+  // Remember what is on screen, so the app reopens on it if it is a favorite.
+  useEffect(() => {
+    if (inBrowser) saveLastPlace(place);
+  }, [inBrowser, place]);
 
   const onLocated = useCallback((point: GeoPoint) => setPlace(weatherNext3.placeForPoint(point)), []);
   const geo = useGeolocation(onLocated);

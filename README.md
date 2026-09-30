@@ -87,6 +87,9 @@ Geolocation API and snaps to the nearest known city within 40 km.
   Unreadable or old data is skipped rather than breaking the page, and places
   from the gazetteer pick up its current names when read back. "Use my
   location" within 1 km of a saved place counts as that place.
+- **Opening.** The app opens on a favorite instead of Bangkok: the favorite
+  that was on screen last time (kept under `doofah-last-place`), else the one
+  named Home, else the first in the bar. With no favorites it opens on Bangkok.
 
 ## Weather alerts
 
@@ -136,7 +139,9 @@ shapes), and `public/screenshots/*` for the richer install dialog.
 **Touch.**
 
 - **Radar map.** The weather layers scale with the map during a pinch instead
-  of jumping when it ends, and a pinch settles in quarter zoom steps. On touch
+  of jumping when it ends. Zoom is not snapped to steps, so a pinch or wheel
+  zoom stays exactly where it was left, and double-click zoom stops cleanly at
+  the closest zoom. Tapping for a reading never pans the map. On touch
   screens one finger scrolls the page and two fingers move and zoom the map,
   as on an embedded Google map, because the map fills most of a phone screen
   and would otherwise trap the scroll; a one-finger drag shows a short hint.
@@ -212,9 +217,9 @@ src/
 │   │   ├── colorScales.ts         Radar, temperature, wind and pressure colour ramps
 │   │   ├── isobars.ts             Marching-squares isobars + H/L centres
 │   │   └── leaflet/
-│   │       ├── RadarLeafletView.tsx   MapContainer, touch gestures, user marker, 5 km cell, tap-to-probe
+│   │       ├── RadarLeafletView.tsx   MapContainer, touch gestures, glowing location dot, tap-to-probe
 │   │       ├── useCanvasLayer.ts      Full-viewport canvas pane that follows pans, pinches and zooms
-│   │       ├── FieldRasterLayer.tsx   Bicubic-smoothed raster (rain, temperature, wind speed)
+│   │       ├── FieldRasterLayer.tsx   Smooth colour field painted at screen resolution (rain, temperature, wind)
 │   │       ├── WindParticleLayer.tsx  Animated wind streamlines
 │   │       └── IsobarLayer.tsx        Isobar lines, labels, H/L markers
 │   └── ui/

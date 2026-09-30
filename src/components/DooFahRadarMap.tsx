@@ -11,7 +11,7 @@ import { TimelineScrubber } from "@/components/radar/TimelineScrubber";
 import { ZoomButtons } from "@/components/radar/ZoomButtons";
 import { TIMELINE_FROM, TIMELINE_TO, useRadarFrames } from "@/hooks/useRadarFrames";
 import { useI18n } from "@/i18n/I18nProvider";
-import { snapToGrid, type GeoBounds, type Place, type RadarLayerType } from "@/services/WeatherNext3MockService";
+import type { GeoBounds, Place, RadarLayerType } from "@/services/WeatherNext3MockService";
 
 // Leaflet touches `window`, so the map itself only renders in the browser.
 const RadarLeafletView = dynamic(() => import("@/components/radar/leaflet/RadarLeafletView"), {
@@ -73,7 +73,6 @@ export function DooFahRadarMap({ place, className = "" }: DooFahRadarMapProps) {
 
   const frames = frameSet?.frames ?? [];
   const frame = frames[Math.min(frameIndex, frames.length - 1)];
-  const cell = snapToGrid(place.point);
 
   return (
     <section
@@ -83,7 +82,6 @@ export function DooFahRadarMap({ place, className = "" }: DooFahRadarMapProps) {
       <div className="absolute inset-0 z-0">
         <RadarLeafletView
           center={place.point}
-          cellBounds={cell.bounds}
           grid={frameSet?.grid}
           frame={frame}
           onViewChange={onViewChange}
