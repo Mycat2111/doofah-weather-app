@@ -8,6 +8,7 @@ and a 15-day horizon.
 - **Stack:** Next.js 16 (App Router, TypeScript), Tailwind CSS 4, Framer Motion, Lucide icons, Leaflet + react-leaflet with OpenStreetMap tiles.
 - **No API keys needed.** The forecast service and place search run entirely in the browser.
 - **Thai and English.** A TH / EN switch in the header changes every label, forecast phrase, date and place name.
+- **Favorite places.** Star any place and it joins a one-tap bar under the header, saved in the browser.
 
 ## Quick start
 
@@ -25,6 +26,7 @@ npm run dev          # http://localhost:3000
 | `npm run typecheck`   | `tsc --noEmit`                                                 |
 | `npm run verify:mock` | Shape, determinism, consistency and climate checks for the mock service |
 | `npm run verify:i18n` | Every Thai phrase is Thai, Thai dates and Thai place search       |
+| `npm run verify:favorites` | Saving, naming and reading back favorite places             |
 
 Preview any sky mood with a query parameter:
 `/?sky=thunderstorm`, `golden-hour`, `clear-night`, `heavy-rain`, `rain`,
@@ -61,6 +63,24 @@ already in place:
 Place search uses a small built-in gazetteer (Thai cities plus major world
 cities), so no geocoding key is needed. The locate button uses the browser's
 Geolocation API and snaps to the nearest known city within 40 km.
+
+## Favorite places
+
+- **Starring.** The star beside the place name saves the place you are looking
+  at, and each search result has its own star, so you can save several places
+  without leaving the search.
+- **Naming.** Saving opens a small panel where you can type a name or pick
+  **Home** or **Office**. Those two quick labels are stored as a kind rather
+  than text, so they read บ้าน and ที่ทำงาน in Thai. With no name, the chip shows
+  the place's own name in the current language.
+- **Switching.** The bar under the header shows each favorite with its current
+  temperature; one tap switches the dashboard to it. **Edit** shows a remove
+  button on each chip.
+- **Storage.** Favorites are saved in `localStorage` under `doofah-favorites`
+  (`{ version: 1, favorites: [...] }`) and stay in step across open tabs.
+  Unreadable or old data is skipped rather than breaking the page, and places
+  from the gazetteer pick up its current names when read back. "Use my
+  location" within 1 km of a saved place counts as that place.
 
 ## Thai and English
 
@@ -100,6 +120,10 @@ src/
 │   ├── DooFahDashboard.tsx        Page composition, place state, loading states
 │   ├── DooFahHeader.tsx           Logo, animated search, geolocation button, language switch
 │   ├── LanguageToggle.tsx         TH / EN switch
+│   ├── favorites/
+│   │   ├── FavoritesBar.tsx       One-tap chips under the header, edit mode
+│   │   ├── FavoriteStar.tsx       Star beside the place name and the naming panel
+│   │   └── FavoriteIcon.tsx       House / briefcase / pin per favorite
 │   ├── CurrentWeatherCard.tsx     Hero: temperature, feels-like, nowcast, AQI, 5×5 km badge
 │   ├── DooFahRadarMap.tsx         Radar panel: layer switcher, timeline, legend, playback
 │   ├── HourlyForecastSlider.tsx   48 h strip with sunrise/sunset markers
@@ -131,8 +155,11 @@ src/
 ├── hooks/
 │   ├── useForecast.ts             Loads + refreshes the forecast bundle
 │   ├── useRadarFrames.ts          Loads frames for the visible map area
+│   ├── useFavorites.ts            Favorite places from localStorage, synced across tabs
 │   └── useGeolocation.ts          Browser location with status
-├── lib/colors.ts                  AQI and temperature colours
+├── lib/
+│   ├── colors.ts                  AQI and temperature colours
+│   └── favorites.ts               Favorite list rules and the localStorage store
 └── services/
     ├── WeatherNext3MockService.ts The simulated API (start here)
     └── weathernext3/
@@ -146,6 +173,7 @@ src/
         └── places.ts              Offline gazetteer and search
 scripts/verify-mock-service.ts     Checks behind `npm run verify:mock`
 scripts/verify-i18n.ts             Checks behind `npm run verify:i18n`
+scripts/verify-favorites.ts        Checks behind `npm run verify:favorites`
 ```
 
 ## The WeatherNext 3 mock service

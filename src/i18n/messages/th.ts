@@ -142,6 +142,22 @@ export const th: Messages = {
     language: "ภาษา",
   },
 
+  favorites: {
+    label: "สถานที่โปรด",
+    empty: "แตะรูปดาวข้างชื่อสถานที่เพื่อปักหมุดไว้ตรงนี้",
+    save: (place) => `บันทึก ${place} เป็นสถานที่โปรด`,
+    remove: (place) => `ลบ ${place} ออกจากสถานที่โปรด`,
+    editFavorite: (place) => `แก้ไขสถานที่โปรด ${place}`,
+    saved: "บันทึกเป็นสถานที่โปรดแล้ว",
+    name: "ชื่อ",
+    quickLabels: "ป้ายชื่อด่วน",
+    home: "บ้าน",
+    office: "ที่ทำงาน",
+    removeShort: "ลบออก",
+    edit: "แก้ไข",
+    done: "เสร็จ",
+  },
+
   hero: {
     label: "สภาพอากาศปัจจุบัน",
     updated: (clock) => `อัปเดต ${clock} น.`,

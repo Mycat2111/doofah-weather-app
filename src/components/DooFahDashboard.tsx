@@ -8,6 +8,7 @@ import { CurrentWeatherCard } from "@/components/CurrentWeatherCard";
 import { DailyForecastList } from "@/components/DailyForecastList";
 import { DooFahHeader } from "@/components/DooFahHeader";
 import { DooFahRadarMap } from "@/components/DooFahRadarMap";
+import { FavoritesBar } from "@/components/favorites/FavoritesBar";
 import { HourlyForecastSlider } from "@/components/HourlyForecastSlider";
 import { WeatherDetailsGrid } from "@/components/WeatherDetailsGrid";
 import { useForecast } from "@/hooks/useForecast";
@@ -44,9 +45,14 @@ export function DooFahDashboard({ atmosphereOverride }: DooFahDashboardProps) {
       <AtmosphereBackground theme={atmosphere} />
       <main className="relative mx-auto w-full max-w-[1400px] px-4 pb-14 pt-5 sm:px-6 lg:px-8">
         <DooFahHeader place={place} onSelectPlace={setPlace} onLocate={geo.locate} geoStatus={geo.status} />
+        <FavoritesBar
+          place={place}
+          onSelectPlace={setPlace}
+          sampleTime={data ? Date.parse(data.current.observedAt) : undefined}
+        />
 
         {error && (
-          <div role="alert" className="glass mt-5 flex items-center gap-3 rounded-2xl px-4 py-3 text-sm">
+          <div role="alert" className="glass mt-3 flex items-center gap-3 rounded-2xl px-4 py-3 text-sm">
             <AlertTriangle className="size-4 text-amber-200" />
             <span className="flex-1" title={error}>
               {m.errors.forecast}
@@ -57,7 +63,7 @@ export function DooFahDashboard({ atmosphereOverride }: DooFahDashboardProps) {
           </div>
         )}
 
-        <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(340px,420px)_1fr]">
+        <div className="mt-3 grid gap-4 lg:grid-cols-[minmax(340px,420px)_1fr]">
           <div className={`transition-opacity duration-300 ${loading && data ? "opacity-60" : ""}`}>
             {data ? (
               <CurrentWeatherCard current={data.current} today={data.daily[0]} className="h-full" />

@@ -1,9 +1,10 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { LoaderCircle, LocateFixed, MapPin, Search, X } from "lucide-react";
+import { LoaderCircle, LocateFixed, MapPin, Search, Star, X } from "lucide-react";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { LanguageToggle } from "@/components/LanguageToggle";
+import { useFavorites } from "@/hooks/useFavorites";
 import type { GeolocationStatus } from "@/hooks/useGeolocation";
 import { useI18n } from "@/i18n/I18nProvider";
 import { placeLabel } from "@/i18n/places";
@@ -18,6 +19,7 @@ interface DooFahHeaderProps {
 
 export function DooFahHeader({ place, onSelectPlace, onLocate, geoStatus }: DooFahHeaderProps) {
   const { locale, m } = useI18n();
+  const favorites = useFavorites();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Place[]>([]);
@@ -161,16 +163,20 @@ export function DooFahHeader({ place, onSelectPlace, onLocate, geoStatus }: DooF
               >
                 {results.map((r, i) => {
                   const label = placeLabel(r, locale);
+                  const saved = favorites.find(r) !== undefined;
                   return (
-                    <li key={r.id} role="option" aria-selected={i === active}>
+                    <li
+                      key={r.id}
+                      role="option"
+                      aria-selected={i === active}
+                      onMouseEnter={() => setActive(i)}
+                      className={`flex items-center rounded-xl transition-colors ${i === active ? "bg-white/12" : ""}`}
+                    >
                       <button
                         type="button"
                         onMouseDown={(e) => e.preventDefault()}
                         onClick={() => choose(r)}
-                        onMouseEnter={() => setActive(i)}
-                        className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${
-                          i === active ? "bg-white/12" : ""
-                        }`}
+                        className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left"
                       >
                         <MapPin className="size-4 shrink-0 text-sky-300" aria-hidden />
                         <span className="min-w-0 flex-1">
@@ -180,6 +186,21 @@ export function DooFahHeader({ place, onSelectPlace, onLocate, geoStatus }: DooF
                           </span>
                           <span className="block truncate text-xs text-white/50">{label.area}</span>
                         </span>
+                      </button>
+                      {/* Stars a result without leaving the search. */}
+                      <button
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => (saved ? favorites.remove(r) : favorites.add(r))}
+                        aria-pressed={saved}
+                        aria-label={saved ? m.favorites.remove(label.name) : m.favorites.save(label.name)}
+                        title={saved ? m.favorites.remove(label.name) : m.favorites.save(label.name)}
+                        className="mr-1 grid size-10 shrink-0 place-items-center rounded-full hover:bg-white/10"
+                      >
+                        <Star
+                          className={`size-4 ${saved ? "fill-amber-300 text-amber-300" : "text-white/45"}`}
+                          aria-hidden
+                        />
                       </button>
                     </li>
                   );
