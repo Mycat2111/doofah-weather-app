@@ -1,0 +1,110 @@
+"use client";
+
+import { motion } from "framer-motion";
+import { AlertTriangle, RotateCw } from "lucide-react";
+import { useCallback, useState } from "react";
+import { AtmosphereBackground } from "@/components/AtmosphereBackground";
+import { CurrentWeatherCard } from "@/components/CurrentWeatherCard";
+import { DailyForecastList } from "@/components/DailyForecastList";
+import { DooFahHeader } from "@/components/DooFahHeader";
+import { DooFahRadarMap } from "@/components/DooFahRadarMap";
+import { HourlyForecastSlider } from "@/components/HourlyForecastSlider";
+import { WeatherDetailsGrid } from "@/components/WeatherDetailsGrid";
+import { useForecast } from "@/hooks/useForecast";
+import { useGeolocation } from "@/hooks/useGeolocation";
+import {
+  DEFAULT_PLACE,
+  weatherNext3,
+  type AtmosphereTheme,
+  type GeoPoint,
+  type Place,
+} from "@/services/WeatherNext3MockService";
+
+interface DooFahDashboardProps {
+  /** Force a sky theme, e.g. from `?sky=thunderstorm`, to preview every mood. */
+  atmosphereOverride?: AtmosphereTheme;
+}
+
+export function DooFahDashboard({ atmosphereOverride }: DooFahDashboardProps) {
+  const [place, setPlace] = useState<Place>(DEFAULT_PLACE);
+  const { data, loading, error, refresh } = useForecast(place);
+
+  const onLocated = useCallback((point: GeoPoint) => setPlace(weatherNext3.placeForPoint(point)), []);
+  const geo = useGeolocation(onLocated);
+
+  const atmosphere = atmosphereOverride ?? data?.current.atmosphere ?? "clear-night";
+  // Only show data that belongs to the selected place (the previous place's
+  // data stays visible, dimmed, while the next one loads).
+  const tz = data?.current.place.timeZone ?? place.timeZone;
+
+  return (
+    <>
+      <AtmosphereBackground theme={atmosphere} />
+      <main className="relative mx-auto w-full max-w-[1400px] px-4 pb-14 pt-5 sm:px-6 lg:px-8">
+        <DooFahHeader place={place} onSelectPlace={setPlace} onLocate={geo.locate} geoStatus={geo.status} />
+
+        {error && (
+          <div role="alert" className="glass mt-5 flex items-center gap-3 rounded-2xl px-4 py-3 text-sm">
+            <AlertTriangle className="size-4 text-amber-200" />
+            <span className="flex-1">{error}</span>
+            <button type="button" onClick={refresh} className="flex items-center gap-1 text-sky-200 hover:text-white">
+              <RotateCw className="size-3.5" /> Retry
+            </button>
+          </div>
+        )}
+
+        <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(340px,420px)_1fr]">
+          <div className={`transition-opacity duration-300 ${loading && data ? "opacity-60" : ""}`}>
+            {data ? (
+              <CurrentWeatherCard current={data.current} today={data.daily[0]} className="h-full" />
+            ) : (
+              <Skeleton className="h-[560px]" />
+            )}
+          </div>
+          <DooFahRadarMap place={place} className="h-[600px] lg:h-auto lg:min-h-[580px]" />
+        </div>
+
+        <div className={`mt-4 transition-opacity duration-300 ${loading && data ? "opacity-60" : ""}`}>
+          {data ? (
+            <HourlyForecastSlider hours={data.hourly} days={data.daily.slice(0, 3)} timeZone={tz} />
+          ) : (
+            <Skeleton className="h-[168px]" />
+          )}
+        </div>
+
+        <div
+          className={`mt-4 grid items-start gap-4 lg:grid-cols-[1fr_minmax(340px,420px)] ${
+            loading && data ? "opacity-60" : ""
+          } transition-opacity duration-300`}
+        >
+          {data ? (
+            <>
+              <DailyForecastList days={data.daily} timeZone={tz} currentTempC={data.current.sample.temperatureC} />
+              <WeatherDetailsGrid current={data.current} />
+            </>
+          ) : (
+            <>
+              <Skeleton className="h-[720px]" />
+              <Skeleton className="h-[480px]" />
+            </>
+          )}
+        </div>
+
+        <footer className="mt-10 text-center text-xs text-white/45">
+          DooFah ดูฟ้า · Forecast data is simulated in the style of WeatherNext 3 (5 km grid, hourly, 15 days)
+          {data && <> · model run {new Date(data.current.model.runInitTime).toISOString().slice(0, 16).replace("T", " ")} UTC</>}
+        </footer>
+      </main>
+    </>
+  );
+}
+
+function Skeleton({ className }: { className: string }) {
+  return (
+    <motion.div
+      className={`glass rounded-[28px] ${className}`}
+      animate={{ opacity: [0.45, 0.8, 0.45] }}
+      transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
+    />
+  );
+}

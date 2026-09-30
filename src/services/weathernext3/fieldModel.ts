@@ -187,13 +187,15 @@ export class FieldModel {
     rate: number,
   ): { u: number; v: number; speed: number; gust: number } {
     const a = Math.abs(lat);
-    const coriolis = Math.sign(lat || 1) * clamp(Math.sin(a * RAD) / Math.sin(20 * RAD), 0.15, 1.6);
+    const coriolis = Math.sign(lat || 1) * clamp(Math.sin(a * RAD) / Math.sin(20 * RAD), 0.55, 1.6);
+    // Geostrophic balance breaks down near the equator, where flow is mostly down-gradient.
+    const geostrophic = 0.35 + 0.65 * smoothstep(1, 12, a);
     const K = 1900; // (km/h) per (hPa/km), tuned for realistic 10 m speeds
-    const geoU = (-K * dpdyKm) / coriolis;
-    const geoV = (K * dpdxKm) / coriolis;
+    const geoU = (geostrophic * -K * dpdyKm) / coriolis;
+    const geoV = (geostrophic * K * dpdxKm) / coriolis;
     const friction = 700;
     const midLat = smoothstep(18, 35, a);
-    const steerU = (1 - midLat) * U_TROPICAL * 0.6 + midLat * U_WESTERLY * 0.25;
+    const steerU = (1 - midLat) * U_TROPICAL * 0.85 + midLat * U_WESTERLY * 0.25;
 
     const solarHour = localSolarHour(th * HOUR_MS, lon);
     const mixing = 0.85 + 0.2 * Math.cos((2 * Math.PI * (solarHour - 14)) / 24);

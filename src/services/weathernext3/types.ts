@@ -60,6 +60,19 @@ export type AtmosphereTheme =
   | "thunderstorm"
   | "snow";
 
+export const ATMOSPHERE_THEMES: readonly AtmosphereTheme[] = [
+  "clear-day",
+  "clear-night",
+  "golden-hour",
+  "cloudy-day",
+  "cloudy-night",
+  "fog",
+  "rain",
+  "heavy-rain",
+  "thunderstorm",
+  "snow",
+];
+
 /** Full atmospheric state at one point and one instant. */
 export interface AtmosphericSample {
   /** ISO 8601, UTC. */

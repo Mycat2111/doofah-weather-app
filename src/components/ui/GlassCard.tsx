@@ -1,0 +1,34 @@
+"use client";
+
+import { motion, type HTMLMotionProps } from "framer-motion";
+import type { ReactNode } from "react";
+
+interface GlassCardProps extends HTMLMotionProps<"section"> {
+  children: ReactNode;
+  /** Stagger index for the entrance animation. */
+  index?: number;
+}
+
+/** Translucent card that the whole design system is built from. */
+export function GlassCard({ children, className = "", index = 0, ...props }: GlassCardProps) {
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 18, scale: 0.985 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: 0.55, delay: 0.06 * index, ease: [0.22, 1, 0.36, 1] }}
+      className={`glass rounded-[28px] ${className}`}
+      {...props}
+    >
+      {children}
+    </motion.section>
+  );
+}
+
+export function CardLabel({ icon, children }: { icon?: ReactNode; children: ReactNode }) {
+  return (
+    <h2 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/55">
+      {icon}
+      {children}
+    </h2>
+  );
+}

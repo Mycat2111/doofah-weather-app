@@ -1,26 +1,334 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+:root {
+  color-scheme: dark;
+  --glass-bg: rgba(255, 255, 255, 0.1);
+  --glass-border: rgba(255, 255, 255, 0.18);
+}
+
+html {
+  background: #0b1026;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  color: #fff;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ------------------------------------------------------------------ */
+/* Glass surfaces                                                      */
+/* ------------------------------------------------------------------ */
+
+.glass {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--glass-border);
+  box-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 0.18) inset,
+    0 18px 50px -20px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+}
+
+.glass-chip {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.glass-dark {
+  background: rgba(10, 14, 30, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+}
+
+.text-shadow-soft {
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.25);
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Atmosphere effects                                                  */
+/* ------------------------------------------------------------------ */
+
+@keyframes doofah-rain {
+  from {
+    transform: translate3d(0, -12vh, 0) rotate(12deg);
+  }
+  to {
+    transform: translate3d(-18vh, 112vh, 0) rotate(12deg);
+  }
+}
+
+@keyframes doofah-snow {
+  0% {
+    transform: translate3d(0, -5vh, 0);
+  }
+  50% {
+    transform: translate3d(2.5vw, 50vh, 0);
+  }
+  100% {
+    transform: translate3d(-1vw, 105vh, 0);
+  }
+}
+
+@keyframes doofah-twinkle {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes doofah-drift {
+  from {
+    transform: translate3d(-30vw, 0, 0);
+  }
+  to {
+    transform: translate3d(130vw, 0, 0);
+  }
+}
+
+@keyframes doofah-lightning {
+  0%,
+  89%,
+  100% {
+    opacity: 0;
+  }
+  90% {
+    opacity: 0.85;
+  }
+  91% {
+    opacity: 0.1;
+  }
+  92.5% {
+    opacity: 0.6;
+  }
+  94% {
+    opacity: 0;
+  }
+}
+
+@keyframes doofah-pulse {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(2.8);
+    opacity: 0;
+  }
+}
+
+.fx-rain {
+  position: absolute;
+  top: 0;
+  width: 1px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.55));
+  animation: doofah-rain linear infinite;
+  will-change: transform;
+}
+
+.fx-snow {
+  position: absolute;
+  top: 0;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.85);
+  filter: blur(0.5px);
+  animation: doofah-snow linear infinite;
+}
+
+.fx-star {
+  position: absolute;
+  border-radius: 9999px;
+  background: #fff;
+  animation: doofah-twinkle ease-in-out infinite;
+}
+
+.fx-cloud {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(40px);
+  animation: doofah-drift linear infinite;
+}
+
+.fx-lightning {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 30% 10%, rgba(220, 225, 255, 0.9), rgba(160, 170, 255, 0.15) 45%, transparent 70%);
+  animation: doofah-lightning 7s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fx-rain,
+  .fx-snow,
+  .fx-star,
+  .fx-cloud,
+  .fx-lightning {
+    animation: none;
+  }
+  .fx-rain,
+  .fx-snow,
+  .fx-lightning {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Timeline scrubber                                                   */
+/* ------------------------------------------------------------------ */
+
+.doofah-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 28px;
+  background: transparent;
+  cursor: pointer;
+}
+.doofah-range:focus {
+  outline: none;
+}
+.doofah-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 9999px;
+  background: transparent;
+}
+.doofah-range::-moz-range-track {
+  height: 4px;
+  border-radius: 9999px;
+  background: transparent;
+}
+.doofah-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  margin-top: -8px;
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  background: #fff;
+  border: 0;
+  box-shadow:
+    0 0 0 5px rgba(255, 255, 255, 0.18),
+    0 4px 14px rgba(0, 0, 0, 0.4);
+  transition: box-shadow 0.2s;
+}
+.doofah-range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  background: #fff;
+  border: 0;
+  box-shadow:
+    0 0 0 5px rgba(255, 255, 255, 0.18),
+    0 4px 14px rgba(0, 0, 0, 0.4);
+}
+.doofah-range:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 6px rgba(125, 211, 252, 0.55),
+    0 4px 14px rgba(0, 0, 0, 0.4);
+}
+.doofah-range:focus-visible::-moz-range-thumb {
+  box-shadow:
+    0 0 0 6px rgba(125, 211, 252, 0.55),
+    0 4px 14px rgba(0, 0, 0, 0.4);
+}
+
+/* ------------------------------------------------------------------ */
+/* Leaflet                                                             */
+/* ------------------------------------------------------------------ */
+
+.doofah-map.leaflet-container {
+  background: #0d1424;
+  font-family: inherit;
+}
+
+/* Dark rendering of the standard OpenStreetMap tiles. */
+.doofah-map .doofah-tiles {
+  filter: invert(1) hue-rotate(185deg) brightness(0.92) contrast(0.88) saturate(0.55);
+}
+
+.doofah-map .leaflet-control-attribution {
+  background: rgba(10, 14, 30, 0.55);
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 10px;
+  border-top-left-radius: 8px;
+  backdrop-filter: blur(8px);
+}
+.doofah-map .leaflet-control-attribution a {
+  color: rgba(186, 230, 253, 0.85);
+}
+
+.doofah-map .leaflet-control-zoom {
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  border-radius: 14px !important;
+  overflow: hidden;
+  backdrop-filter: blur(14px);
+}
+.doofah-map .leaflet-control-zoom a {
+  background: rgba(10, 14, 30, 0.55);
+  color: #fff;
+  border-bottom-color: rgba(255, 255, 255, 0.12);
+}
+.doofah-map .leaflet-control-zoom a:hover {
+  background: rgba(30, 40, 70, 0.75);
+}
+
+.doofah-user-marker {
+  position: relative;
+}
+.doofah-user-marker .dot {
+  position: absolute;
+  inset: 5px;
+  border-radius: 9999px;
+  background: #38bdf8;
+  border: 3px solid #fff;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.9);
+}
+.doofah-user-marker .ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: rgba(56, 189, 248, 0.45);
+  animation: doofah-pulse 2.2s ease-out infinite;
+}
+
+.doofah-canvas-layer {
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.doofah-map .leaflet-top.leaflet-right {
+  top: 64px;
+}
+
+.doofah-popup .leaflet-popup-content-wrapper {
+  background: rgba(10, 14, 30, 0.78);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 14px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+.doofah-popup .leaflet-popup-content {
+  margin: 8px 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.doofah-popup .leaflet-popup-tip {
+  background: rgba(10, 14, 30, 0.78);
 }
