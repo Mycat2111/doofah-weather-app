@@ -11,18 +11,24 @@ import { DooFahRadarMap } from "@/components/DooFahRadarMap";
 import { FavoritesBar } from "@/components/favorites/FavoritesBar";
 import { HourlyForecastSlider } from "@/components/HourlyForecastSlider";
 import { LifestyleIndex } from "@/components/LifestyleIndex";
+import type { RouteFocus } from "@/components/radar/leaflet/RouteLayer";
+import { RouteWeatherCard } from "@/components/route/RouteWeatherCard";
 import { TapButton } from "@/components/ui/TapButton";
 import { WeatherAlertBanner } from "@/components/WeatherAlertBanner";
 import { WeatherDetailsGrid } from "@/components/WeatherDetailsGrid";
+import { VoiceSummaryButton } from "@/components/VoiceSummaryButton";
 import { WeatherReportBar } from "@/components/WeatherReportBar";
 import { useCrowdReports } from "@/hooks/useCrowdReports";
 import { useForecast } from "@/hooks/useForecast";
 import { useGeolocation } from "@/hooks/useGeolocation";
+import { useRouteWeather } from "@/hooks/useRouteWeather";
 import { useI18n } from "@/i18n/I18nProvider";
+import { placeLabel } from "@/i18n/places";
 import { previewAlerts, weatherAlerts, type AlertKind } from "@/lib/alerts";
 import { readOpeningPlace, saveLastPlace } from "@/lib/favorites";
 import { lifestyleIndex } from "@/lib/lifestyle";
 import { previewCountdown, previewNowcast, rainCountdown, type CountdownPreview } from "@/lib/rainCountdown";
+import { weatherSummary } from "@/lib/voiceSummary";
 import {
   DEFAULT_PLACE,
   weatherNext3,
@@ -43,7 +49,7 @@ interface DooFahDashboardProps {
 const noSubscription = () => () => {};
 
 export function DooFahDashboard({ atmosphereOverride, alertPreview, rainPreview }: DooFahDashboardProps) {
-  const { m } = useI18n();
+  const { locale, m } = useI18n();
   // False on the server and while hydrating, true in the browser after that.
   const inBrowser = useSyncExternalStore(
     noSubscription,
@@ -56,6 +62,8 @@ export function DooFahDashboard({ atmosphereOverride, alertPreview, rainPreview 
   const place = chosen ?? (inBrowser ? readOpeningPlace() : undefined) ?? DEFAULT_PLACE;
   const { data, loading, error, refresh } = useForecast(place);
   const crowd = useCrowdReports(place);
+  const route = useRouteWeather(place);
+  const [routeFocus, setRouteFocus] = useState<RouteFocus>({ key: 0, stop: null });
 
   // Remember what is on screen, so the app reopens on it if it is a favorite.
   useEffect(() => {
@@ -92,11 +100,30 @@ export function DooFahDashboard({ atmosphereOverride, alertPreview, rainPreview 
   // The cards read the same countdown, so they never disagree with the badge.
   const lifestyle =
     data && countdown ? lifestyleIndex(data.current, data.hourly, data.daily, undefined, countdown) : [];
+  // Read aloud by the floating button; follows the same countdown as the badge.
+  const summary =
+    data && countdown
+      ? weatherSummary({ current: data.current, hourly: data.hourly, daily: data.daily, countdown }, locale)
+      : null;
+
+  // The trip's stops: the start and end by their places, the rest by the nearest town, else the distance.
+  const trip = route.trip;
+  const stopName = (i: number) => {
+    if (!trip) return "";
+    if (i === 0) return placeLabel(route.origin, locale).name;
+    if (i === trip.stops.length - 1 && route.destination) return placeLabel(route.destination, locale).name;
+    const { town, km } = trip.stops[i];
+    return town ? (locale === "th" ? town.th : town.name) : m.route.km(km);
+  };
+  const showTripOnMap = (stop: number | null) => {
+    setRouteFocus((f) => ({ key: f.key + 1, stop }));
+    document.getElementById("doofah-radar")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
 
   return (
     <>
       <AtmosphereBackground theme={atmosphere} />
-      <main className="relative mx-auto w-full min-w-0 max-w-[1400px] px-4 pb-14 pt-5 sm:px-6 lg:px-8">
+      <main className="relative mx-auto w-full min-w-0 max-w-[1400px] px-4 pb-24 pt-5 sm:px-6 lg:px-8">
         <DooFahHeader place={place} onSelectPlace={setPlace} onLocate={geo.locate} geoStatus={geo.status} />
         <FavoritesBar
           place={place}
@@ -156,7 +183,18 @@ export function DooFahDashboard({ atmosphereOverride, alertPreview, rainPreview 
             reportsNow={crowd.now}
             verification={crowd.verification}
             night={data ? !data.current.sample.isDay : false}
+            trip={trip}
+            tripFocus={routeFocus}
+            tripStopName={stopName}
             className="h-[600px] lg:col-start-2 lg:row-start-1 lg:h-auto lg:min-h-[580px]"
+          />
+          <RouteWeatherCard
+            state={route}
+            place={place}
+            timeZone={place.timeZone}
+            stopName={stopName}
+            onShowOnMap={showTripOnMap}
+            className="lg:col-span-2 lg:row-start-3"
           />
         </div>
 
@@ -185,6 +223,9 @@ export function DooFahDashboard({ atmosphereOverride, alertPreview, rainPreview 
             </>
           )}
         </div>
+
+        {/* Floats over the bottom right; the page's bottom padding keeps the last card clear of it. */}
+        <VoiceSummaryButton summary={summary} />
 
         <footer className="mt-10 text-center text-xs text-white/45">
           {m.footer.credit}

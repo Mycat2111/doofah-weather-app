@@ -6,10 +6,12 @@ simulated **WeatherNext 3** style forecast service: 5 km grid, hourly steps
 and a 15-day horizon.
 
 - **Stack:** Next.js 16 (App Router, TypeScript), Tailwind CSS 4, Framer Motion, Lucide icons, Leaflet + react-leaflet with OpenStreetMap tiles.
-- **No API keys needed.** The forecast service and place search run entirely in the browser.
+- **No API keys needed.** The forecast service and place search run entirely in the browser. Route weather can optionally use Google Maps (see below).
 - **Thai and English.** A TH / EN switch in the header changes every label, forecast phrase, date and place name.
 - **Favorite places.** Star any place and it joins a one-tap bar under the header, saved in the browser.
 - **Installable app.** Add it to the home screen and it opens full screen like a native app, works offline, and is tuned for touch.
+- **Route weather.** Pick where you are going and see the weather at each stop on the way, at the time you get there.
+- **Spoken summary.** A floating button reads a short weather summary aloud, in Thai or English.
 
 ## Quick start
 
@@ -31,6 +33,8 @@ npm run dev          # http://localhost:3000
 | `npm run verify:alerts` | Alert thresholds, time windows, order and tips in both languages |
 | `npm run verify:lifestyle` | Rain countdown timing and the lifestyle card rules          |
 | `npm run verify:reports` | Crowd report simulation, fading, your reports and "verified" |
+| `npm run verify:route` | Simulated and Google routes, `/api/route`, stops along the way and the trip outlook |
+| `npm run verify:voice` | Spoken times, voice choice and the summary for every place in both languages |
 | `npm run icons`       | Re-render the app icons and favicon from `scripts/icons/doofah-icon.svg` |
 
 Preview any sky mood with a query parameter:
@@ -179,6 +183,66 @@ sends a report.
     reports.
   - When fewer than half agree, the badge says local users differ instead.
 
+## Route weather
+
+The "Route weather" card under the radar map shows the weather along a drive.
+
+- **Where to.** Pick the start and the destination: your GPS location, the
+  place on screen, a favorite, or search by name. The swap button turns the
+  trip around. Leave now, or in 1, 2 or 3 hours.
+- **The route.** `POST /api/route` (`src/app/api/route/route.ts`) works it out
+  on the server.
+  - With `GOOGLE_MAPS_API_KEY` set, it asks the Google Maps
+    [Routes API](https://developers.google.com/maps/documentation/routes)
+    for the fastest drive with live traffic. The key never reaches the browser.
+  - Without a key, or if Google can't be reached, DooFah's simulated highway
+    map is used: about 60 towns and the main roads of Thailand and its
+    neighbours, the Koh Samui car ferry, and border crossings
+    (`src/services/routing/`). The card says which one you are looking at.
+  - Offline, the phone works out the simulated route by itself.
+- **Stops.** Every 15 minutes to 3 hours of driving, at most 10 stops. Each
+  stop gets the WeatherNext 3 forecast for that spot at the time you get
+  there (`src/lib/routeWeather.ts`). Stops are named after the nearest town
+  within 40 km, otherwise by distance ("km 127").
+- **Journey timeline.** Time, weather icon, temperature and chance of rain at
+  each stop, joined by a line coloured by rain. A line above the timeline sums
+  up the trip ("Heavy rain from Nakhon Sawan to Tak, 17:00–18:30") with a tip.
+- **On the map.** The route is drawn on the radar, coloured by rain, with a
+  weather bubble at each stop. Your car moves along it as the radar timeline
+  plays. Tap a stop and the map flies there with the radar at that hour.
+
+To turn on Google routes on Vercel:
+
+1. In the [Google Cloud console](https://console.cloud.google.com/), enable
+   the **Routes API** for a project with billing, and create an API key.
+   Restrict the key to the Routes API.
+2. In Vercel, open the project's **Settings → Environment Variables** and add
+   `GOOGLE_MAPS_API_KEY` for Production and Preview.
+3. Redeploy. The route card's tag changes from "Simulated route" to
+   "Google Maps, live traffic".
+
+For local development, put `GOOGLE_MAPS_API_KEY=...` in `.env.local`.
+
+## Spoken weather summary
+
+The "Play AI summary" button floats at the bottom right of the dashboard. It
+reads a short summary of the weather aloud, and shows the words with the
+current sentence highlighted.
+
+- **What it says.** `src/lib/voiceSummary.ts` picks what is worth saying:
+  - the weather now, and "feels like" when it is 3 °C or more off;
+  - rain from the countdown ("Expect heavy rain around 5 PM, so you might
+    want to bring an umbrella"), or how long it stays dry;
+  - today's high before 3 PM, tonight's low and tomorrow after it;
+  - strong UV, dangerous heat and unhealthy air.
+- **How it says it.** Each language words it in its message file, the way
+  people say it: "5 PM" and "ห้าโมงเย็น" rather than "17:00", units spelled
+  out. The summary is written by rules on the device; no AI service is called.
+- **The voice.** The browser's own speech (`window.speechSynthesis`). In Thai
+  it asks for `th-TH` and picks the best Thai voice the device has (Kanya on
+  iPhone and Mac, for example). If there is no Thai voice, the card says so
+  and still shows the words.
+
 ## Home screen app (PWA)
 
 **Installing.** On Android, Chrome offers **Install app** (or menu → *Add to
@@ -266,6 +330,7 @@ shapes), and `public/screenshots/*` for the richer install dialog.
 ```
 src/
 ├── app/
+│   ├── api/route/route.ts         POST /api/route: Google Routes with a key, simulated without
 │   ├── layout.tsx                 Fonts, language, metadata, viewport, Leaflet CSS
 │   ├── page.tsx                   Renders the dashboard (reads ?sky=, ?alert= and ?rain=)
 │   ├── manifest.ts                Web app manifest (install name, colours, icons)
@@ -284,6 +349,11 @@ src/
 │   ├── CurrentWeatherCard.tsx     Hero: temperature, feels-like, rain countdown, AQI, 5×5 km badge
 │   ├── RainCountdownPanel.tsx     Live time-to-rain badge over the radar's 2-hour rain bars
 │   ├── WeatherReportBar.tsx       One-tap Sunny / Cloudy / Light rain / Heavy rain reports
+│   ├── VoiceSummaryButton.tsx     "Play AI summary" floating button and the words it reads
+│   ├── route/
+│   │   ├── RouteWeatherCard.tsx   Origin / destination, leave time, trip outlook, journey timeline
+│   │   ├── PlaceField.tsx         Place picker: GPS, the current place, favorites, search
+│   │   └── rainStyle.ts           Rain colours shared by the timeline and the map
 │   ├── LifestyleIndex.tsx         Laundry, car wash, run, commute, sunscreen and stargazing cards
 │   ├── DooFahRadarMap.tsx         Radar panel: layer switcher, timeline, legend, playback
 │   ├── HourlyForecastSlider.tsx   48 h strip with sunrise/sunset markers
@@ -305,6 +375,8 @@ src/
 │   │       ├── FieldRasterLayer.tsx   Smooth colour field painted at screen resolution (rain, temperature, wind)
 │   │       ├── WindParticleLayer.tsx  Animated wind streamlines
 │   │       ├── ReportMarkers.tsx      People's reports as bubbles that fade over their hour
+│   │       ├── RouteLayer.tsx         The trip: rain-coloured route, stop bubbles, your car
+│   │       ├── weatherGlyphs.ts       Lucide weather icons as SVG strings for map markers
 │   │       └── IsobarLayer.tsx        Isobar lines, labels, H/L markers
 │   └── ui/
 │       ├── GlassCard.tsx          Translucent card with entrance animation
@@ -316,6 +388,7 @@ src/
 │   ├── I18nProvider.tsx           useI18n(): messages, formatters, setLocale
 │   ├── format.ts                  Times, Thai / English day names, short dates
 │   ├── places.ts                  Place names and areas in the current language
+│   ├── spokenTime.ts              Times and waits as people say them ("5 PM", "ห้าโมงเย็น")
 │   └── messages/                  en.ts, th.ts and the Messages type
 ├── hooks/
 │   ├── useForecast.ts             Loads + refreshes the forecast bundle
@@ -323,7 +396,9 @@ src/
 │   ├── useFavorites.ts            Favorite places from localStorage, synced across tabs
 │   ├── useGeolocation.ts          Browser location with status
 │   ├── useNow.ts                  A shared clock that ticks every 15 s, for countdowns
-│   └── useCrowdReports.ts         Local reports (yours and simulated), and whether they back the radar
+│   ├── useCrowdReports.ts         Local reports (yours and simulated), and whether they back the radar
+│   ├── useRouteWeather.ts         Route card state: places, leave time, route and stop weather
+│   └── useSpeech.ts               Web Speech: voice choice, sentence by sentence, stop
 ├── lib/
 │   ├── alerts.ts                  When to warn about storms, rain and air, and what to do
 │   ├── colors.ts                  AQI and temperature colours
@@ -332,10 +407,20 @@ src/
 │   ├── lifestyle.ts               Lifestyle card rules: good, take care or not now, and why
 │   ├── rainCountdown.ts           Time to the next rain from the radar nowcast, then the hourly forecast
 │   ├── crowdVerify.ts             When local reports count as verifying the rain radar
+│   ├── routeWeather.ts            Stops along a route, how wet each is, the trip outlook
+│   ├── voiceSummary.ts            What the spoken summary says
+│   ├── speech.ts                  Picking the best voice for a language
 │   └── pwa.ts                     Service worker registration (production only)
 └── services/
     ├── WeatherNext3MockService.ts The simulated API (start here)
     ├── CrowdReportMockService.ts  Mock backend for people's weather reports
+    ├── routing/
+    │   ├── routeService.ts        getRoute(): asks /api/route, falls back to the simulated route
+    │   ├── googleRoutes.ts        Google Maps Routes API request and response
+    │   ├── SimulatedRouter.ts     Shortest drive over the simulated road map
+    │   ├── roadNetwork.ts         Towns and roads of the simulated map
+    │   ├── polyline.ts            Google encoded polylines
+    │   └── types.ts               Route, request and error types
     └── weathernext3/
         ├── types.ts               All data contracts
         ├── describe.ts            English wording of nowcast and day outlooks
@@ -355,6 +440,8 @@ scripts/verify-favorites.ts        Checks behind `npm run verify:favorites`
 scripts/verify-alerts.ts           Checks behind `npm run verify:alerts`
 scripts/verify-lifestyle.ts        Checks behind `npm run verify:lifestyle`
 scripts/verify-reports.ts          Checks behind `npm run verify:reports`
+scripts/verify-route.ts            Checks behind `npm run verify:route`
+scripts/verify-voice.ts            Checks behind `npm run verify:voice`
 scripts/generate-icons.ts          `npm run icons`, from scripts/icons/doofah-icon.svg
 ```
 
@@ -388,6 +475,7 @@ rain.frames[3].rate;           // Float32Array of mm/h, row-major on rain.grid
 | `getRadarFrames(request)`       | Hourly grids for one layer over an area (cached)                   |
 | `searchPlaces(query)`           | Gazetteer matches (English or Thai names)                          |
 | `sampleAt(point, time)`         | Synchronous single sample                                          |
+| `getWeatherAlong(stops)`        | One sample per `{ point, time }`, e.g. a trip's stops at their ETAs |
 | `snapToGrid(point)`             | The 5 km × 5 km cell for a point                                   |
 
 **How the simulation works.** Every variable is a continuous function of

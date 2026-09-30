@@ -1,6 +1,10 @@
 import { describeDayEn, describeNowcastEn } from "@/services/weathernext3/describe";
 import type { WeatherCondition } from "@/services/weathernext3/types";
 import type { LifestyleReason } from "@/lib/lifestyle";
+import type { RouteOutlook } from "@/lib/routeWeather";
+import type { SummaryContext, SummaryFact } from "@/lib/voiceSummary";
+import type { AqiCategory } from "@/services/weathernext3/types";
+import { spokenTimeEn, spokenWaitEn } from "../spokenTime";
 import type { Messages } from "./types";
 
 const CONDITION: Record<WeatherCondition, string> = {
@@ -60,6 +64,117 @@ function lifestyleReason(reason: LifestyleReason, clock: (time: string) => strin
   }
 }
 
+const ROUTE_LEVEL = { rain: "Rain likely", heavy: "Heavy rain", storm: "Thunderstorms" };
+const ROUTE_PATCHY = { rain: "Showers on and off", heavy: "Heavy rain on and off", storm: "Thunderstorms on and off" };
+
+function routeOutlook(
+  outlook: RouteOutlook,
+  stop: (index: number) => string,
+  clock: (index: number) => string,
+): string {
+  switch (outlook.kind) {
+    case "dry":
+      return "Dry all the way";
+    case "possible":
+      return `A chance of showers near ${stop(outlook.stop)} around ${clock(outlook.stop)} (${outlook.chance}%)`;
+    case "rain": {
+      const level = (outlook.patchy ? ROUTE_PATCHY : ROUTE_LEVEL)[outlook.level];
+      return outlook.from === outlook.to
+        ? `${level} near ${stop(outlook.from)} around ${clock(outlook.from)}`
+        : `${level} from ${stop(outlook.from)} to ${stop(outlook.to)}, ${clock(outlook.from)}–${clock(outlook.to)}`;
+    }
+  }
+}
+
+/* Spoken summary ------------------------------------------------------- */
+
+const SPOKEN_CONDITION: Record<WeatherCondition, [day: string, night: string]> = {
+  clear: ["sunny", "clear"],
+  "partly-cloudy": ["partly cloudy", "partly cloudy"],
+  cloudy: ["cloudy", "cloudy"],
+  fog: ["foggy", "foggy"],
+  drizzle: ["drizzly", "drizzly"],
+  rain: ["raining", "raining"],
+  "heavy-rain": ["raining heavily", "raining heavily"],
+  thunderstorm: ["stormy", "stormy"],
+  snow: ["snowing", "snowing"],
+};
+
+const SPOKEN_AQI: Record<AqiCategory, string> = {
+  Good: "good",
+  Moderate: "moderate",
+  "Unhealthy for Sensitive Groups": "unhealthy for sensitive groups",
+  Unhealthy: "unhealthy",
+  "Very Unhealthy": "very unhealthy",
+  Hazardous: "hazardous",
+};
+
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const GREETING = {
+  morning: "Good morning!",
+  afternoon: "Good afternoon!",
+  evening: "Good evening!",
+  night: "Hi there!",
+};
+
+function voiceSummary(facts: SummaryFact[], { place, clock }: SummaryContext): string[] {
+  const at = (time: string) => {
+    const { hour, minute } = clock(time);
+    return spokenTimeEn(hour, minute);
+  };
+  return facts.map((fact) => {
+    switch (fact.kind) {
+      case "greeting":
+        return GREETING[fact.part];
+      case "now": {
+        const where = place ? `in ${place}` : "where you are";
+        const sky = SPOKEN_CONDITION[fact.condition][fact.isDay ? 0 : 1];
+        const feels = fact.feelsLikeC === null ? "" : `, but it feels like ${fact.feelsLikeC}`;
+        return `Right now ${where} it's ${fact.tempC} degrees and ${sky}${feels}.`;
+      }
+      case "rainStarting":
+        switch (fact.intensity) {
+          case "heavy":
+            return `Heavy rain is on its way: the radar shows it arriving in ${spokenWaitEn(fact.minutes)}, so grab an umbrella before you head out.`;
+          case "drizzle":
+            return `Expect a little drizzle in ${spokenWaitEn(fact.minutes)}.`;
+          default:
+            return `The radar shows ${fact.intensity === "light" ? "light rain" : "rain"} arriving in ${spokenWaitEn(fact.minutes)}, so keep an umbrella handy.`;
+        }
+      case "raining":
+        if (!fact.until) return "It looks set to keep going for a while, so take an umbrella if you head out.";
+        return fact.intensity === "heavy"
+          ? `It should ease off around ${at(fact.until)}; watch out for flooded roads until then.`
+          : `It should ease off around ${at(fact.until)}.`;
+      case "rainLater": {
+        const when = `${fact.tomorrow ? "tomorrow " : ""}around ${at(fact.at)}`;
+        if (fact.storm) return `Expect thunderstorms ${when}, so plan to be indoors by then.`;
+        if (fact.heavy) return `Expect heavy rain ${when}, so you might want to bring an umbrella.`;
+        if (fact.likely) return `Rain is likely ${when}, so you might want to bring an umbrella.`;
+        return `There's a ${fact.chance} percent chance of rain ${when}, so an umbrella wouldn't hurt.`;
+      }
+      case "dry":
+        return fact.weekday === null
+          ? `No rain is expected in the next ${fact.hours} hours.`
+          : `No rain is expected in the next ${fact.hours} hours, and the next rainy day looks like ${WEEKDAYS[fact.weekday]}.`;
+      case "today":
+        return `Today's high is ${fact.maxC} degrees.`;
+      case "tonight":
+        return `Tonight it drops to around ${fact.minC}.`;
+      case "tomorrow": {
+        const day = describeDayEn(fact.outlook).replace(/(\d) mm\b/, "$1 millimeters");
+        return `Tomorrow: ${day.charAt(0).toLowerCase()}${day.slice(1)}, from ${fact.minC} to ${fact.maxC} degrees.`;
+      }
+      case "uv":
+        return `The UV index will reach ${fact.peak}, so wear sunscreen if you're out in the sun.`;
+      case "heat":
+        return "It's dangerously hot, so drink plenty of water and stay in the shade.";
+      case "air":
+        return `The air is ${SPOKEN_AQI[fact.category]}, at AQI ${fact.aqi}, so consider a mask outdoors.`;
+    }
+  });
+}
+
 const COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
 
 export const en: Messages = {
@@ -97,6 +212,8 @@ export const en: Messages = {
   compass: (degrees) => COMPASS[Math.round((((degrees % 360) + 360) % 360) / 22.5) % 16],
   nowcast: describeNowcastEn,
   daySummary: describeDayEn,
+  routeOutlook,
+  voiceSummary,
   lifestyleReason,
 
   header: {
@@ -228,6 +345,61 @@ export const en: Messages = {
     verified: (people) => `Verified by ${people} local users`,
     disputed: (agreeing, total) => `Local users differ: ${agreeing} of ${total} agree`,
     few: (count) => (count === 1 ? "1 local report" : `${count} local reports`),
+  },
+
+  route: {
+    title: "Route weather",
+    from: "From",
+    to: "To",
+    toPlaceholder: "Where to?",
+    searchPlaceholder: "Search a city",
+    myLocation: "My location",
+    swap: "Swap start and destination",
+    clear: "Clear route",
+    leave: "Leave",
+    leaveNow: "Now",
+    leaveIn: (hours) => `In ${hours} h`,
+    planning: "Planning your drive…",
+    hint: "Pick a destination to see the weather at each point of the drive, at the time you get there.",
+    duration: (minutes) => {
+      const h = Math.floor(Math.round(minutes) / 60);
+      const m = Math.round(minutes) % 60;
+      return h ? (m ? `${h} h ${m} min` : `${h} h`) : `${m} min`;
+    },
+    distance: (km) => `${Math.round(km)} km`,
+    arrive: (clock) => `Arrive ${clock}`,
+    source: { google: "Google Maps, live traffic", simulated: "Simulated route" },
+    borders: (count) => (count === 1 ? "1 border crossing" : `${count} border crossings`),
+    ferry: "Car ferry",
+    km: (km) => `km ${Math.round(km)}`,
+    advice: {
+      rain: "Allow extra time and keep your distance on wet roads.",
+      heavy: "Slow down: expect flooded stretches and poor visibility.",
+      storm: "Think about leaving later, or stop somewhere safe while it passes.",
+    },
+    rain: { dry: "Dry", possible: "Showers possible", rain: "Rain", heavy: "Heavy rain", storm: "Thunderstorms" },
+    chance: (percent) => `${percent}%`,
+    timeline: "Journey timeline",
+    showOnMap: "Show on map",
+    stopOnMap: (name, clock) => `${name} at ${clock}: show on the map`,
+    carHere: (clock) => `You, at ${clock}`,
+    errors: {
+      noRoute: "There's no road between these places.",
+      samePlace: "Start and destination are the same place.",
+      failed: "Couldn't plan the route.",
+    },
+    retry: "Try again",
+  },
+
+  voice: {
+    play: "Play AI summary",
+    short: "AI summary",
+    title: "AI weather summary",
+    stop: "Stop",
+    replay: "Play again",
+    close: "Close",
+    noSpeech: "This browser can't read aloud, so here is the summary to read.",
+    noVoice: "There's no English voice on this device, so the reading may sound off.",
   },
 
   hourly: {

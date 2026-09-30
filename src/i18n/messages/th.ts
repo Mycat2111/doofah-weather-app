@@ -1,4 +1,5 @@
 import type {
+  AqiCategory,
   DayOutlook,
   DayOutlookKind,
   DayPeriod,
@@ -7,6 +8,9 @@ import type {
   WeatherCondition,
 } from "@/services/weathernext3/types";
 import type { LifestyleReason } from "@/lib/lifestyle";
+import type { RouteOutlook } from "@/lib/routeWeather";
+import type { SummaryContext, SummaryFact } from "@/lib/voiceSummary";
+import { spokenTimeTh, spokenWaitTh } from "../spokenTime";
 import type { Messages } from "./types";
 
 // Thai typesetting notes:
@@ -144,6 +148,117 @@ function lifestyleReason(reason: LifestyleReason, clock: (time: string) => strin
   }
 }
 
+const ROUTE_LEVEL = { rain: "ฝนน่าจะตก", heavy: "ฝนตกหนัก", storm: "พายุฝนฟ้าคะนอง" };
+// ๆ is followed by a space before the next word.
+const ROUTE_PATCHY = {
+  rain: `ฝนตกเป็นช่วง${YAMOK} `,
+  heavy: `ฝนตกหนักเป็นช่วง${YAMOK} `,
+  storm: `พายุฝนฟ้าคะนองเป็นช่วง${YAMOK} `,
+};
+
+function routeOutlook(
+  outlook: RouteOutlook,
+  stop: (index: number) => string,
+  clock: (index: number) => string,
+): string {
+  switch (outlook.kind) {
+    case "dry":
+      return "ไม่มีฝนตลอดทาง";
+    case "possible":
+      return `อาจมีฝนแถว${stop(outlook.stop)} ประมาณ ${clock(outlook.stop)}${NB}น. (โอกาส ${outlook.chance}%)`;
+    case "rain": {
+      const level = (outlook.patchy ? ROUTE_PATCHY : ROUTE_LEVEL)[outlook.level];
+      return outlook.from === outlook.to
+        ? `${level}แถว${stop(outlook.from)} ประมาณ ${clock(outlook.from)}${NB}น.`
+        : `${level}ตั้งแต่${stop(outlook.from)}ถึง${stop(outlook.to)} ช่วง ${clock(outlook.from)}–${clock(outlook.to)}${NB}น.`;
+    }
+  }
+}
+
+/* Spoken summary ------------------------------------------------------- */
+// Written to be heard: times as people say them (ห้าโมงเย็น, not 17:00 น.),
+// units spelled out, and a friendly "นะ" on advice.
+
+const SPOKEN_CONDITION: Record<WeatherCondition, [day: string, night: string]> = {
+  clear: ["ท้องฟ้าแจ่มใส", "ท้องฟ้าโปร่ง"],
+  "partly-cloudy": ["มีเมฆบางส่วน", "มีเมฆบางส่วน"],
+  cloudy: ["มีเมฆมาก", "มีเมฆมาก"],
+  fog: ["มีหมอก", "มีหมอก"],
+  drizzle: ["มีฝนปรอย", "มีฝนปรอย"],
+  rain: ["ฝนกำลังตก", "ฝนกำลังตก"],
+  "heavy-rain": ["ฝนกำลังตกหนัก", "ฝนกำลังตกหนัก"],
+  thunderstorm: ["มีพายุฝนฟ้าคะนอง", "มีพายุฝนฟ้าคะนอง"],
+  snow: ["หิมะกำลังตก", "หิมะกำลังตก"],
+};
+
+const SPOKEN_AQI: Record<AqiCategory, string> = {
+  Good: "ดี",
+  Moderate: "ปานกลาง",
+  "Unhealthy for Sensitive Groups": "เริ่มมีผลต่อสุขภาพ",
+  Unhealthy: "มีผลต่อสุขภาพ",
+  "Very Unhealthy": "มีผลต่อสุขภาพมาก",
+  Hazardous: "อันตราย",
+};
+
+const WEEKDAYS = ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์"];
+const GREETING = { morning: "สวัสดีตอนเช้า", afternoon: "สวัสดีตอนบ่าย", evening: "สวัสดีตอนเย็น", night: "สวัสดี" };
+
+const RAIN_STARTING: Record<RainIntensity, (wait: string) => string> = {
+  heavy: (wait) => `เรดาร์เห็นฝนหนักกำลังมา จะเริ่มตกในอีกประมาณ ${wait} ถ้าจะออกไปข้างนอกอย่าลืมพกร่มนะ`,
+  moderate: (wait) => `เรดาร์เห็นฝนกำลังมา จะเริ่มตกในอีกประมาณ ${wait} พกร่มติดตัวไว้ด้วยนะ`,
+  light: (wait) => `เรดาร์เห็นฝนเบา${YAMOK} กำลังมา จะเริ่มตกในอีกประมาณ ${wait} พกร่มติดตัวไว้ด้วยนะ`,
+  drizzle: (wait) => `อีกประมาณ ${wait}จะมีฝนปรอย`,
+};
+
+function voiceSummary(facts: SummaryFact[], { place, clock }: SummaryContext): string[] {
+  const at = (time: string) => {
+    const { hour, minute } = clock(time);
+    return spokenTimeTh(hour, minute);
+  };
+  return facts.map((fact) => {
+    switch (fact.kind) {
+      case "greeting":
+        return GREETING[fact.part];
+      case "now": {
+        const where = place ? `ที่${place}` : "ตรงที่คุณอยู่";
+        const sky = SPOKEN_CONDITION[fact.condition][fact.isDay ? 0 : 1];
+        const feels = fact.feelsLikeC === null ? "" : ` แต่รู้สึกเหมือน ${fact.feelsLikeC} องศา`;
+        return `ตอนนี้${where} อุณหภูมิ ${fact.tempC} องศา ${sky}${feels}`;
+      }
+      case "rainStarting":
+        return RAIN_STARTING[fact.intensity](spokenWaitTh(fact.minutes));
+      case "raining":
+        if (!fact.until) return "ฝนน่าจะตกต่อไปอีกพักใหญ่ ถ้าจะออกไปข้างนอกอย่าลืมพกร่มนะ";
+        return fact.intensity === "heavy"
+          ? `ฝนน่าจะซาลงประมาณ${at(fact.until)} ระหว่างนี้ระวังน้ำท่วมขังบนถนนด้วยนะ`
+          : `ฝนน่าจะซาลงประมาณ${at(fact.until)}`;
+      case "rainLater": {
+        const when = `${fact.tomorrow ? "พรุ่งนี้" : ""}ช่วงประมาณ${at(fact.at)}`;
+        if (fact.storm) return `คาดว่าจะมีพายุฝนฟ้าคะนอง${when} ควรหาที่หลบให้เรียบร้อยก่อนนะ`;
+        if (fact.heavy) return `คาดว่าฝนจะตกหนัก${when} อย่าลืมพกร่มนะ`;
+        if (fact.likely) return `ฝนน่าจะตก${when} พกร่มไปด้วยก็ดีนะ`;
+        return `มีโอกาสฝนตก ${fact.chance} เปอร์เซ็นต์${when} พกร่มไปด้วยก็ไม่เสียหาย`;
+      }
+      case "dry":
+        return fact.weekday === null
+          ? `ไม่มีฝนตลอด ${fact.hours} ชั่วโมงข้างหน้า`
+          : `ไม่มีฝนตลอด ${fact.hours} ชั่วโมงข้างหน้า ฝนรอบถัดไปน่าจะเป็นวัน${WEEKDAYS[fact.weekday]}`;
+      case "today":
+        return `วันนี้อุณหภูมิสูงสุด ${fact.maxC} องศา`;
+      case "tonight":
+        return `คืนนี้อุณหภูมิต่ำสุดประมาณ ${fact.minC} องศา`;
+      case "tomorrow":
+        return `พรุ่งนี้${daySummary(fact.outlook).replace(" มม.", " มิลลิเมตร")} อุณหภูมิ ${fact.minC} ถึง ${fact.maxC} องศา`;
+      case "uv":
+        return `รังสียูวีจะขึ้นไปถึงระดับ ${fact.peak} ถ้าออกไปกลางแจ้งอย่าลืมทาครีมกันแดดนะ`;
+      case "heat":
+        return `อากาศร้อนจัด ดื่มน้ำเยอะ${YAMOK} และหลบแดดด้วยนะ`;
+      case "air":
+        return `คุณภาพอากาศ${SPOKEN_AQI[fact.category]} ค่าดัชนีอยู่ที่ ${fact.aqi} ควรสวมหน้ากากเมื่ออยู่กลางแจ้ง`;
+    }
+  });
+}
+
 export const th: Messages = {
   meta: {
     title: "DooFah ดูฟ้า · พยากรณ์อากาศรอบตัวคุณ",
@@ -180,6 +295,8 @@ export const th: Messages = {
   nowcast,
   daySummary,
   lifestyleReason,
+  routeOutlook,
+  voiceSummary,
 
   header: {
     searchPlaceholder: "ค้นหาเมือง… (เช่น เชียงใหม่)",
@@ -315,6 +432,62 @@ export const th: Messages = {
     verified: (people) => `ยืนยันโดยผู้ใช้ในพื้นที่ ${people} คน`,
     disputed: (agreeing, total) => `ผู้ใช้ในพื้นที่เห็นต่าง ตรงกัน ${agreeing} จาก ${total}`,
     few: (count) => `รายงานจากผู้ใช้ ${count} รายการ`,
+  },
+
+  route: {
+    title: "สภาพอากาศตลอดเส้นทาง",
+    from: "ต้นทาง",
+    to: "ปลายทาง",
+    toPlaceholder: "จะไปที่ไหน",
+    searchPlaceholder: "ค้นหาเมือง",
+    myLocation: "ตำแหน่งของฉัน",
+    swap: "สลับต้นทางกับปลายทาง",
+    clear: "ล้างเส้นทาง",
+    leave: "ออกเดินทาง",
+    leaveNow: "ตอนนี้",
+    leaveIn: (hours) => `อีก ${hours}${NB}ชม.`,
+    planning: "กำลังวางเส้นทาง…",
+    hint: "เลือกปลายทางเพื่อดูสภาพอากาศแต่ละช่วงของเส้นทาง ตามเวลาที่คุณจะไปถึง",
+    duration: (minutes) => {
+      const h = Math.floor(Math.round(minutes) / 60);
+      const m = Math.round(minutes) % 60;
+      return h ? (m ? `${h}${NB}ชม. ${m}${NB}นาที` : `${h}${NB}ชม.`) : `${m}${NB}นาที`;
+    },
+    distance: (km) => `${Math.round(km)}${NB}กม.`,
+    arrive: (clock) => `ถึง ${clock}${NB}น.`,
+    source: { google: "Google Maps สภาพจราจรจริง", simulated: "เส้นทางจำลอง" },
+    borders: (count) => `ผ่านด่านชายแดน ${count} แห่ง`,
+    ferry: "มีช่วงลงเรือเฟอร์รี",
+    km: (km) => `กม.${NB}${Math.round(km)}`,
+    advice: {
+      rain: "เผื่อเวลาเดินทาง และเว้นระยะห่างจากคันหน้าบนถนนเปียก",
+      heavy: "ขับช้าลง อาจมีน้ำท่วมขังและทัศนวิสัยไม่ดี",
+      storm: "ลองเลื่อนเวลาออกเดินทาง หรือแวะพักในที่ปลอดภัยจนกว่าพายุจะผ่านไป",
+    },
+    rain: { dry: "ไม่มีฝน", possible: "อาจมีฝน", rain: "ฝนตก", heavy: "ฝนตกหนัก", storm: "พายุฝนฟ้าคะนอง" },
+    chance: (percent) => `${percent}%`,
+    timeline: "ไทม์ไลน์การเดินทาง",
+    showOnMap: "ดูบนแผนที่",
+    stopOnMap: (name, clock) => `${name} เวลา ${clock}${NB}น. ดูบนแผนที่`,
+    carHere: (clock) => `คุณ เวลา ${clock}${NB}น.`,
+    errors: {
+      noRoute: "ไม่มีเส้นทางถนนระหว่างสองที่นี้",
+      samePlace: "ต้นทางกับปลายทางเป็นที่เดียวกัน",
+      failed: "วางแผนเส้นทางไม่สำเร็จ",
+    },
+    retry: "ลองอีกครั้ง",
+  },
+
+  voice: {
+    play: "ฟังสรุปอากาศด้วย AI",
+    short: "สรุปด้วย AI",
+    title: "สรุปสภาพอากาศด้วย AI",
+    stop: "หยุด",
+    replay: "ฟังอีกครั้ง",
+    close: "ปิด",
+    noSpeech: "เบราว์เซอร์นี้อ่านออกเสียงไม่ได้ อ่านสรุปด้านล่างแทนได้เลย",
+    noVoice:
+      "เครื่องนี้ไม่มีเสียงอ่านภาษาไทย เสียงที่ได้ยินอาจฟังไม่ชัด เพิ่มเสียงภาษาไทยได้ในการตั้งค่าการอ่านออกเสียงของเครื่อง",
   },
 
   hourly: {

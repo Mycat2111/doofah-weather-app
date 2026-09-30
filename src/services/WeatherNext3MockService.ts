@@ -147,6 +147,15 @@ export class WeatherNext3MockService {
     return this.buildDaily(place, days);
   }
 
+  /**
+   * Weather at many points, each at its own time, in one request: a road
+   * trip's stops at the times you reach them.
+   */
+  async getWeatherAlong(stops: { point: GeoPoint; time: string }[]): Promise<AtmosphericSample[]> {
+    await this.delay(1);
+    return stops.map((stop) => this.sampleAt(stop.point, Date.parse(stop.time)));
+  }
+
   /** Everything the dashboard needs in one round trip. */
   async getForecastBundle(place: Place, hourlyHours = 48): Promise<ForecastBundle> {
     await this.delay(1.5);

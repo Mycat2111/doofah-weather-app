@@ -7,6 +7,8 @@ import { localeFromAcceptLanguage } from "../src/i18n/config";
 import { createFormatters } from "../src/i18n/format";
 import { MESSAGES } from "../src/i18n/messages";
 import { placeLabel } from "../src/i18n/places";
+import type { RouteOutlook } from "../src/lib/routeWeather";
+import type { SummaryFact } from "../src/lib/voiceSummary";
 import {
   PLACES,
   WeatherNext3MockService,
@@ -58,7 +60,7 @@ const AQI: AqiCategory[] = [
 ];
 
 // Latin text that legitimately stays in the Thai UI: names, symbols and units.
-const ALLOWED_LATIN = /DooFah|WeatherNext|OpenStreetMap|PM2\.5|AQI|UV|UTC|hPa|°C/g;
+const ALLOWED_LATIN = /DooFah|WeatherNext|OpenStreetMap|Google Maps|PM2\.5|AQI|UV|AI|UTC|hPa|°C/g;
 const hasStrayLatin = (text: string) => /[A-Za-z]/.test(text.replace(ALLOWED_LATIN, ""));
 const hasThai = (text: string) => /[฀-๿]/.test(text);
 
@@ -128,11 +130,75 @@ async function main() {
       }
     }
   }
+  const routeOutlooks: RouteOutlook[] = [
+    { kind: "dry" },
+    { kind: "possible", stop: 2, chance: 45 },
+    { kind: "rain", from: 3, to: 3, level: "rain", chance: 80, patchy: false },
+    { kind: "rain", from: 1, to: 4, level: "heavy", chance: 90, patchy: false },
+    { kind: "rain", from: 5, to: 6, level: "storm", chance: 85, patchy: false },
+    ...(["rain", "heavy", "storm"] as const).map((level) => ({
+      kind: "rain" as const,
+      from: 1,
+      to: 5,
+      level,
+      chance: 90,
+      patchy: true,
+    })),
+  ];
+  for (const o of routeOutlooks)
+    assertThai(
+      th.routeOutlook(
+        o,
+        (i) => `เมือง${i}`,
+        (i) => `1${i}:30`,
+      ),
+      `route ${JSON.stringify(o)}`,
+    );
+  const later = { at: "2026-09-30T10:00:00Z", chance: 40, likely: false, heavy: false, storm: false, tomorrow: false };
+  const facts: SummaryFact[] = [
+    ...(["morning", "afternoon", "evening", "night"] as const).map((part) => ({ kind: "greeting" as const, part })),
+    { kind: "now", tempC: 32, condition: "cloudy", isDay: true, feelsLikeC: 38 },
+    ...CONDITIONS.map((condition) => ({ kind: "now" as const, tempC: 25, condition, isDay: false, feelsLikeC: null })),
+    ...INTENSITIES.map((intensity) => ({ kind: "rainStarting" as const, minutes: 12, intensity })),
+    ...INTENSITIES.map((intensity) => ({ kind: "raining" as const, intensity, until: "2026-09-30T11:00:00Z" })),
+    { kind: "raining", intensity: "light", until: null },
+    { kind: "rainLater", ...later },
+    { kind: "rainLater", ...later, chance: 80, likely: true, tomorrow: true },
+    { kind: "rainLater", ...later, heavy: true },
+    { kind: "rainLater", ...later, storm: true },
+    { kind: "dry", hours: 24, weekday: 4 },
+    { kind: "dry", hours: 24, weekday: null },
+    { kind: "today", maxC: 34 },
+    { kind: "tonight", minC: 25 },
+    ...DAY_KINDS.map((kind) => ({
+      kind: "tomorrow" as const,
+      outlook: { kind, period: "afternoon" as const, wind: "breezy" as const, precipitationMm: 12.4 },
+      minC: 24,
+      maxC: 33,
+    })),
+    { kind: "uv", peak: 9 },
+    { kind: "heat", feelsLikeC: 43 },
+    ...AQI.map((category) => ({ kind: "air" as const, aqi: 160, category })),
+  ];
+  const clock = () => ({ hour: 17, minute: 0 });
+  for (const place of ["กรุงเทพฯ", null]) {
+    th.voiceSummary(facts, { place, clock }).forEach((line, i) => assertThai(line, `voice ${facts[i].kind}`));
+  }
   console.log(`✓ ${checked} generated Thai phrases, none with untranslated words`);
 
   // 3. Every static Thai string ---------------------------------------------
   const strings: [string, string][] = [];
-  const skip = new Set(["condition", "aqi", "uv", "compass", "nowcast", "daySummary", "lifestyleReason"]);
+  const skip = new Set([
+    "condition",
+    "aqi",
+    "uv",
+    "compass",
+    "nowcast",
+    "daySummary",
+    "lifestyleReason",
+    "routeOutlook",
+    "voiceSummary",
+  ]);
   for (const [key, value] of Object.entries(th)) if (!skip.has(key)) collect(value, key, strings);
   for (const [path, text] of strings) {
     assert.ok(!hasStrayLatin(text), `th.${path}: untranslated Latin in "${text}"`);
