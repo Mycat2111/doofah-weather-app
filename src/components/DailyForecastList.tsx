@@ -5,16 +5,8 @@ import { CalendarDays, ChevronDown, Droplet, Droplets, Navigation2, Sun, Sunrise
 import { useState } from "react";
 import { CardLabel, GlassCard } from "@/components/ui/GlassCard";
 import { WeatherIcon } from "@/components/ui/WeatherIcon";
-import {
-  compass,
-  formatClock,
-  formatDayName,
-  formatHour,
-  formatShortDate,
-  formatTemp,
-  temperatureColor,
-  uvLabel,
-} from "@/lib/format";
+import { useI18n } from "@/i18n/I18nProvider";
+import { temperatureColor } from "@/lib/colors";
 import type { DailyForecast } from "@/services/WeatherNext3MockService";
 
 interface DailyForecastListProps {
@@ -24,13 +16,14 @@ interface DailyForecastListProps {
 }
 
 export function DailyForecastList({ days, timeZone, currentTempC }: DailyForecastListProps) {
+  const { m } = useI18n();
   const [expanded, setExpanded] = useState<string | null>(null);
   const low = Math.min(...days.map((d) => d.minTempC));
   const high = Math.max(...days.map((d) => d.maxTempC));
 
   return (
-    <GlassCard className="p-5" index={4} aria-label="15-day forecast">
-      <CardLabel icon={<CalendarDays className="size-3.5" />}>15-day forecast</CardLabel>
+    <GlassCard className="p-5" index={4} aria-label={m.daily.label}>
+      <CardLabel icon={<CalendarDays className="size-3.5" />}>{m.daily.title}</CardLabel>
       <ul className="mt-2 divide-y divide-white/10">
         {days.map((day, i) => (
           <DayRow
@@ -62,6 +55,7 @@ interface DayRowProps {
 }
 
 function DayRow({ day, index, low, high, timeZone, currentTempC, open, onToggle }: DayRowProps) {
+  const { m, f } = useI18n();
   const span = Math.max(1, high - low);
   const left = ((day.minTempC - low) / span) * 100;
   const width = Math.max(4, ((day.maxTempC - day.minTempC) / span) * 100);
@@ -81,8 +75,8 @@ function DayRow({ day, index, low, high, timeZone, currentTempC, open, onToggle 
         className="grid w-full grid-cols-[76px_30px_44px_1fr_62px_16px] items-center gap-2 rounded-xl py-3 text-left transition-colors hover:bg-white/[0.06] sm:grid-cols-[96px_40px_52px_36px_1fr_36px_20px] sm:px-1"
       >
         <span className="text-[15px] font-medium">
-          {formatDayName(day.date, index)}
-          <span className="hidden text-xs font-normal text-white/45 sm:block">{formatShortDate(day.date)}</span>
+          {f.dayName(day.date, index)}
+          <span className="hidden text-xs font-normal text-white/45 sm:block">{f.shortDate(day.date)}</span>
         </span>
         <WeatherIcon condition={day.condition} className="size-6" />
         <span
@@ -91,8 +85,11 @@ function DayRow({ day, index, low, high, timeZone, currentTempC, open, onToggle 
           <Droplet className="size-3" aria-hidden />
           {day.precipitationProbability}%
         </span>
-        <span className="hidden text-right text-[15px] text-white/55 sm:block">{formatTemp(day.minTempC)}</span>
-        <span className="relative h-1.5 rounded-full bg-black/20" aria-label={`Low ${formatTemp(day.minTempC)}, high ${formatTemp(day.maxTempC)}`}>
+        <span className="hidden text-right text-[15px] text-white/55 sm:block">{f.temp(day.minTempC)}</span>
+        <span
+          className="relative h-1.5 rounded-full bg-black/20"
+          aria-label={m.daily.range(f.temp(day.minTempC), f.temp(day.maxTempC))}
+        >
           <motion.span
             className="absolute inset-y-0 rounded-full"
             style={{
@@ -106,13 +103,13 @@ function DayRow({ day, index, low, high, timeZone, currentTempC, open, onToggle 
             <span
               className="absolute top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white/90 bg-white shadow"
               style={{ left: `${Math.min(100, Math.max(0, ((currentTempC - low) / span) * 100))}%` }}
-              title={`Now ${formatTemp(currentTempC)}`}
+              title={m.daily.nowMarker(f.temp(currentTempC))}
             />
           )}
         </span>
         <span className="text-right text-[15px] font-medium sm:text-left">
-          <span className="text-white/55 sm:hidden">{formatTemp(day.minTempC)} </span>
-          {formatTemp(day.maxTempC)}
+          <span className="text-white/55 sm:hidden">{f.temp(day.minTempC)} </span>
+          {f.temp(day.maxTempC)}
         </span>
         <ChevronDown
           className={`size-4 text-white/50 transition-transform duration-300 ${open ? "rotate-180" : ""}`}
@@ -139,8 +136,13 @@ function DayRow({ day, index, low, high, timeZone, currentTempC, open, onToggle 
 }
 
 function DayDetails({ day, timeZone }: { day: DailyForecast; timeZone: string }) {
+  const { m, f } = useI18n();
   const stats = [
-    { icon: <Droplets className="size-4 text-sky-200" />, label: "Rain", value: `${day.precipitationMm} mm` },
+    {
+      icon: <Droplets className="size-4 text-sky-200" />,
+      label: m.daily.rain,
+      value: `${day.precipitationMm} ${m.units.mm}`,
+    },
     {
       icon: (
         <Navigation2
@@ -148,20 +150,39 @@ function DayDetails({ day, timeZone }: { day: DailyForecast; timeZone: string })
           style={{ transform: `rotate(${day.dominantWindDirectionDeg + 180}deg)` }}
         />
       ),
-      label: "Wind",
-      value: `${Math.round(day.maxWindKmh)} km/h ${compass(day.dominantWindDirectionDeg)}`,
+      label: m.daily.wind,
+      value: (
+        <>
+          <span className="whitespace-nowrap">
+            {Math.round(day.maxWindKmh)} {m.units.kmh}
+          </span>{" "}
+          <span className="whitespace-nowrap">{m.compass(day.dominantWindDirectionDeg)}</span>
+        </>
+      ),
     },
-    { icon: <Sun className="size-4 text-amber-200" />, label: "UV", value: `${Math.round(day.maxUvIndex)} ${uvLabel(day.maxUvIndex)}` },
-    { icon: <Wind className="size-4 text-white/70" />, label: "Humidity", value: `${day.meanHumidity}%` },
-    { icon: <Sunrise className="size-4 text-amber-200" />, label: "Sunrise", value: day.sunrise ? formatClock(day.sunrise, timeZone) : "—" },
-    { icon: <Sunset className="size-4 text-orange-300" />, label: "Sunset", value: day.sunset ? formatClock(day.sunset, timeZone) : "—" },
+    {
+      icon: <Sun className="size-4 text-amber-200" />,
+      label: m.daily.uv,
+      value: `${Math.round(day.maxUvIndex)} ${m.uv(day.maxUvIndex)}`,
+    },
+    { icon: <Wind className="size-4 text-white/70" />, label: m.daily.humidity, value: `${day.meanHumidity}%` },
+    {
+      icon: <Sunrise className="size-4 text-amber-200" />,
+      label: m.daily.sunrise,
+      value: day.sunrise ? f.clock(day.sunrise, timeZone) : "—",
+    },
+    {
+      icon: <Sunset className="size-4 text-orange-300" />,
+      label: m.daily.sunset,
+      value: day.sunset ? f.clock(day.sunset, timeZone) : "—",
+    },
   ];
 
   return (
     <div className="mb-3 rounded-2xl bg-black/15 p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-sm text-white/90">{day.summary}</p>
-        <p className="text-[11px] text-white/45">Model confidence {Math.round(day.confidence * 100)}%</p>
+        <p className="text-sm text-white/90">{m.daySummary(day.outlook)}</p>
+        <p className="text-[11px] text-white/45 th:text-xs">{m.daily.confidence(Math.round(day.confidence * 100))}</p>
       </div>
       <DaySparkline day={day} timeZone={timeZone} />
       <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5 sm:grid-cols-3">
@@ -169,7 +190,7 @@ function DayDetails({ day, timeZone }: { day: DailyForecast; timeZone: string })
           <div key={s.label} className="flex items-center gap-2">
             {s.icon}
             <dt className="text-xs text-white/50">{s.label}</dt>
-            <dd className="ml-auto text-sm text-white/90 sm:ml-0">{s.value}</dd>
+            <dd className="ml-auto text-right text-sm text-white/90 sm:ml-0 sm:text-left">{s.value}</dd>
           </div>
         ))}
       </dl>
@@ -179,6 +200,7 @@ function DayDetails({ day, timeZone }: { day: DailyForecast; timeZone: string })
 
 /** Temperature line with rain bars for the 24 hours of one day. */
 function DaySparkline({ day, timeZone }: { day: DailyForecast; timeZone: string }) {
+  const { m, f } = useI18n();
   const W = 480;
   const H = 86;
   const PAD = 14;
@@ -192,7 +214,7 @@ function DaySparkline({ day, timeZone }: { day: DailyForecast; timeZone: string 
   const gradientId = `spark-${day.date}`;
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="mt-3 h-auto w-full" role="img" aria-label="Hourly temperature and rain">
+    <svg viewBox={`0 0 ${W} ${H}`} className="mt-3 h-auto w-full" role="img" aria-label={m.daily.sparkline}>
       <defs>
         <linearGradient id={gradientId} x1="0" x2="1">
           {day.hours.map((h, i) => (
@@ -227,10 +249,10 @@ function DaySparkline({ day, timeZone }: { day: DailyForecast; timeZone: string 
         i % 6 === 0 ? (
           <g key={`l${h.time}`}>
             <text x={x(i)} y={y(h.temperatureC) - 6} textAnchor="middle" className="fill-white/80 text-[10px]">
-              {formatTemp(h.temperatureC)}
+              {f.temp(h.temperatureC)}
             </text>
             <text x={x(i)} y={H - 3} textAnchor="middle" className="fill-white/40 text-[10px]">
-              {formatHour(h.time, timeZone)}
+              {f.hour(h.time, timeZone)}
             </text>
           </g>
         ) : null,

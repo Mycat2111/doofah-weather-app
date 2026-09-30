@@ -8,7 +8,7 @@ import { LayerSwitcher } from "@/components/radar/LayerSwitcher";
 import { RadarLegend } from "@/components/radar/RadarLegend";
 import { TimelineScrubber } from "@/components/radar/TimelineScrubber";
 import { TIMELINE_FROM, TIMELINE_TO, useRadarFrames } from "@/hooks/useRadarFrames";
-import { formatClock } from "@/lib/format";
+import { useI18n } from "@/i18n/I18nProvider";
 import { snapToGrid, type GeoBounds, type Place, type RadarLayerType } from "@/services/WeatherNext3MockService";
 
 // Leaflet touches `window`, so the map itself only renders in the browser.
@@ -48,6 +48,7 @@ interface DooFahRadarMapProps {
  * from 3 hours ago to 24 hours ahead.
  */
 export function DooFahRadarMap({ place, className = "" }: DooFahRadarMapProps) {
+  const { m, f } = useI18n();
   const [layer, setLayer] = useState<RadarLayerType>("precipitation");
   const [bounds, setBounds] = useState<GeoBounds | null>(null);
   const [frameIndex, setFrameIndex] = useState(NOW_INDEX);
@@ -72,7 +73,7 @@ export function DooFahRadarMap({ place, className = "" }: DooFahRadarMapProps) {
 
   return (
     <section
-      aria-label="Weather radar map"
+      aria-label={m.radar.label}
       className={`glass relative isolate overflow-hidden rounded-[28px] ${className}`}
     >
       <div className="absolute inset-0 z-0">
@@ -94,7 +95,7 @@ export function DooFahRadarMap({ place, className = "" }: DooFahRadarMapProps) {
           <AnimatePresence mode="wait" initial={false}>
             {loading ? (
               <motion.span key="l" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <LoaderCircle className="size-3.5 animate-spin text-sky-200" aria-label="Loading layer" />
+                <LoaderCircle className="size-3.5 animate-spin text-sky-200" aria-label={m.radar.loading} />
               </motion.span>
             ) : (
               <motion.span key="r" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -103,11 +104,11 @@ export function DooFahRadarMap({ place, className = "" }: DooFahRadarMapProps) {
             )}
           </AnimatePresence>
           <span>
-            WeatherNext 3 · {frameSet ? `${frameSet.grid.cellSizeKm} km grid` : "5 km grid"}
+            WeatherNext 3 · {m.radar.grid(frameSet?.grid.cellSizeKm ?? 5)}
             {frameSet && (
               <span className="hidden text-white/50 sm:inline">
-                {" "}
-                · run {formatClock(frameSet.model.runInitTime, "UTC")} UTC
+                {" · "}
+                {m.radar.run(f.clock(frameSet.model.runInitTime, "UTC"))}
               </span>
             )}
           </span>
@@ -134,8 +135,8 @@ export function DooFahRadarMap({ place, className = "" }: DooFahRadarMapProps) {
           </div>
           <div className="border-white/10 sm:border-l sm:pl-5">
             <RadarLegend layer={layer} />
-            <p className="mt-1 text-right text-[9px] text-white/40">
-              Map ©{" "}
+            <p className="mt-1 text-right text-[9px] text-white/40 th:text-[10px]">
+              {m.radar.attribution.before}
               <a
                 href="https://www.openstreetmap.org/copyright"
                 target="_blank"
@@ -143,8 +144,8 @@ export function DooFahRadarMap({ place, className = "" }: DooFahRadarMapProps) {
                 className="underline decoration-white/30 hover:text-white/70"
               >
                 OpenStreetMap
-              </a>{" "}
-              contributors
+              </a>
+              {m.radar.attribution.after}
             </p>
           </div>
         </div>

@@ -23,6 +23,7 @@ import {
   uvIndex,
   type FieldState,
 } from "./weathernext3/fieldModel";
+import { describeDayEn, describeNowcastEn, rainIntensity } from "./weathernext3/describe";
 import { buildGridSpec, cellCenter, snapToGrid } from "./weathernext3/grid";
 import { DEFAULT_PLACE, placeForPoint, searchPlaces } from "./weathernext3/places";
 import { sunTimes } from "./weathernext3/solar";
@@ -32,12 +33,16 @@ import type {
   AtmosphericSample,
   CurrentConditions,
   DailyForecast,
+  DayOutlook,
+  DayOutlookKind,
+  DayPeriod,
   ForecastBundle,
   GeoPoint,
   GridCell,
   HourlyForecast,
   ModelInfo,
   Nowcast,
+  NowcastOutlook,
   Place,
   RadarFrame,
   RadarFrameOf,
@@ -51,6 +56,7 @@ import type {
 export * from "./weathernext3/types";
 export { DEFAULT_PLACE, PLACES } from "./weathernext3/places";
 export { sampleGrid, snapToGrid } from "./weathernext3/grid";
+export { describeDayEn, describeNowcastEn } from "./weathernext3/describe";
 
 export const FORECAST_HORIZON_DAYS = 15;
 const MAX_HOURLY = FORECAST_HORIZON_DAYS * 24;
@@ -351,22 +357,20 @@ export class WeatherNext3MockService {
     });
 
     const wet = (s: { precipitationMm: number }) => s.precipitationMm >= 0.1;
-    let summary: string;
+    let outlook: NowcastOutlook;
     if (wet(steps[0])) {
       const stopIdx = steps.findIndex((s) => !wet(s));
-      const word = intensityWord(steps[0].precipitationMm);
-      summary =
-        stopIdx === -1
-          ? `${word} continuing for at least 2 hours`
-          : `${word} easing in about ${stopIdx * 10} min`;
+      const intensity = rainIntensity(steps[0].precipitationMm);
+      outlook =
+        stopIdx === -1 ? { kind: "continuing", intensity } : { kind: "stopping", minutes: stopIdx * 10, intensity };
     } else {
       const startIdx = steps.findIndex(wet);
-      summary =
+      outlook =
         startIdx === -1
-          ? "No rain expected in the next 2 hours"
-          : `${intensityWord(steps[startIdx].precipitationMm)} starting in about ${startIdx * 10} min`;
+          ? { kind: "dry" }
+          : { kind: "starting", minutes: startIdx * 10, intensity: rainIntensity(steps[startIdx].precipitationMm) };
     }
-    return { summary, steps };
+    return { summary: describeNowcastEn(outlook), outlook, steps };
   }
 
   private buildHourly(place: Place, hours: number): HourlyForecast[] {
@@ -467,13 +471,6 @@ function primaryValues(frame: RadarFrame): Float32Array {
   }
 }
 
-function intensityWord(rate: number): string {
-  if (rate >= 8) return "Heavy rain";
-  if (rate >= 2) return "Rain";
-  if (rate >= 0.5) return "Light rain";
-  return "Drizzle";
-}
-
 export function atmosphereFor(sample: AtmosphericSample, state?: FieldState): AtmosphereTheme {
   switch (sample.condition) {
     case "thunderstorm":
@@ -506,11 +503,34 @@ const SEVERITY: Record<WeatherCondition, number> = {
   thunderstorm: 8,
 };
 
-function periodOfDay(localHour: number): string {
+function periodOfDay(localHour: number): DayPeriod {
   if (localHour < 6) return "overnight";
-  if (localHour < 12) return "in the morning";
-  if (localHour < 18) return "in the afternoon";
-  return "in the evening";
+  if (localHour < 12) return "morning";
+  if (localHour < 18) return "afternoon";
+  return "evening";
+}
+
+function dayOutlookKind(condition: WeatherCondition, precipitationMm: number, maxTempC: number): DayOutlookKind {
+  switch (condition) {
+    case "thunderstorm":
+      return "thunderstorms";
+    case "heavy-rain":
+      return precipitationMm >= 12 ? "heavy-rain" : "downpours";
+    case "rain":
+      return "showers";
+    case "drizzle":
+      return "light-showers";
+    case "snow":
+      return "snow";
+    case "fog":
+      return "fog";
+    case "cloudy":
+      return "mostly-cloudy";
+    case "partly-cloudy":
+      return maxTempC >= 33 ? "hot-sunny-spells" : "sun-and-cloud";
+    default:
+      return maxTempC >= 33 ? "hot-sunny" : "clear";
+  }
 }
 
 function summariseDay(
@@ -546,42 +566,13 @@ function summariseDay(
   else if (meanCloud >= 30) condition = "partly-cloudy";
   else condition = "clear";
 
-  const period = periodOfDay(zonedParts(new Date(wettest.time).getTime(), timeZone).hour);
   const maxTemp = Math.max(...temps);
-  let summary: string;
-  switch (condition) {
-    case "thunderstorm":
-      summary = `Thunderstorms likely ${period}`;
-      break;
-    case "heavy-rain":
-      summary =
-        precipitationMm >= 12
-          ? `Heavy rain ${period}, around ${Math.round(precipitationMm)} mm`
-          : `Heavy downpours ${period}`;
-      break;
-    case "rain":
-      summary = `Showers ${period}`;
-      break;
-    case "drizzle":
-      summary = `A few light showers ${period}`;
-      break;
-    case "snow":
-      summary = `Snow ${period}`;
-      break;
-    case "fog":
-      summary = "Fog early, clearing later";
-      break;
-    case "cloudy":
-      summary = "Mostly cloudy";
-      break;
-    case "partly-cloudy":
-      summary = maxTemp >= 33 ? "Hot with sunny spells" : "Sun and cloud";
-      break;
-    default:
-      summary = maxTemp >= 33 ? "Hot and sunny" : "Clear skies";
-  }
-  if (windiest.windSpeedKmh >= 40) summary += ", windy";
-  else if (windiest.windSpeedKmh >= 28) summary += ", breezy";
+  const outlook: DayOutlook = {
+    kind: dayOutlookKind(condition, precipitationMm, maxTemp),
+    period: periodOfDay(zonedParts(new Date(wettest.time).getTime(), timeZone).hour),
+    precipitationMm,
+    wind: windiest.windSpeedKmh >= 40 ? "windy" : windiest.windSpeedKmh >= 28 ? "breezy" : "calm",
+  };
 
   // Circular mean of wind direction, weighted by speed.
   let sx = 0;
@@ -596,7 +587,8 @@ function summariseDay(
     minTempC: round1(Math.min(...temps)),
     maxTempC: round1(maxTemp),
     condition,
-    summary,
+    summary: describeDayEn(outlook),
+    outlook,
     precipitationMm,
     precipitationProbability,
     maxWindKmh: round1(windiest.windSpeedKmh),

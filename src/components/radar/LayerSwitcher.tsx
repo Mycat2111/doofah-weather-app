@@ -2,13 +2,14 @@
 
 import { motion } from "framer-motion";
 import { CloudRain, Gauge, Thermometer, Wind, type LucideIcon } from "lucide-react";
+import { useI18n } from "@/i18n/I18nProvider";
 import type { RadarLayerType } from "@/services/WeatherNext3MockService";
 
-export const LAYER_OPTIONS: { id: RadarLayerType; label: string; long: string; icon: LucideIcon }[] = [
-  { id: "precipitation", label: "Rain", long: "Rain radar", icon: CloudRain },
-  { id: "wind", label: "Wind", long: "Wind stream", icon: Wind },
-  { id: "temperature", label: "Temp", long: "Temperature heatmap", icon: Thermometer },
-  { id: "pressure", label: "Pressure", long: "Pressure isobars", icon: Gauge },
+export const LAYER_OPTIONS: { id: RadarLayerType; icon: LucideIcon }[] = [
+  { id: "precipitation", icon: CloudRain },
+  { id: "wind", icon: Wind },
+  { id: "temperature", icon: Thermometer },
+  { id: "pressure", icon: Gauge },
 ];
 
 interface LayerSwitcherProps {
@@ -17,10 +18,16 @@ interface LayerSwitcherProps {
 }
 
 export function LayerSwitcher({ value, onChange }: LayerSwitcherProps) {
+  const { m } = useI18n();
   return (
-    <div role="radiogroup" aria-label="Map layer" className="glass-dark flex gap-0.5 rounded-full p-1 shadow-lg">
-      {LAYER_OPTIONS.map(({ id, label, long, icon: Icon }) => {
+    <div
+      role="radiogroup"
+      aria-label={m.radar.layerGroup}
+      className="glass-dark no-scrollbar flex max-w-full gap-0.5 overflow-x-auto rounded-full p-1 shadow-lg"
+    >
+      {LAYER_OPTIONS.map(({ id, icon: Icon }) => {
         const selected = id === value;
+        const { short, long } = m.radar.layers[id];
         return (
           <button
             key={id}
@@ -29,7 +36,7 @@ export function LayerSwitcher({ value, onChange }: LayerSwitcherProps) {
             aria-checked={selected}
             title={long}
             onClick={() => onChange(id)}
-            className={`relative flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors sm:px-3.5 ${
+            className={`relative flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1.5 text-xs font-medium transition-colors sm:px-3.5 ${
               selected ? "text-slate-900" : "text-white/75 hover:text-white"
             }`}
           >
@@ -41,7 +48,7 @@ export function LayerSwitcher({ value, onChange }: LayerSwitcherProps) {
               />
             )}
             <Icon className="relative size-3.5" aria-hidden />
-            <span className="relative">{label}</span>
+            <span className="relative">{short}</span>
           </button>
         );
       })}

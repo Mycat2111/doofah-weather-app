@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { Pause, Play } from "lucide-react";
-import { formatClock } from "@/lib/format";
+import { useI18n } from "@/i18n/I18nProvider";
 
 interface TimelineScrubberProps {
   /** ISO times of every frame, one per hour. */
@@ -27,12 +27,13 @@ export function TimelineScrubber({
   timeZone,
   disabled,
 }: TimelineScrubberProps) {
+  const { m, f } = useI18n();
   const count = times.length;
   const nowIndex = Math.max(0, offsets.indexOf(0));
   const offset = offsets[index] ?? 0;
   const pct = (i: number) => (count > 1 ? (i / (count - 1)) * 100 : 0);
-  const relative = offset === 0 ? "Now" : offset > 0 ? `+${offset} h` : `−${Math.abs(offset)} h`;
-  const kind = offset < 0 ? "Past radar" : offset === 0 ? "Latest analysis" : "Forecast";
+  const relative = offset === 0 ? m.radar.now : m.radar.offset(offset);
+  const kind = offset < 0 ? m.radar.past : offset === 0 ? m.radar.analysis : m.radar.forecast;
 
   return (
     <div className="flex items-center gap-3 sm:gap-4">
@@ -41,7 +42,7 @@ export function TimelineScrubber({
         whileTap={{ scale: 0.9 }}
         onClick={onTogglePlay}
         disabled={disabled}
-        aria-label={playing ? "Pause time-lapse" : "Play time-lapse"}
+        aria-label={playing ? m.radar.pause : m.radar.play}
         className="grid size-11 shrink-0 place-items-center rounded-full bg-white text-slate-900 shadow-lg transition-opacity disabled:opacity-40"
       >
         <AnimatePresence mode="wait" initial={false}>
@@ -61,10 +62,10 @@ export function TimelineScrubber({
         <div className="flex items-baseline justify-between gap-2">
           <p className="truncate text-sm font-medium" aria-live="polite">
             <span className={offset === 0 ? "text-sky-200" : ""}>{relative}</span>
-            {times[index] && <span className="ml-2 tabular-nums text-white/80">{formatClock(times[index], timeZone)}</span>}
+            {times[index] && <span className="ml-2 tabular-nums text-white/80">{f.clock(times[index], timeZone)}</span>}
           </p>
           <span
-            className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${
+            className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider th:text-[11.5px] th:tracking-normal ${
               offset < 0 ? "bg-white/10 text-white/70" : offset === 0 ? "bg-sky-300/20 text-sky-100" : "bg-amber-300/15 text-amber-100"
             }`}
           >
@@ -102,8 +103,8 @@ export function TimelineScrubber({
             disabled={disabled}
             onChange={(e) => onIndexChange(Number(e.target.value))}
             className="doofah-range relative"
-            aria-label="Map time"
-            aria-valuetext={`${relative}${times[index] ? `, ${formatClock(times[index], timeZone)}` : ""}`}
+            aria-label={m.radar.mapTime}
+            aria-valuetext={`${relative}${times[index] ? `, ${f.clock(times[index], timeZone)}` : ""}`}
           />
         </div>
 
@@ -111,7 +112,7 @@ export function TimelineScrubber({
           {offsets.map((o, i) =>
             o === 0 || (o % 6 === 0 && o > 0) ? (
               <span key={o} className="absolute -translate-x-1/2 tabular-nums" style={{ left: `${pct(i)}%` }}>
-                {o === 0 ? "Now" : times[i] ? formatClock(times[i], timeZone) : ""}
+                {o === 0 ? m.radar.now : times[i] ? f.clock(times[i], timeZone) : ""}
               </span>
             ) : null,
           )}

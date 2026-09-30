@@ -14,6 +14,12 @@ export interface GeoPoint {
 /** South-west and north-east corners, Leaflet style: [[south, west], [north, east]]. */
 export type GeoBounds = [[number, number], [number, number]];
 
+export interface PlaceNames {
+  name: string;
+  region?: string;
+  country: string;
+}
+
 export interface Place {
   id: string;
   name: string;
@@ -21,6 +27,10 @@ export interface Place {
   localName?: string;
   region?: string;
   country: string;
+  /** Thai names for the place, region and country. */
+  th?: PlaceNames;
+  /** Extra search terms, e.g. "กทม" for Bangkok. */
+  aliases?: string[];
   point: GeoPoint;
   /** IANA time zone used for every local time shown for this place. */
   timeZone: string;
@@ -130,9 +140,19 @@ export interface NowcastStep {
   precipitationMm: number;
 }
 
+export type RainIntensity = "drizzle" | "light" | "moderate" | "heavy";
+
+/** What the next two hours hold, in a form any UI language can phrase. */
+export type NowcastOutlook =
+  | { kind: "dry" }
+  | { kind: "starting"; minutes: number; intensity: RainIntensity }
+  | { kind: "stopping"; minutes: number; intensity: RainIntensity }
+  | { kind: "continuing"; intensity: RainIntensity };
+
 export interface Nowcast {
-  /** Human sentence such as "Rain starting in about 40 min". */
+  /** English sentence such as "Rain starting in about 40 min". */
   summary: string;
+  outlook: NowcastOutlook;
   /** Next 2 hours in 10-minute steps. */
   steps: NowcastStep[];
 }
@@ -169,13 +189,40 @@ export interface HourlyForecast extends AtmosphericSample {
   confidence: number;
 }
 
+export type DayPeriod = "overnight" | "morning" | "afternoon" | "evening";
+
+export type DayOutlookKind =
+  | "thunderstorms"
+  | "heavy-rain"
+  | "downpours"
+  | "showers"
+  | "light-showers"
+  | "snow"
+  | "fog"
+  | "mostly-cloudy"
+  | "hot-sunny-spells"
+  | "sun-and-cloud"
+  | "hot-sunny"
+  | "clear";
+
+/** The day in structured form, so any UI language can phrase it. */
+export interface DayOutlook {
+  kind: DayOutlookKind;
+  /** When the wettest hour falls, in local time. */
+  period: DayPeriod;
+  precipitationMm: number;
+  wind: "calm" | "breezy" | "windy";
+}
+
 export interface DailyForecast {
   /** Local calendar date, YYYY-MM-DD. */
   date: string;
   minTempC: number;
   maxTempC: number;
   condition: WeatherCondition;
+  /** English sentence such as "Showers in the afternoon". */
   summary: string;
+  outlook: DayOutlook;
   precipitationMm: number;
   precipitationProbability: number;
   maxWindKmh: number;

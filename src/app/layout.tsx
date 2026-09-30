@@ -1,5 +1,8 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Anuphan, Geist, Geist_Mono } from "next/font/google";
+import { I18nProvider } from "@/i18n/I18nProvider";
+import { MESSAGES } from "@/i18n/messages";
+import { getRequestLocale } from "@/i18n/server";
 import "leaflet/dist/leaflet.css";
 import "./globals.css";
 
@@ -13,11 +16,16 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  title: "DooFah ดูฟ้า · Look at the Sky",
-  description:
-    "Hyper-local weather with a 5 km radar map, hourly and 15-day forecasts, powered by simulated WeatherNext 3 data.",
-};
+// Thai glyphs only: Latin letters and digits keep using Geist in both languages.
+const anuphan = Anuphan({
+  variable: "--font-thai",
+  subsets: ["thai"],
+});
+
+export async function generateMetadata(): Promise<Metadata> {
+  const { meta } = MESSAGES[await getRequestLocale()];
+  return { title: meta.title, description: meta.description };
+}
 
 export const viewport: Viewport = {
   themeColor: "#0b1026",
@@ -25,10 +33,16 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const locale = await getRequestLocale();
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
-      <body className="min-h-full">{children}</body>
+    <html
+      lang={locale}
+      className={`${geistSans.variable} ${geistMono.variable} ${anuphan.variable} h-full antialiased`}
+    >
+      <body className="min-h-full">
+        <I18nProvider initialLocale={locale}>{children}</I18nProvider>
+      </body>
     </html>
   );
 }

@@ -3,6 +3,8 @@
 import L from "leaflet";
 import { useEffect, useRef, useState } from "react";
 import { MapContainer, Marker, Popup, Rectangle, TileLayer, ZoomControl, useMap, useMapEvents } from "react-leaflet";
+import { useI18n } from "@/i18n/I18nProvider";
+import type { Messages } from "@/i18n/messages";
 import {
   sampleGrid,
   type GeoBounds,
@@ -94,31 +96,33 @@ function FrameLayers({ grid, frame }: { grid: RadarGridSpec; frame: RadarFrame }
   }
 }
 
-function describe(grid: RadarGridSpec, frame: RadarFrame, p: GeoPoint): string {
+function describe(grid: RadarGridSpec, frame: RadarFrame, p: GeoPoint, m: Messages): string {
   const at = (values: Float32Array) => sampleGrid(grid, values, p.lat, p.lon);
+  const { probe, outsideArea } = m.radar;
   switch (frame.layer) {
     case "precipitation": {
       const r = at(frame.rate);
-      if (Number.isNaN(r)) return "Outside the loaded area";
-      return r < 0.1 ? `No rain · cloud ${Math.round(at(frame.cloud) * 100)}%` : `Rain ${r.toFixed(1)} mm/h`;
+      if (Number.isNaN(r)) return outsideArea;
+      return r < 0.1 ? probe.noRain(Math.round(at(frame.cloud) * 100)) : probe.rain(r.toFixed(1));
     }
     case "temperature": {
       const t = at(frame.temperature);
-      return Number.isNaN(t) ? "Outside the loaded area" : `${t.toFixed(1)} °C at 2 m`;
+      return Number.isNaN(t) ? outsideArea : probe.temperature(t.toFixed(1));
     }
     case "wind": {
       const s = at(frame.speed);
-      return Number.isNaN(s) ? "Outside the loaded area" : `Wind ${Math.round(s)} km/h at 10 m`;
+      return Number.isNaN(s) ? outsideArea : probe.wind(Math.round(s));
     }
     case "pressure": {
       const v = at(frame.pressure);
-      return Number.isNaN(v) ? "Outside the loaded area" : `${v.toFixed(1)} hPa`;
+      return Number.isNaN(v) ? outsideArea : probe.pressure(v.toFixed(1));
     }
   }
 }
 
 /** Tap anywhere to read the active layer's value at that spot. */
 function Probe({ grid, frame }: { grid?: RadarGridSpec; frame?: RadarFrame }) {
+  const { m } = useI18n();
   const [point, setPoint] = useState<GeoPoint | null>(null);
   useMapEvents({
     click: (e) => setPoint({ lat: e.latlng.lat, lon: e.latlng.lng }),
@@ -131,7 +135,7 @@ function Probe({ grid, frame }: { grid?: RadarGridSpec; frame?: RadarFrame }) {
       closeButton={false}
       eventHandlers={{ remove: () => setPoint(null) }}
     >
-      {describe(grid, frame, point)}
+      {describe(grid, frame, point, m)}
     </Popup>
   );
 }

@@ -7,6 +7,7 @@ and a 15-day horizon.
 
 - **Stack:** Next.js 16 (App Router, TypeScript), Tailwind CSS 4, Framer Motion, Lucide icons, Leaflet + react-leaflet with OpenStreetMap tiles.
 - **No API keys needed.** The forecast service and place search run entirely in the browser.
+- **Thai and English.** A TH / EN switch in the header changes every label, forecast phrase, date and place name.
 
 ## Quick start
 
@@ -23,6 +24,7 @@ npm run dev          # http://localhost:3000
 | `npm run lint`        | ESLint (Next.js core-web-vitals + TypeScript rules)            |
 | `npm run typecheck`   | `tsc --noEmit`                                                 |
 | `npm run verify:mock` | Shape, determinism, consistency and climate checks for the mock service |
+| `npm run verify:i18n` | Every Thai phrase is Thai, Thai dates and Thai place search       |
 
 Preview any sky mood with a query parameter:
 `/?sky=thunderstorm`, `golden-hour`, `clear-night`, `heavy-rain`, `rain`,
@@ -60,17 +62,44 @@ Place search uses a small built-in gazetteer (Thai cities plus major world
 cities), so no geocoding key is needed. The locate button uses the browser's
 Geolocation API and snaps to the nearest known city within 40 km.
 
+## Thai and English
+
+- **Switching.** The TH / EN control in the header switches instantly and is
+  remembered in a `doofah-locale` cookie, so the server renders the next visit
+  in that language (`<html lang>`, page title and all). A first visit follows the
+  browser's `Accept-Language`: Thai browsers get Thai, everyone else English.
+- **Text.** All UI text lives in `src/i18n/messages/en.ts` and `th.ts`, typed by
+  one `Messages` interface, so a missing Thai string is a type error. Components
+  read it with `const { m, f } = useI18n()`.
+- **Forecast phrases.** The service returns structured outlooks
+  (`current.nowcast.outlook`, `day.outlook`) and each language words them
+  itself, e.g. "Heavy downpours in the evening, breezy" and
+  "ฝนตกหนักเป็นพัก ๆ ช่วงค่ำ ลมค่อนข้างแรง" come from the same outlook. The
+  English `summary` fields are still there for API users.
+- **Dates.** `Intl` with `th-TH` gives "30 ก.ย." and "14:05"; Thai day names are
+  written out in full (จันทร์, อังคาร, … พฤหัสบดี) with วันนี้ / พรุ่งนี้ for the
+  first two days.
+- **Places.** Every gazetteer entry has Thai names (`place.th`), and search
+  also takes Thai spellings and nicknames such as กทม, โคราช or สมุย.
+- **Typography.** Thai characters use [Anuphan](https://fonts.google.com/specimen/Anuphan)
+  (self-hosted by `next/font`), while Latin letters and digits stay in Geist so
+  numbers look the same in both languages. Thai gets more line height so
+  stacked vowels and tone marks never clip, and Thai labels drop the small caps
+  and letter-spacing used for English ones. Language-specific styles use the
+  `th:` variant defined in `globals.css`, e.g. `th:tracking-normal`.
+
 ## Project structure
 
 ```
 src/
 ├── app/
-│   ├── layout.tsx                 Fonts, metadata, Leaflet CSS
+│   ├── layout.tsx                 Fonts, language, metadata, Leaflet CSS
 │   ├── page.tsx                   Renders the dashboard (reads ?sky=)
 │   └── globals.css                Glass surfaces, sky effects, slider + Leaflet styling
 ├── components/
 │   ├── DooFahDashboard.tsx        Page composition, place state, loading states
-│   ├── DooFahHeader.tsx           Logo, animated search, geolocation button
+│   ├── DooFahHeader.tsx           Logo, animated search, geolocation button, language switch
+│   ├── LanguageToggle.tsx         TH / EN switch
 │   ├── CurrentWeatherCard.tsx     Hero: temperature, feels-like, nowcast, AQI, 5×5 km badge
 │   ├── DooFahRadarMap.tsx         Radar panel: layer switcher, timeline, legend, playback
 │   ├── HourlyForecastSlider.tsx   48 h strip with sunrise/sunset markers
@@ -92,15 +121,23 @@ src/
 │   └── ui/
 │       ├── GlassCard.tsx          Translucent card with entrance animation
 │       └── WeatherIcon.tsx        Condition → Lucide icon, day/night aware
+├── i18n/
+│   ├── config.ts                  Locales, cookie name, Accept-Language matching
+│   ├── server.ts                  The request's language (cookie, then browser)
+│   ├── I18nProvider.tsx           useI18n(): messages, formatters, setLocale
+│   ├── format.ts                  Times, Thai / English day names, short dates
+│   ├── places.ts                  Place names and areas in the current language
+│   └── messages/                  en.ts, th.ts and the Messages type
 ├── hooks/
 │   ├── useForecast.ts             Loads + refreshes the forecast bundle
 │   ├── useRadarFrames.ts          Loads frames for the visible map area
 │   └── useGeolocation.ts          Browser location with status
-├── lib/format.ts                  Time-zone aware formatting, labels, colours
+├── lib/colors.ts                  AQI and temperature colours
 └── services/
     ├── WeatherNext3MockService.ts The simulated API (start here)
     └── weathernext3/
         ├── types.ts               All data contracts
+        ├── describe.ts            English wording of nowcast and day outlooks
         ├── fieldModel.ts          The atmospheric field model
         ├── grid.ts                5 km grid snapping, radar grids, bilinear sampling
         ├── noise.ts               Seeded value noise / fBm
@@ -108,6 +145,7 @@ src/
         ├── time.ts                IANA time-zone helpers (Intl only)
         └── places.ts              Offline gazetteer and search
 scripts/verify-mock-service.ts     Checks behind `npm run verify:mock`
+scripts/verify-i18n.ts             Checks behind `npm run verify:i18n`
 ```
 
 ## The WeatherNext 3 mock service
@@ -119,6 +157,7 @@ const { current, hourly, daily } = await weatherNext3.getForecastBundle(DEFAULT_
 current.sample.temperatureC;   // 2 m temperature at the 5 km cell
 current.airQuality.aqi;        // US EPA AQI from PM2.5, PM10 and O₃
 current.nowcast.summary;       // "Rain starting in about 40 min"
+current.nowcast.outlook;       // { kind: "starting", minutes: 40, intensity: "moderate" }
 hourly.length;                 // 48 (up to 360)
 daily.length;                  // 15
 
