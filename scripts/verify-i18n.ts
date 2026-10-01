@@ -62,7 +62,7 @@ const AQI: AqiCategory[] = [
 
 // Latin text that legitimately stays in the Thai UI: names, symbols and units.
 const ALLOWED_LATIN =
-  /DooFah|WeatherNext|Google Cloud|Google DeepMind|Open-Meteo|BigQuery|OpenStreetMap|PM2\.5|AQI|UV|AI|UTC|hPa|°C/g;
+  /DooFah|WeatherNext|Google Cloud|Google DeepMind|Open-Meteo|BigQuery|OpenStreetMap|PM2\.5|AQI|UV|AI|UTC|hPa|°C|p90/g;
 const hasStrayLatin = (text: string) => /[A-Za-z]/.test(text.replace(ALLOWED_LATIN, ""));
 const hasThai = (text: string) => /[฀-๿]/.test(text);
 

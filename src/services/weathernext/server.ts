@@ -11,9 +11,12 @@
  * CDN keep those answers, and gives everyone else Open-Meteo.
  *
  * Cost: BigQuery bills the bytes a query scans. Each query is estimated first
- * with a free dry run and refused above WEATHERNEXT_MAX_GB, BigQuery is also
+ * with a free dry run and skipped above WEATHERNEXT_MAX_GB, BigQuery is also
  * told to refuse anything bigger (maximumBytesBilled), answers are kept until
- * the next hour, and each server runs at most QUERIES_PER_HOUR queries.
+ * the next hour, and each server runs at most QUERIES_PER_HOUR queries. The
+ * table is clustered by `geography`, so a dry run (and BigQuery's own check of
+ * maximumBytesBilled) prices the whole run, an upper bound: the bytes actually
+ * billed for one cell are logged after each query.
  */
 
 import { createHash, timingSafeEqual } from "node:crypto";
@@ -42,16 +45,26 @@ export const WEATHERNEXT_TABLE = "weathernext_3_0_0_0p1deg";
 export const RAIN_VARIABLES = ["total_precipitation_1hr", "imerg_tp_1hr", "experimental_tp_1hr"] as const;
 export type RainVariable = (typeof RAIN_VARIABLES)[number];
 
-/** Most a query may scan unless WEATHERNEXT_MAX_GB says otherwise, GB. */
-export const DEFAULT_MAX_GB = 1;
+/**
+ * Most a query may scan unless WEATHERNEXT_MAX_GB says otherwise, GB. It is
+ * compared with the dry run's upper bound, which for a 48-hour run of the
+ * global 0.1° grid is about 18 GB; the 15-day runs (about 130 GB) are skipped.
+ */
+export const DEFAULT_MAX_GB = 25;
 /** Shortest owner token accepted. */
 export const MIN_TOKEN_LENGTH = 24;
-/** How far back to look for the newest WeatherNext 3 run, hours (a run is started every hour). */
-export const LOOKBACK_HOURS = 6;
+/**
+ * Hours from a run's start until it can be in BigQuery. Google's schedule
+ * targets 7 h 25 min for the hourly runs and 8 h 10 min for the 00, 06, 12
+ * and 18 UTC ones; dry runs (free) find which have actually arrived.
+ */
+export const ARRIVAL_HOURS = 7;
+/** Runs looked at for the newest that has arrived, one an hour back from ARRIVAL_HOURS. */
+export const LOOKBACK_RUNS = 7;
 /** Real queries one request may run (an empty run is skipped for the one before it). */
 export const MAX_ATTEMPTS = 2;
 /** Real queries one server instance runs in an hour, at most. */
-export const QUERIES_PER_HOUR = 30;
+export const QUERIES_PER_HOUR = 12;
 /** How far from the point a grid cell's centre may be, metres (a 0.1° cell is about 11 km across). */
 export const SEARCH_RADIUS_M = 8_000;
 
@@ -68,7 +81,14 @@ const ACCESS_WINDOW_MS = 10 * 60_000;
 const YEAR_S = 365 * 24 * 3600;
 
 const PUBLIC_CACHE = "public, s-maxage=3600, stale-while-revalidate=600";
-const OWNER_FALLBACK_CACHE = "private, max-age=300";
+/** Longest the owner's browser keeps a fallback, seconds (never past the hour). */
+const OWNER_FALLBACK_S = 300;
+
+/** The runs that may have reached BigQuery by `now`, newest first. */
+export function candidateRuns(now: number): number[] {
+  const newest = floorHour(now) - ARRIVAL_HOURS * HOUR_MS;
+  return Array.from({ length: LOOKBACK_RUNS }, (_, k) => newest - k * HOUR_MS);
+}
 
 // ---------------------------------------------------------------------------
 // Settings
@@ -198,11 +218,6 @@ export function isOwnerCookie(value: string | undefined, env: Env): boolean {
   return given.length === expected.length && timingSafeEqual(given, expected);
 }
 
-/** Whether the page should ask for WeatherNext 3: everything is set up and the visitor is the owner. */
-export function isWeatherNextOwner(cookie: string | undefined, env: Env): boolean {
-  return isOwnerCookie(cookie, env) && readConfig(env).ok;
-}
-
 function cookieFrom(request: Request, name: string): string | undefined {
   for (const part of request.headers.get("cookie")?.split(";") ?? []) {
     const at = part.indexOf("=");
@@ -220,12 +235,18 @@ export interface WarehouseQuery {
   types: Record<string, string>;
 }
 
+export interface WarehouseAnswer {
+  rows: Record<string, unknown>[];
+  /** Bytes BigQuery billed for the query, when it says. */
+  bytesBilled: number | null;
+}
+
 /** What the server needs of BigQuery; tests stand in their own. */
 export interface Warehouse {
-  /** Bytes the query would scan, from a free dry run. */
+  /** Bytes the query would scan, from a free dry run (an upper bound on a clustered table). */
   estimateBytes(query: WarehouseQuery): Promise<number>;
   /** The rows, refusing (without charge) to scan more than `maxBytes`. */
-  rows(query: WarehouseQuery, maxBytes: number): Promise<Record<string, unknown>[]>;
+  rows(query: WarehouseQuery, maxBytes: number): Promise<WarehouseAnswer>;
 }
 
 /** The real BigQuery, loaded only when a query is needed. */
@@ -248,8 +269,18 @@ export async function bigQueryWarehouse(config: WeatherNextConfig): Promise<Ware
       return Number(job.metadata?.statistics?.totalBytesProcessed ?? 0);
     },
     async rows(q, maxBytes) {
-      const [rows] = await client.query({ ...base(q), maximumBytesBilled: String(maxBytes), jobTimeoutMs: 20_000 });
-      return rows as Record<string, unknown>[];
+      const [job] = await client.createQueryJob({
+        ...base(q),
+        maximumBytesBilled: String(maxBytes),
+        jobTimeoutMs: 20_000,
+      });
+      const [rows] = await job.getQueryResults();
+      // What was really billed, once the job is done (free to ask).
+      const billed = await job
+        .getMetadata()
+        .then(([meta]) => Number(meta?.statistics?.query?.totalBytesBilled ?? NaN))
+        .catch(() => NaN);
+      return { rows: rows as Record<string, unknown>[], bytesBilled: Number.isFinite(billed) ? billed : null };
     },
   };
 }
@@ -429,9 +460,8 @@ export function weatherNextServer(options: WeatherNextServerOptions = {}): Weath
       return { ok: false, ...classifyError(error) };
     }
     const at = now();
-    const newest = floorHour(at);
-    const runs = Array.from({ length: LOOKBACK_HOURS + 1 }, (_, k) => newest - k * HOUR_MS);
-    // Dry runs are free: a run that hasn't arrived scans nothing, so they find the newest one.
+    const runs = candidateRuns(at);
+    // Dry runs are free. With the table partitioned by the hour, a run that hasn't arrived scans nothing.
     let sizes: number[];
     try {
       sizes = await Promise.all(runs.map((init) => store.estimateBytes(nowcastQuery(config, cell, init, at))));
@@ -439,31 +469,45 @@ export function weatherNextServer(options: WeatherNextServerOptions = {}): Weath
       return { ok: false, ...classifyError(error) };
     }
     const present = runs.map((init, i) => ({ init, bytes: sizes[i] })).filter((r) => r.bytes > 0);
-    if (!present.length) return { ok: false, reason: "no-data", detail: `No run in the last ${LOOKBACK_HOURS} hours` };
+    if (!present.length) {
+      return {
+        ok: false,
+        reason: "no-data",
+        detail: `No run started ${ARRIVAL_HOURS}–${ARRIVAL_HOURS + LOOKBACK_RUNS - 1} hours ago is in BigQuery yet`,
+      };
+    }
+    // The 15-day runs scan far more than the 48-hour ones: skip what is over the cap for the run before it.
+    const affordable = present.filter((r) => r.bytes <= config.maxBytes);
+    if (!affordable.length) {
+      const least = Math.min(...present.map((r) => r.bytes));
+      return {
+        ok: false,
+        reason: "too-costly",
+        detail: `The query would scan up to ${(least / GB).toFixed(2)} GB; WEATHERNEXT_MAX_GB allows ${(config.maxBytes / GB).toFixed(2)} GB`,
+      };
+    }
     let lastProblem: Outcome = { ok: false, reason: "no-data" };
-    for (const run of present.slice(0, MAX_ATTEMPTS)) {
-      if (run.bytes > config.maxBytes) {
-        return {
-          ok: false,
-          reason: "too-costly",
-          detail: `The query would scan ${(run.bytes / GB).toFixed(2)} GB; WEATHERNEXT_MAX_GB allows ${(config.maxBytes / GB).toFixed(2)} GB`,
-        };
-      }
+    for (const run of affordable.slice(0, MAX_ATTEMPTS)) {
       if (!takeQuery()) return { ok: false, reason: "busy", detail: `${QUERIES_PER_HOUR} queries this hour already` };
-      let raw: Record<string, unknown>[];
+      let answer: WarehouseAnswer;
       try {
-        raw = await store.rows(nowcastQuery(config, cell, run.init, at), config.maxBytes);
+        answer = await store.rows(nowcastQuery(config, cell, run.init, at), config.maxBytes);
       } catch (error) {
         return { ok: false, ...classifyError(error) };
       }
-      const nearest = nearestCellRows(raw);
+      const runTime = new Date(run.init).toISOString();
+      const billed = answer.bytesBilled === null ? "unknown" : `${(answer.bytesBilled / 1e6).toFixed(1)} MB`;
+      console.info(
+        `[weathernext] run ${runTime} at ${cellKey(cell)}: billed ${billed} (dry run said up to ${(run.bytes / GB).toFixed(2)} GB)`,
+      );
+      const nearest = nearestCellRows(answer.rows);
       const hours = nearest && hoursFromWeatherNext(nearest.rows, at);
       if (nearest && hours) {
         return {
           ok: true,
           nowcast: {
             source: "weathernext3",
-            initTime: new Date(run.init).toISOString(),
+            initTime: runTime,
             cell: nearest.cell,
             hours,
             generatedAt: new Date(at).toISOString(),
@@ -527,6 +571,12 @@ export function weatherNextServer(options: WeatherNextServerOptions = {}): Weath
     );
   }
 
+  /** For the owner's browser: a fallback is kept a few minutes, never past the hour. */
+  const ownerFallbackCache = () => {
+    const left = Math.floor((floorHour(now()) + HOUR_MS - now()) / 1000);
+    return left > 0 ? `private, max-age=${Math.min(OWNER_FALLBACK_S, left)}` : "private, no-store";
+  };
+
   return {
     async handle(request) {
       // Only DooFah's own pages ask: browsers always say where a request comes from.
@@ -549,9 +599,8 @@ export function weatherNextServer(options: WeatherNextServerOptions = {}): Weath
       const cell = snapToCell(lat, lon);
       // Owner requests have their own URL, so Vercel's CDN never hands an owner's answer to anyone else.
       const owner = params.get("owner") === "1";
-      const ownerCache = OWNER_FALLBACK_CACHE;
       if (!inThailand(cell))
-        return fallback(cell, "outside-thailand", undefined, owner ? ownerCache : PUBLIC_CACHE, owner);
+        return fallback(cell, "outside-thailand", undefined, owner ? ownerFallbackCache() : PUBLIC_CACHE, owner);
       if (!owner) return fallback(cell, "not-owner", undefined, PUBLIC_CACHE, false);
 
       if (!ownerToken(env))
@@ -565,7 +614,10 @@ export function weatherNextServer(options: WeatherNextServerOptions = {}): Weath
       if (!isOwnerCookie(cookieFrom(request, OWNER_COOKIE), env))
         return fallback(cell, "locked", undefined, "private, no-store", false);
       const settings = readConfig(env);
-      if (!settings.ok) return fallback(cell, "not-configured", settings.problem, ownerCache, true);
+      if (!settings.ok) {
+        console.warn(`[weathernext] not-configured: ${settings.problem}`);
+        return fallback(cell, "not-configured", settings.problem, ownerFallbackCache(), true);
+      }
 
       const key = cellKey(cell);
       const hit = recall(answers, key);
@@ -573,21 +625,26 @@ export function weatherNextServer(options: WeatherNextServerOptions = {}): Weath
       if (hit) {
         outcome = { ok: true, nowcast: hit.nowcast };
       } else {
-        let job = pending.get(key);
+        // A request in a new hour never joins the last hour's query.
+        const jobKey = `${key}|${floorHour(now())}`;
+        let job = pending.get(jobKey);
         if (!job) {
-          job = fromWeatherNext(settings.config, cell).finally(() => pending.delete(key));
-          pending.set(key, job);
+          job = fromWeatherNext(settings.config, cell).finally(() => pending.delete(jobKey));
+          pending.set(jobKey, job);
         }
         outcome = await job;
-        // Kept until the hour ends: the next hour needs the next run's numbers.
-        if (outcome.ok) remember(answers, key, outcome.nowcast, floorHour(now()) + HOUR_MS);
       }
       if (!outcome.ok) {
         console.warn(`[weathernext] ${outcome.reason}: ${outcome.detail ?? ""}`);
-        return fallback(cell, outcome.reason, outcome.detail, ownerCache, true);
+        return fallback(cell, outcome.reason, outcome.detail, ownerFallbackCache(), true);
       }
-      const seconds = Math.max(30, Math.round((floorHour(now()) + HOUR_MS - now()) / 1000));
-      return json(outcome.nowcast, 200, `private, max-age=${seconds}`, { Vary: "Cookie" });
+      // Good until the end of the hour it starts with (not the hour a slow query finished in).
+      const until = Date.parse(outcome.nowcast.hours[0].time) + HOUR_MS;
+      if (!hit && until > now()) remember(answers, key, outcome.nowcast, until);
+      const seconds = Math.floor((until - now()) / 1000);
+      return json(outcome.nowcast, 200, seconds > 0 ? `private, max-age=${seconds}` : "private, no-store", {
+        Vary: "Cookie",
+      });
     },
 
     access(request) {

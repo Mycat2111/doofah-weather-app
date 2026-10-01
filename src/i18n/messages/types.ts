@@ -254,8 +254,8 @@ export interface Messages {
       legend: string;
       light: string;
       heavy: string;
-      /** Under each bar: `mm` is the 90th percentile. */
-      upTo: (mm: string) => string;
+      /** Under each bar: `mm` is the 90th percentile, labelled as one (not as a maximum). */
+      p90: (mm: string) => string;
       /** The bar for a screen reader: median and 90th percentile, mm. */
       bar: (median: string, p90: string) => string;
       /** A chance WeatherNext 3 only bounds: "≥90%", "<10%". */

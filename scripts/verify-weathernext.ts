@@ -18,9 +18,11 @@ import {
   type WeatherNextRow,
 } from "../src/services/weathernext/nowcast";
 import {
+  ARRIVAL_HOURS,
+  candidateRuns,
   classifyError,
   isOwnerCookie,
-  isWeatherNextOwner,
+  LOOKBACK_RUNS,
   nowcastQuery,
   ownerCookieValue,
   OWNER_COOKIE,
@@ -36,6 +38,8 @@ import {
 const HOUR = 3_600_000;
 const NOW = Date.UTC(2026, 9, 1, 13, 20); // 1 Oct 2026, 20:20 in Bangkok
 const START = Date.UTC(2026, 9, 1, 13, 0);
+/** The newest run that can be in BigQuery at NOW (runs arrive about 7½ hours after they start). */
+const FIRST_RUN = START - ARRIVAL_HOURS * HOUR;
 const PEM = "-----BEGIN PRIVATE KEY-----\nMIIEfake\n-----END PRIVATE KEY-----\n";
 const KEY = {
   type: "service_account",
@@ -160,7 +164,7 @@ async function main() {
   assert.ok(config.ok);
   assert.equal(config.config.table, "doofah-weather.weathernext.weathernext_3_0_0_0p1deg");
   assert.equal(config.config.rainVariable, "total_precipitation_1hr");
-  assert.equal(config.config.maxBytes, 1_000_000_000);
+  assert.equal(config.config.maxBytes, 25_000_000_000, "room for a 48-hour run's dry-run upper bound");
   const other = readConfig({ ...ENV, GCP_WEATHERNEXT_DATASET: "other-project.wn", WEATHERNEXT_MAX_GB: "2.5" });
   assert.ok(
     other.ok && other.config.table === "other-project.wn.weathernext_3_0_0_0p1deg" && other.config.maxBytes === 2.5e9,
@@ -202,6 +206,10 @@ async function main() {
   assert.deepEqual((query.params.from as Date).getTime(), START);
   assert.deepEqual((query.params.to as Date).getTime(), START + 7 * HOUR);
   assert.equal(query.types.init, "TIMESTAMP");
+  const candidates = candidateRuns(NOW);
+  assert.equal(candidates.length, LOOKBACK_RUNS);
+  assert.equal(candidates[0], START - 7 * HOUR, "nothing newer than 7 hours can have reached BigQuery");
+  assert.equal(candidates.at(-1), START - 13 * HOUR);
   console.log("✓ the BigQuery query");
 
   // 8. The route ------------------------------------------------------------------
@@ -217,23 +225,27 @@ async function main() {
   /** A stand-in BigQuery: runs from `newest` back hold data; `cells` near the point. */
   function fakeWarehouse(opts: {
     newest: number;
-    bytes?: number;
-    rows?: (q: WarehouseQuery) => Record<string, unknown>[];
+    /** A run's dry-run size, bytes. */
+    bytes?: number | ((init: number) => number);
+    rows?: (q: WarehouseQuery) => Record<string, unknown>[] | Promise<Record<string, unknown>[]>;
     fail?: Error;
   }) {
-    const calls = { estimates: 0, rows: 0, maxBytes: [] as number[] };
+    const calls = { estimates: 0, rows: 0, maxBytes: [] as number[], inits: [] as number[] };
     const warehouse: Warehouse = {
       async estimateBytes(q) {
         calls.estimates++;
         if (opts.fail) throw opts.fail;
-        return (q.params.init as Date).getTime() <= opts.newest ? (opts.bytes ?? 4e8) : 0;
+        const init = (q.params.init as Date).getTime();
+        if (init > opts.newest) return 0;
+        return typeof opts.bytes === "function" ? opts.bytes(init) : (opts.bytes ?? 1.8e10);
       },
       async rows(q, maxBytes) {
         calls.rows++;
         calls.maxBytes.push(maxBytes);
-        if (opts.rows) return opts.rows(q);
+        calls.inits.push((q.params.init as Date).getTime());
+        if (opts.rows) return { rows: await opts.rows(q), bytesBilled: 1.2e7 };
         // Two cells: the nearer one has 1 mm more an hour than the farther one.
-        return [0, 1].flatMap((far) =>
+        const rows2 = [0, 1].flatMap((far) =>
           rows.map((r) => ({
             time_ms: r.timeMs,
             cell_lat: far ? 13.9 : 13.8,
@@ -247,6 +259,7 @@ async function main() {
             p90_m: r.p90,
           })),
         );
+        return { rows: rows2, bytesBilled: 1.2e7 };
       },
     };
     return { warehouse, calls };
@@ -295,14 +308,14 @@ async function main() {
     const body = (await mine.json()) as Nowcast;
     assert.equal(mine.status, 200);
     assert.equal(body.source, "weathernext3");
-    assert.equal(body.initTime, new Date(START - HOUR).toISOString(), "the run that has arrived");
+    assert.equal(body.initTime, new Date(FIRST_RUN).toISOString(), "the newest run that has arrived");
     assert.deepEqual(body.cell, { lat: 13.8, lon: 100.5 }, "the nearest cell");
     assert.equal(body.hours.length, 6);
     assert.equal(body.hours[0].meanMm, 2, "the nearest cell's numbers");
     assert.equal(mine.headers.get("cache-control"), "private, max-age=2400", "kept until the hour ends");
     assert.equal(mine.headers.get("vary"), "Cookie");
     assert.equal(fake.calls.rows, 1);
-    assert.deepEqual(fake.calls.maxBytes, [1e9], "BigQuery refuses anything over the cap");
+    assert.deepEqual(fake.calls.maxBytes, [25e9], "BigQuery refuses anything over the cap");
     assert.ok(!JSON.stringify(body).includes("PRIVATE KEY"));
 
     // Asked again this hour: from memory.
@@ -345,13 +358,22 @@ async function main() {
   }
   {
     // Too costly: refused before anything is billed.
-    const fake = fakeWarehouse({ newest: START, bytes: 5e9 });
+    const fake = fakeWarehouse({ newest: START, bytes: 1.3e11 });
     const server = weatherNextServer({ env: ENV, warehouse: async () => fake.warehouse, fetcher, now: () => clock });
     const body = (await (await server.handle(request(`${bkk}&owner=1`, { cookie: ownerCookie }))).json()) as Nowcast;
     assert.equal(body.source, "open-meteo");
     assert.equal(body.reason, "too-costly");
-    assert.match(body.detail!, /5\.00 GB/);
+    assert.match(body.detail!, /130\.00 GB/);
     assert.equal(fake.calls.rows, 0);
+  }
+  {
+    // A 15-day run over the cap is skipped for the 48-hour run before it.
+    const fake = fakeWarehouse({ newest: START, bytes: (init) => (init === FIRST_RUN ? 1.3e11 : 1.8e10) });
+    const server = weatherNextServer({ env: ENV, warehouse: async () => fake.warehouse, fetcher, now: () => clock });
+    const body = (await (await server.handle(request(`${bkk}&owner=1`, { cookie: ownerCookie }))).json()) as Nowcast;
+    assert.equal(body.source, "weathernext3");
+    assert.equal(body.initTime, new Date(FIRST_RUN - HOUR).toISOString());
+    assert.deepEqual(fake.calls.inits, [FIRST_RUN - HOUR], "the costly run is never queried");
   }
   {
     // No run in the last hours.
@@ -365,12 +387,12 @@ async function main() {
     // The newest run has no rows yet: the one before it is used.
     const fake = fakeWarehouse({
       newest: START,
-      rows: (q) => ((q.params.init as Date).getTime() === START ? [] : defaultRows()),
+      rows: (q) => ((q.params.init as Date).getTime() === FIRST_RUN ? [] : defaultRows()),
     });
     const server = weatherNextServer({ env: ENV, warehouse: async () => fake.warehouse, fetcher, now: () => clock });
     const body = (await (await server.handle(request(`${bkk}&owner=1`, { cookie: ownerCookie }))).json()) as Nowcast;
     assert.equal(body.source, "weathernext3");
-    assert.equal(body.initTime, new Date(START - HOUR).toISOString());
+    assert.equal(body.initTime, new Date(FIRST_RUN - HOUR).toISOString());
     assert.equal(fake.calls.rows, 2);
   }
   {
@@ -385,6 +407,15 @@ async function main() {
     assert.equal(body.reason, "error");
     assert.match(body.detail!, /Access Denied/);
     assert.equal(r.headers.get("cache-control"), "private, max-age=300");
+    // Near the end of the hour the browser keeps it only until the hour ends.
+    const late = weatherNextServer({
+      env: ENV,
+      warehouse: async () => fake.warehouse,
+      fetcher,
+      now: () => START + HOUR - 100_000,
+    });
+    const lateR = await late.handle(request(`${bkk}&owner=1`, { cookie: ownerCookie }));
+    assert.equal(lateR.headers.get("cache-control"), "private, max-age=100");
     // And when Open-Meteo is down too: a plain error, never cached.
     omOk = false;
     const server2 = weatherNextServer({
@@ -412,6 +443,49 @@ async function main() {
     }
     assert.equal(fake.calls.rows, QUERIES_PER_HOUR);
     assert.equal(reasons.at(-1), "busy");
+  }
+  {
+    // A query that ends after the hour turns: its hours start in the hour that ended, so it isn't kept.
+    clock = START + HOUR - 2_000;
+    const fake = fakeWarehouse({
+      newest: START + HOUR,
+      rows: () => {
+        clock = START + HOUR + 3_000;
+        return defaultRows();
+      },
+    });
+    const server = weatherNextServer({ env: ENV, warehouse: async () => fake.warehouse, fetcher, now: () => clock });
+    const slow = await server.handle(request(`${bkk}&owner=1`, { cookie: ownerCookie }));
+    assert.equal(((await slow.json()) as Nowcast).hours[0].time, new Date(START).toISOString());
+    assert.equal(slow.headers.get("cache-control"), "private, no-store", "not kept into the next hour");
+    clock = START + HOUR + 30 * 60_000;
+    const fresh = (await (await server.handle(request(`${bkk}&owner=1`, { cookie: ownerCookie }))).json()) as Nowcast;
+    assert.equal(fresh.hours[0].time, new Date(START + HOUR).toISOString());
+    assert.equal(fake.calls.rows, 2);
+    clock = NOW;
+  }
+  {
+    // A request in a new hour doesn't wait on a query for the hour before.
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    clock = START + HOUR - 1_000;
+    const fake = fakeWarehouse({
+      newest: START + HOUR,
+      rows: async () => {
+        await gate;
+        return defaultRows();
+      },
+    });
+    const server = weatherNextServer({ env: ENV, warehouse: async () => fake.warehouse, fetcher, now: () => clock });
+    const before = server.handle(request(`${bkk}&owner=1`, { cookie: ownerCookie }));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    clock = START + HOUR + 1_000;
+    const after = server.handle(request(`${bkk}&owner=1`, { cookie: ownerCookie }));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    release();
+    await Promise.all([before, after]);
+    assert.equal(fake.calls.rows, 2, "each hour has its own query");
+    clock = NOW;
   }
   {
     // Two requests for the same cell at once share one query.
@@ -445,8 +519,8 @@ async function main() {
     assert.ok(!cookie.includes(TOKEN), "the cookie holds a hash, not the token");
     const value = cookie.split(";")[0].split("=")[1];
     assert.ok(isOwnerCookie(value, ENV));
-    assert.ok(isWeatherNextOwner(value, ENV));
-    assert.ok(!isWeatherNextOwner(value, { ...ENV, GCP_SERVICE_ACCOUNT_KEY: undefined }), "not until it's all set up");
+    // Unlocked before the rest is set up: the page still asks, and the owner is told what's missing.
+    assert.ok(isOwnerCookie(value, { ...ENV, GCP_SERVICE_ACCOUNT_KEY: undefined }));
     assert.ok(
       !isOwnerCookie(value, { ...ENV, WEATHERNEXT_OWNER_TOKEN: `${TOKEN}x` }),
       "a new token locks old browsers out",

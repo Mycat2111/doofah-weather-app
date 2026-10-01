@@ -60,6 +60,8 @@ self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
   const url = new URL(request.url);
+  // The API answers for itself, such as /api/weathernext/access's redirect and cookie.
+  if (url.origin === self.location.origin && url.pathname.startsWith("/api/")) return;
 
   if (request.mode === "navigate" && url.origin === self.location.origin) {
     event.respondWith(page(event));

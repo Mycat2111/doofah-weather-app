@@ -405,10 +405,16 @@ current sentence highlighted.
 On the owner's own device, the first 6 hours of the hourly strip can come
 from Google DeepMind's **WeatherNext 3**, read from BigQuery. Those hours
 are grouped under "WeatherNext 3 · next 6 hours", show WeatherNext 3's
-chance of rain, and carry a rain bar in the radar's colours. The bar rises
-to the 90th percentile of its 64 runs (only 1 run in 10 gives more), and a
-white tick marks the median. Every other visitor, and the owner whenever
-WeatherNext 3 can't answer, sees Open-Meteo as before.
+chance of rain, and carry a rain bar in the radar's colours. The bar and its
+"p90" figure show the 90th percentile of its 64 runs (only 1 run in 10 gives
+more), and a white tick marks the median. Every other visitor, and the owner
+whenever WeatherNext 3 can't answer, sees Open-Meteo as before.
+
+A run reaches BigQuery about 7½ hours after it starts (Google's
+[dissemination schedule](https://developers.google.com/weathernext/guides/dissemination):
+7 h 25 min for the hourly runs, 8 h 10 min for the 00, 06, 12 and 18 UTC
+ones). So the next 6 hours come from a run that started 7 to 14 hours
+earlier, not from a true nowcast; the legend under the strip names the run.
 
 - **Why only the owner.** WeatherNext 3's forecasts come under Google's
   [Real-Time Experimental Data terms](https://storage.googleapis.com/weathernext-public/terms-of-use.pdf).
@@ -419,11 +425,13 @@ WeatherNext 3 can't answer, sees Open-Meteo as before.
   Vercel's CDN.
 - **How it works.** `src/services/weathernext/server.ts`.
   - It snaps the place to WeatherNext 3's 0.1° grid (Thailand only).
-  - It finds the newest hourly run with free dry runs (a run that hasn't
-    arrived scans nothing), refusing any query over `WEATHERNEXT_MAX_GB`.
+  - It dry-runs (free) the runs that started 7 to 13 hours ago and takes the
+    newest that has arrived and fits under `WEATHERNEXT_MAX_GB`. A 15-day
+    run that is over the cap is skipped for the 48-hour run before it.
   - It reads the `mean` and `p10` to `p90` rain of the nearest cell, and
     keeps the answer until the hour ends.
-  - Each server runs at most 30 queries an hour.
+  - Each server runs at most 12 queries an hour, and logs what BigQuery
+    billed for each one after `[weathernext]`.
   - The chance of rain is worked out from where 0.1 mm falls among the
     percentiles (`src/services/weathernext/nowcast.ts`). When even p10
     reaches it, the strip says "≥90%"; when p90 doesn't, "<10%".
@@ -433,10 +441,11 @@ WeatherNext 3 can't answer, sees Open-Meteo as before.
   | -------- | --------------- | --------------- |
   | Anyone else | Open-Meteo | `public, s-maxage=3600, stale-while-revalidate=600` |
   | The owner | WeatherNext 3 | `private, max-age=<seconds left in the hour>` |
-  | The owner, when WeatherNext 3 fails | Open-Meteo | `private, max-age=300` |
+  | The owner, when WeatherNext 3 fails | Open-Meteo | `private, max-age=300` (never past the hour) |
 
   The owner's requests carry `&owner=1`, so they never share a CDN entry
-  with anyone else's.
+  with anyone else's. The owner's page asks again 2 minutes after each hour
+  turns, and 6 minutes after a failure.
 - **When WeatherNext 3 can't answer**, the strip shows Open-Meteo's hours
   and a line saying why. The reasons are:
   - a missing setting;
@@ -445,7 +454,8 @@ WeatherNext 3 can't answer, sees Open-Meteo as before.
   - too many queries this hour;
   - BigQuery refused.
 
-  `vercel logs` shows BigQuery's own message after `[weathernext]`.
+  `vercel logs` shows the setting or BigQuery's own message after
+  `[weathernext]`.
 
 ### Setting it up
 
@@ -466,23 +476,36 @@ WeatherNext 3 can't answer, sees Open-Meteo as before.
 
    Then go to *Keys → Add key → JSON* and download the file. Never commit
    it, and never upload it anywhere but Vercel.
-4. **Try it from your computer.** Copy `.env.example` to `.env.local` and
+4. **Cap the bill.** Set a
+   [custom quota](https://cloud.google.com/bigquery/docs/custom-quotas) on
+   the project: *IAM & Admin → Quotas & System Limits*, BigQuery API's
+   **Query usage per day**, for example 50 GB. Google then refuses any query
+   past it that day, whatever DooFah does, and the app falls back to
+   Open-Meteo.
+5. **Try it from your computer.** Copy `.env.example` to `.env.local` and
    fill it in (the table below). Then run:
    ```bash
-   npm run weathernext:check                 # free dry runs: credentials, columns, newest run, bytes and cost
-   npm run weathernext:check -- 13.75 100.5 --run   # also runs the query and prints the 6 hours
+   npm run weathernext:check                        # free: table layout, credentials, columns, newest run
+   npm run weathernext:check -- 13.75 100.5 --run   # also runs the query once: real bytes billed, the 6 hours
    ```
-   If each query scans more than `WEATHERNEXT_MAX_GB` (1 GB by default),
-   the app stays on Open-Meteo. The check prints the monthly cost before
-   you raise the limit.
-5. **Add the variables in Vercel.** Go to *Settings → Environment
+   The free check prints each run's dry-run size, which on this table is an
+   upper bound (see Cost). `--run` prints what BigQuery really billed and
+   the monthly cost at that rate.
+6. **Add the variables in Vercel.** Go to *Settings → Environment
    Variables*, add them for Production (and Preview, if you want to try a
    preview), and redeploy.
-6. **Unlock your phone.** Open
+7. **Unlock your phone.** Open
    `https://doofah-weather-app.vercel.app/api/weathernext/access?token=<WEATHERNEXT_OWNER_TOKEN>`
    once. It sets the owner cookie for a year and returns to the dashboard.
    `…/api/weathernext/access?off` locks the browser again. Changing the
    token locks every browser.
+   - **iPhone and iPad:** DooFah added to the Home Screen keeps its own
+     cookies, apart from Safari's, and has no address bar. Unlock in
+     Safari, then remove DooFah from the Home Screen and add it again from
+     Safari. If the "WeatherNext 3 · next 6 hours" group still doesn't
+     appear there, use DooFah in Safari.
+   - **Android:** Chrome and the installed app share cookies, so unlocking
+     once in Chrome is enough.
 
 | Variable | Required | What it is |
 | -------- | -------- | ---------- |
@@ -490,19 +513,34 @@ WeatherNext 3 can't answer, sees Open-Meteo as before.
 | `GCP_SERVICE_ACCOUNT_KEY` | Yes | The whole JSON key file, pasted as it is (or base64: `base64 -i key.json \| tr -d '\n'`) |
 | `GCP_WEATHERNEXT_DATASET` | Yes | The linked dataset from step 2: `dataset`, or `project.dataset` if it is in another project |
 | `WEATHERNEXT_OWNER_TOKEN` | Yes | A secret of 24+ characters that unlocks your browsers: `openssl rand -hex 24` |
-| `WEATHERNEXT_MAX_GB` | No, default `1` | Most one query may scan; BigQuery refuses anything bigger without charging |
+| `WEATHERNEXT_MAX_GB` | No, default `25` | Most one query may scan, by the dry run's upper bound; BigQuery refuses anything bigger without charging |
 | `WEATHERNEXT_RAIN_VARIABLE` | No, default `total_precipitation_1hr` | Or `imerg_tp_1hr` (calibrated to NASA's satellite rain) or `experimental_tp_1hr` |
 | `GCP_BIGQUERY_LOCATION` | No | The dataset's location, e.g. `US`, if BigQuery asks for it |
 
 - **Cost.** BigQuery bills the bytes a query scans: the first 1 TiB a month
-  is free, then US$6.25 per TiB (checked 2026-10-01). How much one query
-  scans depends on how Google laid out the table, which isn't documented.
-  `npm run weathernext:check` shows the real figure for your project.
-- **Not verified here.** Google documents neither the hours WeatherNext 3's
-  hourly rain covers nor how soon a run arrives. DooFah treats the rain as
-  the hour *before* each time, like ECMWF and Open-Meteo, and looks 6 hours
-  back for the newest run. Nothing here has run against the real tables
-  yet: `npm run verify:weathernext` uses a stand-in BigQuery.
+  is free, then US$6.25 per TiB (checked 2026-10-01). The table is
+  partitioned by `init_time` and clustered by `geography`
+  ([Google's guide](https://developers.google.com/weathernext/guides/bigquery)).
+  For a clustered table, the dry run and BigQuery's own check of
+  `maximumBytesBilled` count the whole run, about 18 GB for a 48-hour run
+  and about 130 GB for a 15-day one (estimated for the global 0.1° grid).
+  That is why the cap must be above that figure, and why the 15-day runs
+  are skipped by default. Billing happens after BigQuery skips the parts of
+  the grid far from the point, so a query should cost far less. That isn't
+  confirmed: `--run` and the `[weathernext]` log lines show the real
+  figure. If it didn't skip anything, one place every hour would scan
+  about 12 TiB a month (about US$67 after the free TiB); the daily quota in
+  step 4 stops that.
+- **Not verified here.** Nothing here has run against the real tables yet:
+  `npm run verify:weathernext` uses a stand-in BigQuery.
+  - Google doesn't say which hour WeatherNext 3's hourly rain covers.
+    DooFah treats it as the hour *before* each time, like ECMWF and
+    Open-Meteo.
+  - Google doesn't say whether `init_time` partitions are hourly or daily.
+    Finding the newest run with dry runs needs hourly ones, so that a run
+    that hasn't arrived scans nothing. `npm run weathernext:check` prints
+    the table's partitioning and warns otherwise.
+  - The bytes really billed for one cell (see Cost).
 
 ## Home screen app (PWA)
 

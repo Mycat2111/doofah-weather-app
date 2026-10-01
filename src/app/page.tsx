@@ -4,7 +4,7 @@ import type { AlertKind } from "@/lib/alerts";
 import { COUNTDOWN_PREVIEWS } from "@/lib/rainCountdown";
 import { FOSSGIS_OSRM_URL } from "@/services/routing/osrm";
 import type { WeatherSetup } from "@/services/weatherService";
-import { isWeatherNextOwner, OWNER_COOKIE } from "@/services/weathernext/server";
+import { isOwnerCookie, OWNER_COOKIE } from "@/services/weathernext/server";
 import { ATMOSPHERE_THEMES, type AtmosphereTheme } from "@/services/WeatherNext3MockService";
 
 const ALERT_KINDS: AlertKind[] = ["storm", "rain", "air"];
@@ -37,7 +37,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
       // A natural AI voice for the spoken summary, from /api/voice, when the site has a Google Cloud key.
       aiVoice={Boolean(process.env.GOOGLE_CLOUD_TTS_API_KEY)}
       // WeatherNext 3's next 6 hours, only on the owner's device (unlocked at /api/weathernext/access).
-      weatherNext={data !== "sim" && isWeatherNextOwner((await cookies()).get(OWNER_COOKIE)?.value, process.env)}
+      weatherNext={data !== "sim" && isOwnerCookie((await cookies()).get(OWNER_COOKIE)?.value, process.env)}
     />
   );
 }

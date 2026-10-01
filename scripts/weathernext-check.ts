@@ -1,47 +1,52 @@
 /**
  * Tries DooFah's WeatherNext 3 settings against the real BigQuery, from your
- * own computer, before they go into Vercel. Reads .env.local.
+ * own computer, before they go into Vercel. Reads .env.local the way Next does.
  *
- *   npm run weathernext:check                       Bangkok, dry runs only (free)
+ *   npm run weathernext:check                       Bangkok, free checks only
  *   npm run weathernext:check -- 18.79 98.98        Chiang Mai
- *   npm run weathernext:check -- 13.75 100.5 --run  also runs the query (billed like the app's)
+ *   npm run weathernext:check -- 13.75 100.5 --run  also runs the query once (billed like the app's)
  *
- * The dry runs check the credentials, the dataset and the column names, find
- * the newest run, and say how many bytes each query would scan (which is
- * what BigQuery bills), so you can see the cost before the app runs any.
+ * The free checks read the table's layout, then dry-run the app's query for
+ * the recent runs: that checks the credentials, the dataset and the column
+ * names, and finds the newest run in BigQuery. The table is clustered by
+ * `geography`, so a dry run gives an upper bound (the whole run), not what one
+ * cell costs; --run reports what BigQuery really bills.
  */
-import { existsSync, readFileSync } from "node:fs";
-import { floorHour, hoursFromWeatherNext, snapToCell } from "../src/services/weathernext/nowcast";
+import { loadEnvConfig } from "@next/env";
+import { hoursFromWeatherNext, snapToCell } from "../src/services/weathernext/nowcast";
 import {
+  ARRIVAL_HOURS,
   bigQueryWarehouse,
-  LOOKBACK_HOURS,
+  candidateRuns,
   nearestCellRows,
   nowcastQuery,
   readConfig,
+  WEATHERNEXT_TABLE,
 } from "../src/services/weathernext/server";
 
-const HOUR = 3_600_000;
 const GB = 1e9;
 const TIB = 2 ** 40;
-/** BigQuery on-demand price, US$ per TiB scanned after the free 1 TiB a month (checked 2026-10-01). */
+/** BigQuery on-demand price, US$ per TiB billed after the free 1 TiB a month (checked 2026-10-01). */
 const USD_PER_TIB = 6.25;
+/** One place asked once an hour for 30 days. */
+const QUERIES_A_MONTH = 24 * 30;
 
-/** Fills process.env from .env.local, without overriding what is already set. */
-function loadEnvLocal() {
-  if (!existsSync(".env.local")) return;
-  for (const line of readFileSync(".env.local", "utf8").split(/\r?\n/)) {
-    const match = /^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/.exec(line);
-    if (!match || process.env[match[1]] !== undefined) continue;
-    let value = match[2];
-    if ((value.startsWith("'") && value.endsWith("'")) || (value.startsWith('"') && value.endsWith('"'))) {
-      value = value.slice(1, -1);
-    }
-    process.env[match[1]] = value;
-  }
+const utc = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace("T", " ");
+
+/** A month of one query an hour at `bytes` each, in words. */
+function monthly(bytes: number): string {
+  const total = bytes * QUERIES_A_MONTH;
+  const billed = Math.max(0, total - TIB);
+  return (
+    `${(total / TIB).toFixed(2)} TiB a month for one place every hour, ` +
+    (billed > 0
+      ? `about US$${((billed / TIB) * USD_PER_TIB).toFixed(2)} after the free 1 TiB`
+      : "inside the free 1 TiB")
+  );
 }
 
 async function main() {
-  loadEnvLocal();
+  loadEnvConfig(process.cwd(), true);
   const args = process.argv.slice(2).filter((a) => a !== "--run");
   const run = process.argv.includes("--run");
   const lat = Number(args[0] ?? 13.7563);
@@ -62,18 +67,40 @@ async function main() {
   console.log(`Cost cap:         ${(config.maxBytes / GB).toFixed(2)} GB per query (WEATHERNEXT_MAX_GB)`);
   console.log(`Owner token:      ${token.length >= 24 ? "set" : "MISSING or shorter than 24 characters"}`);
 
+  // The table's layout (free): hourly partitions let a dry run tell a run that hasn't arrived.
+  try {
+    const { BigQuery } = await import("@google-cloud/bigquery");
+    const { client_email, private_key } = config.credentials;
+    const client = new BigQuery({ projectId: config.projectId, credentials: { client_email, private_key } });
+    const [project, dataset] = config.table.split(".");
+    const [meta] = await client.dataset(dataset, { projectId: project }).table(WEATHERNEXT_TABLE).getMetadata();
+    const unit = meta?.timePartitioning?.type ?? "none";
+    console.log(`Partitioned by:   ${meta?.timePartitioning?.field ?? "?"}, ${String(unit).toLowerCase()}`);
+    console.log(`Clustered by:     ${(meta?.clustering?.fields ?? []).join(", ") || "nothing"}`);
+    if (unit !== "HOUR") {
+      console.log(
+        "\n! The runs aren't in hourly partitions, so a dry run can't tell which have arrived." +
+          '\n  The app will find no affordable run and stay on Open-Meteo (see "Not verified here" in the README).',
+      );
+    }
+  } catch (error) {
+    console.log(`Table layout:     couldn't read it (${error instanceof Error ? error.message : String(error)})`);
+  }
+
   const cell = snapToCell(lat, lon);
   const now = Date.now();
   const store = await bigQueryWarehouse(config);
   console.log(`\nDry runs for the cell at ${cell.lat}, ${cell.lon} (free):`);
-  const runs = Array.from({ length: LOOKBACK_HOURS + 1 }, (_, k) => floorHour(now) - k * HOUR);
+  const runs = candidateRuns(now);
   const sizes: number[] = [];
   for (const init of runs) {
     try {
       const bytes = await store.estimateBytes(nowcastQuery(config, cell, init, now));
       sizes.push(bytes);
-      const when = new Date(init).toISOString().slice(0, 16).replace("T", " ");
-      console.log(`  run ${when} UTC: ${bytes > 0 ? `${(bytes / GB).toFixed(3)} GB` : "not there yet"}`);
+      const note = bytes > config.maxBytes ? "  (over the cap: skipped)" : "";
+      console.log(
+        `  run ${utc(init)} UTC: ${bytes > 0 ? `up to ${(bytes / GB).toFixed(2)} GB${note}` : "not in BigQuery yet"}`,
+      );
     } catch (error) {
       console.error(`\n✗ BigQuery refused the query:\n  ${error instanceof Error ? error.message : String(error)}`);
       console.error(
@@ -83,40 +110,43 @@ async function main() {
       process.exit(1);
     }
   }
-  const newest = runs.findIndex((_, i) => sizes[i] > 0);
-  if (newest < 0) {
-    console.log(`\n✗ No WeatherNext 3 run in the last ${LOOKBACK_HOURS} hours. Is the BigQuery listing subscribed?`);
+  console.log(
+    `  (A run reaches BigQuery about ${ARRIVAL_HOURS}½ hours after it starts, so runs after ${utc(runs[0])} UTC aren't asked yet.)`,
+  );
+  const present = runs.map((init, i) => ({ init, bytes: sizes[i] })).filter((r) => r.bytes > 0);
+  if (!present.length) {
+    console.log("\n✗ None of these runs is in BigQuery. Is the BigQuery listing subscribed and linked?");
     process.exit(1);
   }
-  const bytes = sizes[newest];
-  const perQuery = (bytes / TIB) * USD_PER_TIB;
-  // One place, asked once an hour all month; the first TiB each month is free.
-  const monthly = bytes * 24 * 30;
-  const billed = Math.max(0, monthly - TIB);
+  const chosen = present.find((r) => r.bytes <= config.maxBytes);
+  const largest = Math.max(...present.map((r) => r.bytes));
   console.log(
-    `\nEach query scans about ${(bytes / GB).toFixed(3)} GB (US$${perQuery.toFixed(4)} beyond the free tier).`,
+    `\nA dry run on this table prices the whole run, an upper bound: BigQuery only skips the rest of the grid` +
+      `\nwhen the query really runs. If it didn't skip anything, the most it could cost is ${monthly(chosen?.bytes ?? largest)}.`,
   );
-  console.log(
-    `One place every hour for a month: ${(monthly / TIB).toFixed(2)} TiB, ` +
-      `${billed > 0 ? `about US$${((billed / TIB) * USD_PER_TIB).toFixed(2)} after the free 1 TiB` : "inside the free 1 TiB"}.`,
-  );
-  if (bytes > config.maxBytes) {
+  if (!chosen) {
     console.log(
-      `\n! That is over the ${(config.maxBytes / GB).toFixed(2)} GB cap, so the app will show Open-Meteo instead.` +
-        "\n  Raise WEATHERNEXT_MAX_GB only if the monthly cost above is fine.",
+      `\n! Every run is over the ${(config.maxBytes / GB).toFixed(2)} GB cap, so the app will show Open-Meteo.` +
+        `\n  BigQuery refuses a query on this table when that upper bound is over maximumBytesBilled, so the cap` +
+        `\n  must be above it: set WEATHERNEXT_MAX_GB to about ${Math.ceil(Math.min(...present.map((r) => r.bytes)) / GB) + 2}.`,
     );
   } else {
-    console.log("\n✓ Under the cap: the app will ask WeatherNext 3.");
+    console.log(`\n✓ Run ${utc(chosen.init)} UTC is under the cap: the app will ask WeatherNext 3.`);
   }
 
-  if (!run) {
-    console.log(`\nAdd --run to run the query itself (billed).`);
+  if (!run || !chosen) {
+    if (chosen) console.log("\nAdd --run to run the query once and see what BigQuery really bills (billed).");
   } else {
-    const rows = await store.rows(nowcastQuery(config, cell, runs[newest], now), config.maxBytes);
-    const nearest = nearestCellRows(rows);
+    const answer = await store.rows(nowcastQuery(config, cell, chosen.init, now), config.maxBytes);
+    if (answer.bytesBilled !== null) {
+      console.log(
+        `\nBilled for this query: ${(answer.bytesBilled / 1e6).toFixed(1)} MB. At that rate: ${monthly(answer.bytesBilled)}.`,
+      );
+    }
+    const nearest = nearestCellRows(answer.rows);
     const hours = nearest && hoursFromWeatherNext(nearest.rows, now);
     if (!nearest || !hours) {
-      console.log(`\n✗ The run had ${rows.length} rows here but not all of the next 6 hours.`);
+      console.log(`\n✗ The run had ${answer.rows.length} rows here but not all of the next 6 hours.`);
       process.exit(1);
     }
     console.log(`\nNext 6 hours at the cell ${nearest.cell.lat}, ${nearest.cell.lon}:`);

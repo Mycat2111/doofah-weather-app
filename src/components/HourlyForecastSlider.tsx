@@ -30,10 +30,13 @@ const VERTICAL_RAIN = legendGradient(PRECIP_SCALE).replace("90deg", "0deg");
 /** Rain in mm as shown under a bar: one decimal below 10 mm. */
 const mmText = (mm: number) => (mm < 10 ? mm.toFixed(1) : String(Math.round(mm)));
 
-export function HourlyForecastSlider({ hours, days, timeZone, nowcast }: HourlyForecastSliderProps) {
+export function HourlyForecastSlider({ hours: allHours, days, timeZone, nowcast }: HourlyForecastSliderProps) {
   const { m, f } = useI18n();
   const scroller = useRef<HTMLDivElement>(null);
-  const ai = nowcastByHour(nowcast ?? null, hours);
+  const ai = nowcastByHour(nowcast ?? null, allHours);
+  // Just after the hour turns the strip can still start at the hour that ended: start where WeatherNext 3 does.
+  const firstAi = allHours.findIndex((h) => ai.has(h.time));
+  const hours = firstAi > 0 ? allHours.slice(firstAi) : allHours;
   // The leading hours WeatherNext 3 covers are drawn together in one highlighted group.
   let lead = 0;
   while (lead < hours.length && ai.has(hours[lead].time)) lead++;
@@ -186,7 +189,7 @@ function RainBar({ hour }: { hour: NowcastHour }) {
         )}
       </span>
       <span className="text-[10px] tabular-nums text-white/60">
-        {p90 >= RAIN_MM ? m.hourly.nowcast.upTo(mmText(p90)) : "–"}
+        {p90 >= RAIN_MM ? m.hourly.nowcast.p90(mmText(p90)) : "–"}
       </span>
     </span>
   );
