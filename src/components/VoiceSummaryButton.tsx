@@ -4,29 +4,33 @@ import { AnimatePresence, motion } from "framer-motion";
 import { AudioLines, RotateCcw, Sparkles, Square, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { TapButton } from "@/components/ui/TapButton";
-import { useSpeech } from "@/hooks/useSpeech";
+import { useVoiceReader } from "@/hooks/useVoiceReader";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { WeatherSummary } from "@/lib/voiceSummary";
 
 /**
  * "Play AI summary": a floating button that reads the weather summary aloud
- * in Thai or English, with the words on a card that follows along.
+ * in Thai or English, with the words on a card that follows along. With
+ * `aiVoice` (the site has a Google Cloud Text-to-Speech key) a natural AI
+ * voice reads it, else the device's own voice.
  */
-export function VoiceSummaryButton({ summary }: { summary: WeatherSummary | null }) {
+export function VoiceSummaryButton({
+  summary,
+  aiVoice = false,
+}: {
+  summary: WeatherSummary | null;
+  aiVoice?: boolean;
+}) {
   const { m } = useI18n();
-  const speech = useSpeech(summary?.lang ?? "en-US");
+  const speech = useVoiceReader(summary?.lang ?? "en-US", aiVoice);
+  const { cancel } = speech;
   const [open, setOpen] = useState(false);
   const text = summary?.text ?? "";
   // Only the summary on screen counts as playing: a new place or language is a new summary.
   const playing = speech.speaking && speech.text === text;
 
   // A new place or language: stop reading the old summary.
-  useEffect(
-    () => () => {
-      if (typeof window !== "undefined") window.speechSynthesis?.cancel();
-    },
-    [text],
-  );
+  useEffect(() => cancel, [text, cancel]);
 
   if (!summary) return null;
 
@@ -92,13 +96,15 @@ export function VoiceSummaryButton({ summary }: { summary: WeatherSummary | null
 
             {(!speech.supported || speech.missingVoice) && (
               <p className="mt-3 rounded-xl bg-amber-400/10 px-3 py-2 text-xs leading-snug text-amber-100 th:text-[13px]">
-                {speech.supported ? m.voice.noVoice : m.voice.noSpeech}
+                {speech.deviceSupported ? m.voice.noVoice : m.voice.noSpeech}
               </p>
             )}
 
             {speech.supported && (
               <div className="mt-3 flex items-center justify-between gap-3">
-                <span className="min-w-0 truncate text-[11px] text-white/40">{speech.voice?.name}</span>
+                <span className="min-w-0 truncate text-[11px] text-white/40">
+                  {speech.ai ? m.voice.aiVoice : speech.deviceVoice?.name}
+                </span>
                 {!playing && (
                   <TapButton
                     onClick={play}

@@ -32,6 +32,8 @@ export default async function Home({ searchParams }: PageProps<"/">) {
       // terms ask every site using it to show the operator's address, so without one there are no routes.
       osrmUrl={process.env.OSRM_URL || (contactEmail ? FOSSGIS_OSRM_URL : null)}
       contactEmail={contactEmail}
+      // A natural AI voice for the spoken summary, from /api/voice, when the site has a Google Cloud key.
+      aiVoice={Boolean(process.env.GOOGLE_CLOUD_TTS_API_KEY)}
     />
   );
 }

@@ -7,6 +7,7 @@ import { spokenTimeEn, spokenTimeTh, spokenWaitEn, spokenWaitTh } from "../src/i
 import { rainCountdown, type RainCountdown } from "../src/lib/rainCountdown";
 import { pickVoice, type VoiceInfo } from "../src/lib/speech";
 import { summaryFacts, weatherSummary, type SummaryInput } from "../src/lib/voiceSummary";
+import { MAX_TEXT, pickGoogleVoice, RATE_LIMIT, voiceServer } from "../src/services/tts/googleTts";
 import { PLACES, WeatherNext3MockService } from "../src/services/WeatherNext3MockService";
 
 const HOUR = 3_600_000;
@@ -242,6 +243,102 @@ async function main() {
   console.log(`  ${backedEn.slice(at, at + 2).join(" ")}`);
   console.log(`  ${doubtedEn.slice(2, 4).join(" ")}`);
   console.log("✓ Real forecasts add how many weather models agree, and how firmly");
+
+  // 7. The AI voice: Google Cloud Text-to-Speech behind /api/voice --------------
+  const googleVoices = [
+    { name: "th-TH-Standard-A", languageCodes: ["th-TH"] },
+    { name: "th-TH-Neural2-C", languageCodes: ["th-TH"] },
+    { name: "th-TH-Chirp3-HD-Charon", languageCodes: ["th-TH"] },
+    { name: "th-TH-Chirp3-HD-Aoede", languageCodes: ["th-TH"] },
+    { name: "en-US-Chirp3-HD-Puck", languageCodes: ["en-US"] },
+    { name: "en-US-Wavenet-D", languageCodes: ["en-US"] },
+  ];
+  assert.equal(pickGoogleVoice(googleVoices, "th-TH"), "th-TH-Chirp3-HD-Aoede", "the wanted Chirp 3 HD voice");
+  assert.equal(pickGoogleVoice(googleVoices, "en-US"), "en-US-Chirp3-HD-Puck", "else another Chirp 3 HD voice");
+  assert.equal(pickGoogleVoice(googleVoices.slice(0, 2), "th-TH"), "th-TH-Neural2-C", "else the best older kind");
+  assert.equal(pickGoogleVoice([], "th-TH"), null);
+
+  const MP3 = Buffer.from("ID3 fake mp3");
+  const calls: { url: string; init?: RequestInit }[] = [];
+  let googleDown = false;
+  const google: typeof fetch = async (input, init) => {
+    const url = String(input);
+    calls.push({ url, init });
+    if (googleDown) throw new TypeError("fetch failed");
+    if (url.endsWith("/voices")) return Response.json({ voices: googleVoices });
+    const body = JSON.parse(String(init?.body));
+    if (body.input.text === "quota") return Response.json({ error: { message: "Quota exceeded" } }, { status: 429 });
+    return Response.json({ audioContent: MP3.toString("base64") });
+  };
+  let clock = NOW;
+  const server = voiceServer("test-key", google, () => clock);
+  const ask = (query: Record<string, string>, headers: Record<string, string> = {}) =>
+    server.handle(
+      new Request(`https://doofah.example/api/voice?${new URLSearchParams(query)}`, {
+        headers: { "sec-fetch-site": "same-origin", "x-forwarded-for": "203.0.113.7", ...headers },
+      }),
+    );
+  const sentence = "ฝนน่าจะตกช่วงประมาณห้าโมงเย็น พกร่มไปด้วยก็ดีนะ";
+  const spoken = await ask({ lang: "th-TH", text: sentence });
+  assert.equal(spoken.status, 200);
+  assert.equal(spoken.headers.get("content-type"), "audio/mpeg");
+  assert.equal(spoken.headers.get("x-voice"), "th-TH-Chirp3-HD-Aoede");
+  assert.match(spoken.headers.get("cache-control")!, /s-maxage=604800/, "Vercel's edge keeps each sentence");
+  assert.deepEqual(Buffer.from(await spoken.arrayBuffer()), MP3);
+  const synth = calls.find((c) => c.url.endsWith("/text:synthesize"))!;
+  assert.deepEqual(JSON.parse(String(synth.init!.body)), {
+    input: { text: sentence },
+    voice: { languageCode: "th-TH", name: "th-TH-Chirp3-HD-Aoede" },
+    audioConfig: { audioEncoding: "MP3" },
+  });
+  assert.equal(
+    (synth.init!.headers as Record<string, string>)["X-Goog-Api-Key"],
+    "test-key",
+    "the key goes in a header",
+  );
+  assert.ok(!calls.some((c) => c.url.includes("test-key")), "never in a URL");
+  await ask({ lang: "en-US", text: "Good afternoon!" });
+  assert.equal(calls.filter((c) => c.url.endsWith("/voices")).length, 1, "the voices are asked once a day");
+  clock += 25 * HOUR;
+  await ask({ lang: "en-US", text: "Good evening!" });
+  assert.equal(calls.filter((c) => c.url.endsWith("/voices")).length, 2);
+
+  const status = async (r: Promise<Response>) => (await r).status;
+  assert.equal(
+    await status(voiceServer(undefined, google).handle(new Request("https://doofah.example/api/voice"))),
+    404,
+    "no key",
+  );
+  assert.equal(
+    await status(ask({ lang: "th-TH", text: "สวัสดี" }, { "sec-fetch-site": "cross-site" })),
+    403,
+    "other sites",
+  );
+  const bare = new Request("https://doofah.example/api/voice?lang=th-TH&text=x");
+  assert.equal(await status(server.handle(bare)), 403, "a request without a browser's word on where it came from");
+  assert.equal(await status(ask({ lang: "fr-FR", text: "Bonjour" })), 400, "only Thai and English");
+  assert.equal(await status(ask({ lang: "th-TH", text: "  " })), 400, "no text");
+  assert.equal(await status(ask({ lang: "th-TH", text: "ก".repeat(MAX_TEXT + 1) })), 400, "too long");
+  assert.equal(await status(ask({ lang: "th-TH", text: "quota" })), 502, "Google's own errors");
+  googleDown = true;
+  assert.equal(await status(ask({ lang: "th-TH", text: "ไม่มีเน็ต" })), 502, "Google down");
+  googleDown = false;
+  // One visitor, one share of readings; others are not held up.
+  const limited = voiceServer("test-key", google, () => clock);
+  const from = (ip: string) =>
+    limited.handle(
+      new Request(`https://doofah.example/api/voice?lang=en-US&text=Hi`, {
+        headers: { "sec-fetch-site": "same-origin", "x-forwarded-for": ip },
+      }),
+    );
+  for (let i = 0; i < RATE_LIMIT; i++) assert.equal(await status(from("198.51.100.1")), 200);
+  assert.equal(await status(from("198.51.100.1")), 429);
+  assert.equal(await status(from("198.51.100.2")), 200);
+  clock += 11 * 60_000;
+  assert.equal(await status(from("198.51.100.1")), 200, "until the window has passed");
+  console.log(
+    "✓ The AI voice: Google's Chirp 3 HD voices, the key kept on the server, only DooFah's pages, a share each",
+  );
 }
 
 main().catch((error) => {
