@@ -13,6 +13,7 @@ import type { ModelOutlook } from "@/lib/rainCountdown";
 import type { RouteOutlook, StopRain } from "@/lib/routeWeather";
 import type { SummaryContext, SummaryFact } from "@/lib/voiceSummary";
 import type { RouteErrorCode } from "@/services/routing/types";
+import type { FallbackReason } from "@/services/weathernext/nowcast";
 
 /**
  * Every piece of UI text. Functions take already-formatted values (times,
@@ -241,6 +242,29 @@ export interface Messages {
     now: string;
     sunrise: string;
     sunset: string;
+    /** WeatherNext 3's next 6 hours, shown only on the owner's device. */
+    nowcast: {
+      /** Over the highlighted hours. */
+      title: string;
+      /** Says it's an experimental forecast and no official warning. */
+      experimental: string;
+      /** `utc` is the run's start, "2026-10-01 13:00". */
+      run: (utc: string) => string;
+      /** What the bars show. */
+      legend: string;
+      light: string;
+      heavy: string;
+      /** Under each bar: `mm` is the 90th percentile. */
+      upTo: (mm: string) => string;
+      /** The bar for a screen reader: median and 90th percentile, mm. */
+      bar: (median: string, p90: string) => string;
+      /** A chance WeatherNext 3 only bounds: "≥90%", "<10%". */
+      atLeast: (percent: number) => string;
+      atMost: (percent: number) => string;
+      /** For the owner, when WeatherNext 3 couldn't answer and Open-Meteo did. */
+      unavailable: (reason: string) => string;
+      reasons: Record<FallbackReason, string>;
+    };
   };
 
   daily: {

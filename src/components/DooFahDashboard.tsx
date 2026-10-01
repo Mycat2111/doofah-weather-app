@@ -22,6 +22,7 @@ import { useCrowdReports } from "@/hooks/useCrowdReports";
 import { useForecast } from "@/hooks/useForecast";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import { useRouteWeather } from "@/hooks/useRouteWeather";
+import { useWeatherNextNowcast } from "@/hooks/useWeatherNextNowcast";
 import { useI18n } from "@/i18n/I18nProvider";
 import { placeLabel } from "@/i18n/places";
 import { previewAlerts, weatherAlerts, type AlertKind } from "@/lib/alerts";
@@ -54,6 +55,8 @@ interface DooFahDashboardProps {
   contactEmail?: string;
   /** The spoken summary can use the AI voice at /api/voice. */
   aiVoice?: boolean;
+  /** This is the owner's device and WeatherNext 3 is set up: the hourly strip asks /api/weathernext. */
+  weatherNext?: boolean;
 }
 
 const noSubscription = () => () => {};
@@ -66,6 +69,7 @@ export function DooFahDashboard({
   osrmUrl,
   contactEmail,
   aiVoice,
+  weatherNext,
 }: DooFahDashboardProps) {
   const { locale, m, f } = useI18n();
   const weather = weatherService(setup);
@@ -83,6 +87,7 @@ export function DooFahDashboard({
   const { data, loading, error, refresh } = useForecast(weather, place);
   const crowd = useCrowdReports(place, simulated);
   const route = useRouteWeather(weather, place, osrmUrl);
+  const nowcast = useWeatherNextNowcast(Boolean(weatherNext) && !simulated, data?.current.place.point);
   const [routeFocus, setRouteFocus] = useState<RouteFocus>({ key: 0, stop: null });
 
   // Remember what is on screen, so the app reopens on it if it is a favorite.
@@ -235,7 +240,7 @@ export function DooFahDashboard({
 
         <div className={`mt-4 transition-opacity duration-300 ${loading && data ? "opacity-60" : ""}`}>
           {data ? (
-            <HourlyForecastSlider hours={data.hourly} days={data.daily.slice(0, 3)} timeZone={tz} />
+            <HourlyForecastSlider hours={data.hourly} days={data.daily.slice(0, 3)} timeZone={tz} nowcast={nowcast} />
           ) : (
             <Skeleton className="h-[168px]" />
           )}

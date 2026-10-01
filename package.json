@@ -17,9 +17,12 @@
     "verify:route": "tsx scripts/verify-route.ts",
     "verify:voice": "tsx scripts/verify-voice.ts",
     "verify:open-meteo": "tsx scripts/verify-open-meteo.ts",
+    "verify:weathernext": "tsx scripts/verify-weathernext.ts",
+    "weathernext:check": "tsx scripts/weathernext-check.ts",
     "icons": "tsx scripts/generate-icons.ts"
   },
   "dependencies": {
+    "@google-cloud/bigquery": "^9.1.0",
     "framer-motion": "^13.4.6",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.49.0",

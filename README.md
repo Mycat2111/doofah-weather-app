@@ -65,6 +65,7 @@ The parameters combine, e.g. `/?data=sim&sky=rain`.
 | Radar map layers (rain, wind, temperature, pressure) | The WeatherNext 3 simulation, tagged "Simulated radar" on the map |
 | Road trip routes | [OSRM](https://project-osrm.org) over [OpenStreetMap](https://www.openstreetmap.org/copyright)'s roads, from FOSSGIS's public car router; see [Route weather](#route-weather) |
 | Other people's weather reports and the "Verified by N local users" badge | Only with `?data=sim` until there is a shared backend; your own reports always show |
+| The first 6 hours of the hourly strip, on the owner's device only | Google DeepMind's WeatherNext 3 from BigQuery when it is set up; see [WeatherNext 3 nowcast](#weathernext-3-nowcast-owner-only) |
 
 - **Environment variables.** The forecasts need none: the browser asks
   `api.open-meteo.com` and `air-quality-api.open-meteo.com` directly, and each
@@ -72,7 +73,8 @@ The parameters combine, e.g. `/?data=sim&sky=rain`.
   `CONTACT_EMAIL` for the road router (see [Route weather](#route-weather)),
   and `GOOGLE_CLOUD_TTS_API_KEY` for the AI voice (see
   [Spoken weather summary](#spoken-weather-summary)). `OPEN_METEO_API_KEY` and `OSRM_URL`
-  are optional.
+  are optional, and so are the WeatherNext 3 variables (see
+  [WeatherNext 3 nowcast](#weathernext-3-nowcast-owner-only)). `.env.example` lists them all.
 - **Free API terms.** Non-commercial use only, with up to 10,000 calls a day,
   5,000 an hour and 600 a minute. Open-Meteo counts a request for more than 10
   values as more than one call, and each place separately, so opening a place
@@ -397,6 +399,110 @@ current sentence highlighted.
   month, then US$30 per million (Google's price list, checked 2026-10-01). A
   summary is about 300 to 450 characters, so roughly 2,500 readings a month
   are free, and the edge cache makes repeats free.
+
+## WeatherNext 3 nowcast (owner only)
+
+On the owner's own device, the first 6 hours of the hourly strip can come
+from Google DeepMind's **WeatherNext 3**, read from BigQuery. Those hours
+are grouped under "WeatherNext 3 · next 6 hours", show WeatherNext 3's
+chance of rain, and carry a rain bar in the radar's colours. The bar rises
+to the 90th percentile of its 64 runs (only 1 run in 10 gives more), and a
+white tick marks the median. Every other visitor, and the owner whenever
+WeatherNext 3 can't answer, sees Open-Meteo as before.
+
+- **Why only the owner.** WeatherNext 3's forecasts come under Google's
+  [Real-Time Experimental Data terms](https://storage.googleapis.com/weathernext-public/terms-of-use.pdf).
+  They allow any internal use, but not showing the data to the public, and
+  call it "not intended for consumer use". Every query is also billed to
+  your Google Cloud project. So `/api/weathernext` only asks BigQuery for a
+  browser holding the owner's cookie, and its answers are never kept by
+  Vercel's CDN.
+- **How it works.** `src/services/weathernext/server.ts`.
+  - It snaps the place to WeatherNext 3's 0.1° grid (Thailand only).
+  - It finds the newest hourly run with free dry runs (a run that hasn't
+    arrived scans nothing), refusing any query over `WEATHERNEXT_MAX_GB`.
+  - It reads the `mean` and `p10` to `p90` rain of the nearest cell, and
+    keeps the answer until the hour ends.
+  - Each server runs at most 30 queries an hour.
+  - The chance of rain is worked out from where 0.1 mm falls among the
+    percentiles (`src/services/weathernext/nowcast.ts`). When even p10
+    reaches it, the strip says "≥90%"; when p90 doesn't, "<10%".
+- **Caching.**
+
+  | Who asks | What comes back | `Cache-Control` |
+  | -------- | --------------- | --------------- |
+  | Anyone else | Open-Meteo | `public, s-maxage=3600, stale-while-revalidate=600` |
+  | The owner | WeatherNext 3 | `private, max-age=<seconds left in the hour>` |
+  | The owner, when WeatherNext 3 fails | Open-Meteo | `private, max-age=300` |
+
+  The owner's requests carry `&owner=1`, so they never share a CDN entry
+  with anyone else's.
+- **When WeatherNext 3 can't answer**, the strip shows Open-Meteo's hours
+  and a line saying why. The reasons are:
+  - a missing setting;
+  - no recent run;
+  - the query would cost too much;
+  - too many queries this hour;
+  - BigQuery refused.
+
+  `vercel logs` shows BigQuery's own message after `[weathernext]`.
+
+### Setting it up
+
+1. **Ask Google for the data.** Fill in the
+   [WeatherNext Data Request form](https://developers.google.com/weathernext/guides/access-forecast).
+   Approval typically takes 5 to 7 business days. Put the service account
+   from step 3 in the "Additional Google Cloud service account" field.
+2. **Subscribe in BigQuery.** In a Google Cloud project with billing, open
+   the WeatherNext listing in BigQuery's Analytics Hub, then choose
+   *Subscribe*. This creates a linked dataset in your project; its name is
+   `GCP_WEATHERNEXT_DATASET`.
+3. **Make a service account.** Go to *IAM & Admin → Service Accounts →
+   Create service account*, for example `doofah-weathernext`. Its email is
+   `doofah-weathernext@<project-id>.iam.gserviceaccount.com`. Give it two
+   roles:
+   - **BigQuery Job User** on the project;
+   - **BigQuery Data Viewer** on the linked dataset.
+
+   Then go to *Keys → Add key → JSON* and download the file. Never commit
+   it, and never upload it anywhere but Vercel.
+4. **Try it from your computer.** Copy `.env.example` to `.env.local` and
+   fill it in (the table below). Then run:
+   ```bash
+   npm run weathernext:check                 # free dry runs: credentials, columns, newest run, bytes and cost
+   npm run weathernext:check -- 13.75 100.5 --run   # also runs the query and prints the 6 hours
+   ```
+   If each query scans more than `WEATHERNEXT_MAX_GB` (1 GB by default),
+   the app stays on Open-Meteo. The check prints the monthly cost before
+   you raise the limit.
+5. **Add the variables in Vercel.** Go to *Settings → Environment
+   Variables*, add them for Production (and Preview, if you want to try a
+   preview), and redeploy.
+6. **Unlock your phone.** Open
+   `https://doofah-weather-app.vercel.app/api/weathernext/access?token=<WEATHERNEXT_OWNER_TOKEN>`
+   once. It sets the owner cookie for a year and returns to the dashboard.
+   `…/api/weathernext/access?off` locks the browser again. Changing the
+   token locks every browser.
+
+| Variable | Required | What it is |
+| -------- | -------- | ---------- |
+| `GCP_PROJECT_ID` | Yes (or the key's `project_id`) | The project queries run and are billed in, e.g. `doofah-weather` |
+| `GCP_SERVICE_ACCOUNT_KEY` | Yes | The whole JSON key file, pasted as it is (or base64: `base64 -i key.json \| tr -d '\n'`) |
+| `GCP_WEATHERNEXT_DATASET` | Yes | The linked dataset from step 2: `dataset`, or `project.dataset` if it is in another project |
+| `WEATHERNEXT_OWNER_TOKEN` | Yes | A secret of 24+ characters that unlocks your browsers: `openssl rand -hex 24` |
+| `WEATHERNEXT_MAX_GB` | No, default `1` | Most one query may scan; BigQuery refuses anything bigger without charging |
+| `WEATHERNEXT_RAIN_VARIABLE` | No, default `total_precipitation_1hr` | Or `imerg_tp_1hr` (calibrated to NASA's satellite rain) or `experimental_tp_1hr` |
+| `GCP_BIGQUERY_LOCATION` | No | The dataset's location, e.g. `US`, if BigQuery asks for it |
+
+- **Cost.** BigQuery bills the bytes a query scans: the first 1 TiB a month
+  is free, then US$6.25 per TiB (checked 2026-10-01). How much one query
+  scans depends on how Google laid out the table, which isn't documented.
+  `npm run weathernext:check` shows the real figure for your project.
+- **Not verified here.** Google documents neither the hours WeatherNext 3's
+  hourly rain covers nor how soon a run arrives. DooFah treats the rain as
+  the hour *before* each time, like ECMWF and Open-Meteo, and looks 6 hours
+  back for the newest run. Nothing here has run against the real tables
+  yet: `npm run verify:weathernext` uses a stand-in BigQuery.
 
 ## Home screen app (PWA)
 

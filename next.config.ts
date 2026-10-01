@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Google's BigQuery client is loaded by Node as it is, not bundled (only /api/weathernext uses it).
+  serverExternalPackages: ["@google-cloud/bigquery"],
   async headers() {
     return [
       {
