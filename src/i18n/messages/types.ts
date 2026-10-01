@@ -228,6 +228,8 @@ export interface Messages {
     noSpeech: string;
     /** No voice for the language on this device. */
     noVoice: string;
+    /** Under the summary while Google's AI voice reads it (says the voice is synthetic). */
+    aiVoice: string;
   };
 
   hourly: {

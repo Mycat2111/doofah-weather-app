@@ -69,8 +69,10 @@ The parameters combine, e.g. `/?data=sim&sky=rain`.
 - **Environment variables.** The forecasts need none: the browser asks
   `api.open-meteo.com` and `air-quality-api.open-meteo.com` directly, and each
   visitor's requests count against their own address's limits. Set
-  `CONTACT_EMAIL` for the road router (see [Route weather](#route-weather)).
-  `OPEN_METEO_API_KEY` and `OSRM_URL` are optional.
+  `CONTACT_EMAIL` for the road router (see [Route weather](#route-weather)),
+  and `GOOGLE_CLOUD_TTS_API_KEY` for the AI voice (see
+  [Spoken weather summary](#spoken-weather-summary)). `OPEN_METEO_API_KEY` and `OSRM_URL`
+  are optional.
 - **Free API terms.** Non-commercial use only, with up to 10,000 calls a day,
   5,000 an hour and 600 a minute. Open-Meteo counts a request for more than 10
   values as more than one call, and each place separately, so opening a place
@@ -358,11 +360,43 @@ current sentence highlighted.
   - strong UV, dangerous heat and unhealthy air.
 - **How it says it.** Each language words it in its message file, the way
   people say it: "5 PM" and "ห้าโมงเย็น" rather than "17:00", units spelled
-  out. The summary is written by rules on the device; no AI service is called.
-- **The voice.** The browser's own speech (`window.speechSynthesis`). In Thai
-  it asks for `th-TH` and picks the best Thai voice the device has (Kanya on
-  iPhone and Mac, for example). If there is no Thai voice, the card says so
-  and still shows the words.
+  out. The summary is written by rules on the device; no AI writes it.
+- **The voice.** With `GOOGLE_CLOUD_TTS_API_KEY` set, an AI voice from
+  [Google Cloud Text-to-Speech](https://cloud.google.com/text-to-speech)
+  reads it: Google's Chirp 3 HD voices, with native Thai (`th-TH`) and English
+  (`en-US`) speakers (Aoede when Google has it, else another Chirp 3 HD voice,
+  then older kinds). The card says "AI-generated voice · Google Cloud".
+  - The page asks `/api/voice?lang=th-TH&text=…` for each sentence, all at
+    once, and plays them one after another through Web Audio, so the
+    highlight follows along. The server (`src/services/tts/googleTts.ts`)
+    adds the key, which never reaches the browser.
+  - Caching: the same sentence is answered by Vercel's edge for a week and by
+    the browser for a day, without asking Google again; "Play again" uses the
+    audio already downloaded. Greetings and common phrases are shared by
+    everyone.
+  - Guard rails: only DooFah's own pages (the browser's `Sec-Fetch-Site:
+    same-origin`), Thai or English, 400 characters a sentence, 60 sentences a
+    visitor in 10 minutes. Someone determined can still fake a browser, so
+    cap the API's quota in Google Cloud (see below).
+  - If the AI voice fails (no key, offline, Google down or out of quota), the
+    device's own voice reads the rest, as before.
+- **Without a key**, the browser's own speech (`window.speechSynthesis`)
+  reads it. In Thai it asks for `th-TH` and picks the best Thai voice the
+  device has (Kanya on iPhone and Mac, for example). If there is no Thai
+  voice, the card says so and still shows the words.
+- **Setting up the key.** In the [Google Cloud console](https://console.cloud.google.com):
+  1. Pick or create a project with billing on, and enable the **Cloud
+     Text-to-Speech API**.
+  2. *APIs & Services → Credentials → Create credentials → API key*. Edit it:
+     under *API restrictions* allow only the Cloud Text-to-Speech API.
+  3. In Vercel, *Settings → Environment Variables*: add
+     `GOOGLE_CLOUD_TTS_API_KEY` with the key, then redeploy.
+  4. Optional but wise: lower the API's *Quotas* (characters per minute) and
+     set a budget alert under *Billing*.
+- **Cost.** Chirp 3 HD voices are free for the first 1 million characters a
+  month, then US$30 per million (Google's price list, checked 2026-10-01). A
+  summary is about 300 to 450 characters, so roughly 2,500 readings a month
+  are free, and the edge cache makes repeats free.
 
 ## Home screen app (PWA)
 
@@ -455,6 +489,7 @@ src/
 │   ├── layout.tsx                 Fonts, language, metadata, viewport, Leaflet CSS
 │   ├── page.tsx                   Renders the dashboard (reads ?sky=, ?alert=, ?rain= and ?data=)
 │   ├── api/weather/               forecast/ and air-quality/: Open-Meteo with the commercial key, if one is set
+│   ├── api/voice/                 One sentence of the spoken summary as MP3 (Google Cloud Text-to-Speech, if a key is set)
 │   ├── manifest.ts                Web app manifest (install name, colours, icons)
 │   ├── icon.svg, apple-icon.png, favicon.ico   App icons (from `npm run icons`)
 │   └── globals.css                Glass surfaces, sky effects, touch rules, Leaflet styling
@@ -521,7 +556,8 @@ src/
 │   ├── useCrowdReports.ts         Local reports (yours, and simulated ones with ?data=sim), and whether they back the radar
 │   ├── useSpotWeather.ts          Weather at the favorites, in one request
 │   ├── useRouteWeather.ts         Route card state: places, leave time, route and stop weather
-│   └── useSpeech.ts               Web Speech: voice choice, sentence by sentence, stop
+│   ├── useSpeech.ts               Web Speech: voice choice, sentence by sentence, stop
+│   └── useVoiceReader.ts          The AI voice from /api/voice, the device voice as fallback
 ├── lib/
 │   ├── alerts.ts                  When to warn about storms, rain and air, and what to do
 │   ├── colors.ts                  AQI and temperature colours
@@ -542,6 +578,8 @@ src/
     │   ├── adapter.ts             Open-Meteo's replies in DooFah's shapes
     │   ├── consensus.ts           The models' blend: chance of rain and confidence
     │   └── proxy.ts               Server side of /api/weather: adds OPEN_METEO_API_KEY
+    ├── tts/
+    │   └── googleTts.ts           Server side of /api/voice: Google Cloud Text-to-Speech
     ├── WeatherNext3MockService.ts The simulated API (start here)
     ├── CrowdReportMockService.ts  Mock backend for people's weather reports
     ├── routing/

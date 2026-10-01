@@ -457,6 +457,7 @@ export const en: Messages = {
     close: "Close",
     noSpeech: "This browser can't read aloud, so here is the summary to read.",
     noVoice: "There's no English voice on this device, so the reading may sound off.",
+    aiVoice: "AI-generated voice · Google Cloud",
   },
 
   hourly: {

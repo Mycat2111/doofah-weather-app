@@ -52,6 +52,8 @@ interface DooFahDashboardProps {
   osrmUrl: string | null;
   /** The site operator's email, shown in the footer. */
   contactEmail?: string;
+  /** The spoken summary can use the AI voice at /api/voice. */
+  aiVoice?: boolean;
 }
 
 const noSubscription = () => () => {};
@@ -63,6 +65,7 @@ export function DooFahDashboard({
   weather: setup,
   osrmUrl,
   contactEmail,
+  aiVoice,
 }: DooFahDashboardProps) {
   const { locale, m, f } = useI18n();
   const weather = weatherService(setup);
@@ -257,7 +260,7 @@ export function DooFahDashboard({
         </div>
 
         {/* Floats over the bottom right; the page's bottom padding keeps the last card clear of it. */}
-        <VoiceSummaryButton summary={summary} />
+        <VoiceSummaryButton summary={summary} aiVoice={aiVoice} />
 
         <footer className="mt-10 text-center text-xs text-white/45">
           {simulated ? (
