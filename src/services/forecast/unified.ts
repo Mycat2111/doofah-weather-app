@@ -1,0 +1,172 @@
+/**
+ * getUnifiedForecast: the one forecast for a place that every screen reads.
+ * It asks both models, lets the router pick each hour's model (router.ts)
+ * and sums the hours into days. Runs on DooFah's server (/api/forecast), so
+ * the models' keys stay there and everyone gets the same answer.
+ *
+ * WRF isn't connected yet (step 5 of the plan), so for now every hour is
+ * ECMWF's and the answer says why (`wrf_missing`).
+ */
+
+import { FORECAST_DAYS } from "../openmeteo/api";
+import { sunElevation, sunTimes } from "../weathernext3/solar";
+import { summariseDay } from "../weathernext3/summarise";
+import { floorToHour, HOUR_MS, localDateKey, zonedMidnight, zonedParts } from "../weathernext3/time";
+import type { GeoPoint, HourlyForecast } from "../weathernext3/types";
+import { fetchEcmwf, type EcmwfAnswer } from "./ecmwf";
+import { routeHours, type ModelSeries } from "./router";
+import type { ModelUsed, UnifiedDay, UnifiedForecast, UnifiedHour, WrfMissing } from "./types";
+
+/** Coordinates are rounded to this many degrees (about 1 km), far finer than either model. */
+export const SNAP_DEGREES = 0.01;
+
+/** WRF for a place, or why there is none. */
+export type WrfAnswer = { series: ModelSeries } | { missing: WrfMissing };
+
+export interface ForecastSources {
+  ecmwf: (point: GeoPoint) => Promise<EcmwfAnswer>;
+  wrf: (point: GeoPoint) => Promise<WrfAnswer>;
+}
+
+/** The sources DooFah uses: ECMWF from Open-Meteo (with the commercial key when set); no WRF yet. */
+export function defaultSources(env: Record<string, string | undefined> = process.env): ForecastSources {
+  const apiKey = env.OPEN_METEO_API_KEY?.trim() || undefined;
+  return {
+    ecmwf: (point) => fetchEcmwf(point, { apiKey }),
+    wrf: async () => ({ missing: "not-configured" }),
+  };
+}
+
+/** The point a forecast is made for: `lat`, `lon` rounded to SNAP_DEGREES, so nearby requests share answers. */
+export function snapPoint(lat: number, lon: number): GeoPoint {
+  const snap = (v: number) => Math.round(v / SNAP_DEGREES) * SNAP_DEGREES;
+  return { lat: Number(snap(lat).toFixed(2)), lon: Number(snap(lon).toFixed(2)) };
+}
+
+/** An hour in the app's own shape, for the shared day summary. */
+function asHourly(h: UnifiedHour, point: GeoPoint): HourlyForecast {
+  const time = Date.parse(h.time);
+  return {
+    time: h.time,
+    temperatureC: h.temperature_c,
+    feelsLikeC: h.feels_like_c,
+    dewPointC: h.dew_point_c,
+    humidity: h.humidity,
+    pressureHpa: h.pressure_hpa,
+    windSpeedKmh: h.wind_kmh,
+    windGustKmh: h.gust_kmh ?? h.wind_kmh,
+    windDirectionDeg: h.wind_from_deg,
+    precipitationMm: h.rain_mm,
+    precipitationProbability: h.rain_chance ?? 0,
+    cloudCover: h.cloud_cover,
+    visibilityKm: h.visibility_km ?? 10,
+    uvIndex: h.uv_index,
+    condition: h.condition,
+    isDay: h.is_day,
+    sunElevationDeg: Math.round(sunElevation(time, point.lat, point.lon) * 10) / 10,
+    leadHours: h.lead_hours,
+    confidence: null,
+  };
+}
+
+/** Local midnight at the start of the day `ms` falls in, and how many hours that day has (23 to 25 with DST). */
+function localDay(ms: number, timeZone: string): { midnight: number; hours: number } {
+  const { year, month, day } = zonedParts(ms, timeZone);
+  const midnight = zonedMidnight(year, month, day, timeZone);
+  const next = zonedParts(midnight + 26 * HOUR_MS, timeZone);
+  return { midnight, hours: (zonedMidnight(next.year, next.month, next.day, timeZone) - midnight) / HOUR_MS };
+}
+
+/**
+ * Local days from today, up to 15, each summarised from its hours the way
+ * the dashboard does today (summarise.ts). A day is only there when every one
+ * of its hours is, so a day cut short at the end of the forecast never shows
+ * a low or a total of half a day.
+ */
+export function daysFrom(hours: UnifiedHour[], point: GeoPoint, timeZone: string, start: number): UnifiedDay[] {
+  const today = localDateKey(start, timeZone);
+  const byDate = new Map<string, UnifiedHour[]>();
+  for (const h of hours) {
+    const date = localDateKey(Date.parse(h.time), timeZone);
+    if (date >= today) byDate.set(date, [...(byDate.get(date) ?? []), h]);
+  }
+  const days = [...byDate].flatMap(([date, dayHours]) => {
+    const { midnight, hours: length } = localDay(Date.parse(dayHours[0].time), timeZone);
+    if (dayHours.length < length || Date.parse(dayHours[0].time) !== midnight) return [];
+
+    const sun = sunTimes(midnight, point.lat, point.lon);
+    const summary = summariseDay(
+      date,
+      dayHours.map((h) => asHourly(h, point)),
+      sun,
+      timeZone,
+    );
+    const chances = dayHours.flatMap((h) => (h.rain_chance === null ? [] : [h.rain_chance]));
+    const models = new Set(dayHours.map((h) => h.model_used));
+    const model: ModelUsed = models.size === 1 ? [...models][0] : "WRF+ECMWF";
+    const { kind, period, wind } = summary.outlook;
+    return [
+      {
+        date,
+        model_used: model,
+        condition: summary.condition,
+        outlook: { kind, period, wind },
+        min_temp_c: summary.minTempC,
+        max_temp_c: summary.maxTempC,
+        rain_mm: summary.precipitationMm,
+        rain_chance: chances.length ? Math.max(...chances) : null,
+        max_wind_kmh: summary.maxWindKmh,
+        wind_from_deg: summary.dominantWindDirectionDeg,
+        max_uv_index: summary.maxUvIndex,
+        mean_humidity: summary.meanHumidity,
+        sunrise: summary.sunrise,
+        sunset: summary.sunset,
+      },
+    ];
+  });
+  return days.slice(0, FORECAST_DAYS);
+}
+
+/**
+ * The forecast at (`lat`, `lon`) counting from `timestamp` (ms, rounded down
+ * to the hour): WRF for the first 48 hours where it covers the place, ECMWF
+ * after, WRF easing into ECMWF over its last 6 hours. Throws when ECMWF can't
+ * be had, since without WRF there is nothing else.
+ */
+export async function getUnifiedForecast(
+  lat: number,
+  lon: number,
+  timestamp: number = Date.now(),
+  sources: ForecastSources = defaultSources(),
+): Promise<UnifiedForecast> {
+  const point = snapPoint(lat, lon);
+  const start = floorToHour(timestamp);
+  const [ecmwf, wrf] = await Promise.all([
+    sources.ecmwf(point),
+    sources.wrf(point).catch((): WrfAnswer => ({ missing: "unavailable" })),
+  ]);
+  const wrfSeries = "series" in wrf ? wrf.series : null;
+  const routed = routeHours(start, point, ecmwf.series, wrfSeries);
+  // WRF that doesn't reach now isn't used (router.ts), and the answer says so.
+  const usedWrf = routed.blend !== null;
+  const missing: WrfMissing | undefined = "missing" in wrf ? wrf.missing : usedWrf ? undefined : "unavailable";
+  const days = daysFrom(routed.hours, point, ecmwf.timeZone, start);
+  // The hours of the days shown, from local midnight today.
+  const from = localDay(start, ecmwf.timeZone).midnight;
+  const last = days.at(-1)?.date;
+  const hours = routed.hours.filter((h) => {
+    const time = Date.parse(h.time);
+    return time >= from && (!last || localDateKey(time, ecmwf.timeZone) <= last);
+  });
+  return {
+    issued_at: new Date(start).toISOString(),
+    place: { lat: point.lat, lon: point.lon, time_zone: ecmwf.timeZone },
+    runs: { WRF: usedWrf && wrfSeries ? wrfSeries.run : null, ECMWF: ecmwf.series.run },
+    ...(missing ? { wrf_missing: missing } : {}),
+    blend: routed.blend
+      ? { from: new Date(routed.blend.from).toISOString(), to: new Date(routed.blend.to).toISOString() }
+      : null,
+    hours,
+    days,
+  };
+}

@@ -17,6 +17,7 @@
     "verify:route": "tsx scripts/verify-route.ts",
     "verify:voice": "tsx scripts/verify-voice.ts",
     "verify:open-meteo": "tsx scripts/verify-open-meteo.ts",
+    "verify:forecast": "tsx scripts/verify-forecast.ts",
     "icons": "tsx scripts/generate-icons.ts"
   },
   "dependencies": {

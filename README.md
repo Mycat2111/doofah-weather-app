@@ -38,6 +38,7 @@ npm run dev          # http://localhost:3000
 | `npm run verify:route` | Reading OSRM's replies (a real Koh Samui ferry route), the router's limits, stops along the way and the trip outlook |
 | `npm run verify:voice` | Spoken times, voice choice and the summary for every place in both languages |
 | `npm run verify:open-meteo` | Open-Meteo requests, reading its replies, the models' blend, offline copies and the key proxy |
+| `npm run verify:forecast` | The unified forecast: the ECMWF request, which model each hour takes, the 48-hour blend, the condition rule, the days and `/api/forecast` |
 | `npm run icons`       | Re-render the app icons and favicon from `scripts/icons/doofah-icon.svg` |
 
 Preview any sky mood with a query parameter:
@@ -153,6 +154,48 @@ and Google's WeatherNext (separate, experimental terms).
   against rain gauges yet.
 - **When it fails.** The forecast shows without it. A models' reply under 6
   hours old, saved with the forecast, fills in.
+
+## Unified forecast: WRF + ECMWF (being built)
+
+DooFah is moving to exactly two weather models: WRF for the first 48 hours,
+ECMWF after that. The first piece is in: `/api/forecast?lat=…&lon=…`, which
+no screen reads yet. The screens, the map and a shared `useWeatherState`
+move onto it in the next steps.
+
+| Hours from now | Model |
+| -------------- | ----- |
+| 0 to 42 | WRF, where WRF covers the place |
+| 42 to 48 | WRF easing into ECMWF in six even steps |
+| 48 to day 15 | ECMWF |
+
+- **WRF isn't connected yet.** It needs a token from the Thai Meteorological
+  Department and their permission to show it, so for now every hour is
+  ECMWF and the reply says why (`"wrf_missing": "not-configured"`). If WRF's
+  run ends before 48 hours, the easing moves up to its last 6 hours.
+- **ECMWF** is ECMWF's 9 km IFS from Open-Meteo, asked for on its own
+  (`models=ecmwf_ifs`), never Open-Meteo's best match. DooFah's server asks
+  for it, with `OPEN_METEO_API_KEY` when it is set; without a key, everyone
+  using DooFah shares the free limit of 10,000 calls a day, which the
+  caching below keeps small.
+- **Each hour** carries `model_used`: `"WRF"`, `"ECMWF"`, or `"WRF+ECMWF"`
+  with its `weights` during the easing. Each value is blended on its own,
+  the wind by its east–west and north–south parts. A value the hour's model
+  lacks is worked out from the hour's numbers (feels-like, dew point, UV
+  from the sun's height and the cloud) or taken from the other model and
+  listed in `borrowed`. The chance of rain is never taken from the other
+  model.
+- **The condition** comes from the hour's numbers alone
+  (`src/services/forecast/condition.ts`): rain from 0.1 mm, where the map's
+  rain colours start, so once the map reads this forecast too, the card says
+  rain exactly when the map shows it.
+- **Days** are summarised from their hours as the dashboard does today, and
+  only whole days are listed, so there are 14 or 15 depending on how far the
+  latest ECMWF run reaches.
+- **Caching.** Places are rounded to 0.01° (about 1 km). Vercel keeps each
+  answer until the hour ends, then serves it for up to 10 more minutes while
+  it fetches a new one. Other sites' pages are refused, as for `/api/weather`.
+- **Not tested here against the real Open-Meteo**, which the sandbox can't
+  reach; `npm run verify:forecast` uses replies in Open-Meteo's format.
 
 ## Setting it up from scratch
 
@@ -490,6 +533,7 @@ src/
 │   ├── page.tsx                   Renders the dashboard (reads ?sky=, ?alert=, ?rain= and ?data=)
 │   ├── api/weather/               forecast/ and air-quality/: Open-Meteo with the commercial key, if one is set
 │   ├── api/voice/                 One sentence of the spoken summary as MP3 (Google Cloud Text-to-Speech, if a key is set)
+│   ├── api/forecast/              The unified forecast (WRF + ECMWF) for one place
 │   ├── manifest.ts                Web app manifest (install name, colours, icons)
 │   ├── icon.svg, apple-icon.png, favicon.ico   App icons (from `npm run icons`)
 │   └── globals.css                Glass surfaces, sky effects, touch rules, Leaflet styling
@@ -578,6 +622,13 @@ src/
     │   ├── adapter.ts             Open-Meteo's replies in DooFah's shapes
     │   ├── consensus.ts           The models' blend: chance of rain and confidence
     │   └── proxy.ts               Server side of /api/weather: adds OPEN_METEO_API_KEY
+    ├── forecast/
+    │   ├── unified.ts             getUnifiedForecast(): asks both models, routes the hours, sums the days
+    │   ├── router.ts              Which model each hour takes, the 48-hour blend, wind by its parts
+    │   ├── condition.ts           The condition from an hour's numbers, shared with the map
+    │   ├── ecmwf.ts               ECMWF's IFS from Open-Meteo in the router's units
+    │   ├── http.ts                Server side of /api/forecast: checks, caching, errors
+    │   └── types.ts               The reply: hours and days with model_used
     ├── tts/
     │   └── googleTts.ts           Server side of /api/voice: Google Cloud Text-to-Speech
     ├── WeatherNext3MockService.ts The simulated API (start here)
@@ -612,6 +663,7 @@ scripts/verify-route.ts            Checks behind `npm run verify:route`
 scripts/fixtures/                  A real OSRM reply (Don Sak to Koh Samui by car ferry) for the route checks
 scripts/verify-voice.ts            Checks behind `npm run verify:voice`
 scripts/verify-open-meteo.ts       Checks behind `npm run verify:open-meteo`
+scripts/verify-forecast.ts         Checks behind `npm run verify:forecast`
 scripts/generate-icons.ts          `npm run icons`, from scripts/icons/doofah-icon.svg
 ```
 
