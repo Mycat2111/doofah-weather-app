@@ -14,7 +14,15 @@ import {
   OpenMeteoError,
   type ForecastResponse,
 } from "../src/services/openmeteo/api";
-import { conditionFrom, isWet, WET_MM, type ConditionInputs } from "../src/services/forecast/condition";
+import {
+  conditionFrom,
+  HEAVY_MM,
+  isWet,
+  RAIN_MM,
+  rainChanceFrom,
+  WET_MM,
+  type ConditionInputs,
+} from "../src/services/forecast/condition";
 import { ecmwfFromOpenMeteo, ecmwfParams, fetchEcmwf } from "../src/services/forecast/ecmwf";
 import { forecastResponse } from "../src/services/forecast/http";
 import {
@@ -247,6 +255,20 @@ async function main() {
   }
   console.log(`✓ the condition comes from the numbers, wet exactly from ${WET_MM} mm (the map's first colour)`);
 
+  // A model with no chance of rain of its own (WRF) gets one from its rain, stepping where the condition does.
+  const chances: [number, number][] = [
+    [0, 10],
+    [WET_MM - 0.01, 10],
+    [WET_MM, 60],
+    [RAIN_MM - 0.01, 60],
+    [RAIN_MM, 80],
+    [HEAVY_MM - 0.01, 80],
+    [HEAVY_MM, 90],
+    [25, 90],
+  ];
+  for (const [mm, chance] of chances) assert.equal(rainChanceFrom(mm), chance, `${mm} mm`);
+  console.log("✓ WRF's chance of rain from its own rain: 10% dry, 60% from 0.1 mm, 80% from 1 mm, 90% from 4 mm");
+
   // --- ECMWF only (no WRF yet) --------------------------------------------------
   const plain = sources();
   const f = await getUnifiedForecast(13.7563, 100.5018, NOW, plain.sources);
@@ -294,7 +316,7 @@ async function main() {
     assert.equal(hours.length, 24);
     assert.equal(day.model_used, "ECMWF");
     assert.equal(day.rain_mm, round1(hours.reduce((s, h) => s + h.rain_mm, 0)));
-    assert.equal(day.rain_chance, Math.max(...hours.map((h) => h.rain_chance!)));
+    assert.equal(day.rain_chance, Math.max(...hours.map((h) => h.rain_chance)));
     assert.equal(day.max_temp_c, Math.max(...hours.map((h) => h.temperature_c)));
     assert.equal(day.min_temp_c, Math.min(...hours.map((h) => h.temperature_c)));
     assert.ok(day.sunrise && day.sunset && day.sunrise < day.sunset);
@@ -376,14 +398,18 @@ async function main() {
   // Values WRF lacks: worked out from WRF's own numbers, taken from ECMWF (and said so), or left out.
   const early = byLead(w, 3);
   assert.deepEqual(early.borrowed, { gust_kmh: "ECMWF", visibility_km: "ECMWF" });
-  assert.equal(early.rain_chance, null, "the chance of rain stays with the model whose rain it is");
+  assert.equal(early.rain_chance, rainChanceFrom(wrfAt(early).rainMm!), "WRF's chance of rain, from its own rain");
   assert.equal(early.feels_like_c, round1(feelsLike(early.temperature_c, early.humidity, early.wind_kmh)));
   assert.equal(early.dew_point_c, round1(dewPoint(early.temperature_c, early.humidity)));
   const mid = byLead(w, 45);
   assert.equal(mid.borrowed, undefined, "while blending, a value only one model has is simply that model's");
   assert.equal(mid.gust_kmh, 25);
-  assert.equal(mid.rain_chance, withWrf.ecmwf.hours.find((m) => m.time === Date.parse(mid.time))!.rainChance);
-  console.log("✓ WRF's missing values: worked out, or borrowed from ECMWF and tagged; never its chance of rain");
+  // While blending, each model's own chance of rain by its weight: never the other model's chance for WRF's rain.
+  assert.deepEqual(mid.weights, { WRF: 0.5, ECMWF: 0.5 });
+  assert.equal(mid.rain_chance, Math.round((rainChanceFrom(wrfAt(mid).rainMm!) + ecmwfAt(mid).rainChance!) / 2));
+  console.log(
+    "✓ WRF's missing values: worked out, or borrowed from ECMWF and tagged; its chance of rain from its rain",
+  );
 
   // Days that straddle the blend say so.
   const models = w.days.slice(0, 4).map((d) => d.model_used);
@@ -626,7 +652,8 @@ async function main() {
   assert.equal(byLead(viaTmd, 0).model_used, "WRF");
   assert.equal(byLead(viaTmd, 2).condition, "thunderstorm", "TMD's storm in the hour from 18:00");
   assert.deepEqual(byLead(viaTmd, 0).borrowed, { gust_kmh: "ECMWF", visibility_km: "ECMWF" });
-  assert.equal(byLead(viaTmd, 0).rain_chance, null, "no chance of rain from a single WRF run");
+  assert.equal(byLead(viaTmd, 0).rain_chance, 10, "a single WRF run: its chance of rain from its own dry hour");
+  assert.equal(byLead(viaTmd, 2).rain_chance, 90, "and from its 5.2 mm storm");
   assert.equal(byLead(viaTmd, 43).model_used, "WRF+ECMWF");
   assert.equal(byLead(viaTmd, 46).model_used, "ECMWF");
 

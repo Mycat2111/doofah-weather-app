@@ -16,12 +16,12 @@ export default async function Home({ searchParams }: PageProps<"/">) {
   const alertPreview = requested.includes("all") ? ALERT_KINDS : ALERT_KINDS.filter((k) => requested.includes(k));
   // `?rain=soon`, `now`, `later` or `dry` previews the rain countdown.
   const rainPreview = COUNTDOWN_PREVIEWS.find((k) => k === rain);
-  // Real forecasts from Open-Meteo; `?data=sim` shows the WeatherNext 3 simulation instead.
-  // With a commercial key set, the browser asks through /api/weather so the key stays on the server.
+  // The live forecast from /api/forecast (WRF and ECMWF); `?data=sim` shows the WeatherNext 3 simulation instead.
+  // With Open-Meteo's commercial key set, air quality is asked through /api/weather so the key stays on the server.
   const weather: WeatherSetup =
     data === "sim"
       ? { source: "simulated", proxy: false }
-      : { source: "open-meteo", proxy: Boolean(process.env.OPEN_METEO_API_KEY) };
+      : { source: "live", proxy: Boolean(process.env.OPEN_METEO_API_KEY) };
   return (
     <DooFahDashboard
       atmosphereOverride={override}

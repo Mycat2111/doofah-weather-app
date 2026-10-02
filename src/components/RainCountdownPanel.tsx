@@ -7,7 +7,6 @@ import {
   CloudRain,
   CloudRainWind,
   CloudSun,
-  Layers,
   Moon,
   Radar,
   Sun,
@@ -19,17 +18,11 @@ import {
   COUNTDOWN_HOURS,
   dryHoursUntil,
   minutesUntil,
-  modelOutlook,
+  RAIN_LIKELY,
   WET_RATE,
   type RainCountdown,
 } from "@/lib/rainCountdown";
-import { support } from "@/services/openmeteo/consensus";
-import type {
-  ConfidenceLevel,
-  CurrentConditions,
-  DailyForecast,
-  RainIntensity,
-} from "@/services/WeatherNext3MockService";
+import type { CurrentConditions, DailyForecast, RainIntensity } from "@/services/WeatherNext3MockService";
 
 const RAIN_ICON: Record<RainIntensity, LucideIcon> = {
   drizzle: CloudDrizzle,
@@ -61,13 +54,6 @@ const TONE: Record<Tone, { badge: string; icon: string; pulse: string }> = {
   cloud: { badge: "bg-white/10 ring-white/20", icon: "bg-white/15 text-white/90", pulse: "bg-white/40" },
 };
 
-/** The models chip: firmer agreement, brighter chip. */
-const LEVEL_CHIP: Record<ConfidenceLevel, string> = {
-  high: "text-emerald-100 ring-1 ring-emerald-200/40",
-  medium: "text-sky-100",
-  low: "text-white/60",
-};
-
 interface RainCountdownPanelProps {
   current: CurrentConditions;
   countdown: RainCountdown;
@@ -76,8 +62,8 @@ interface RainCountdownPanelProps {
 
 /**
  * Time to the next rain (or to the end of this rain) as a badge that counts
- * down live, over the nowcast's 10-minute rain bars for the next 2 hours.
- * With real data, a chip and a line say how many weather models back it.
+ * down live, over rain bars for the next 2 hours: every 10 minutes from the
+ * simulation's radar, or each hour's rain for the live forecast.
  */
 export function RainCountdownPanel({ current, countdown, daily }: RainCountdownPanelProps) {
   const { m, f } = useI18n();
@@ -89,11 +75,6 @@ export function RainCountdownPanel({ current, countdown, daily }: RainCountdownP
   const { steps } = current.nowcast;
   const maxStep = Math.max(2, ...steps.map((s) => s.precipitationMm));
   const { isDay } = current.sample;
-
-  const vote = current.source === "open-meteo" ? countdown.vote : undefined;
-  const outlook = vote ? modelOutlook(countdown, now, clock) : null;
-  /** What the models say, under the detail; the detail itself when they say the same. */
-  let models = outlook && m.modelOutlook(outlook);
 
   let title: string;
   let detail: string;
@@ -109,17 +90,9 @@ export function RainCountdownPanel({ current, countdown, daily }: RainCountdownP
   switch (countdown.kind) {
     case "starting": {
       const minutes = minutesUntil(countdown.at, now);
-      const wait = m.countdown.duration(minutes);
-      // Rain the models doubt stays "possible", even once its time has come.
-      const doubtful = !!vote && !!countdown.doubtful;
-      title = doubtful
-        ? minutes <= 0
-          ? m.countdown.maybeNow
-          : m.countdown.maybeIn(wait)
-        : minutes <= 0
-          ? m.countdown.startingNow
-          : m.countdown.rainIn[countdown.intensity](wait);
-      detail = (doubtful ? m.countdown.maybeAt : m.countdown.startsAt)(clock(countdown.at));
+      title =
+        minutes <= 0 ? m.countdown.startingNow : m.countdown.rainIn[countdown.intensity](m.countdown.duration(minutes));
+      detail = m.countdown.startsAt(clock(countdown.at));
       Icon = RAIN_ICON[countdown.intensity];
       tone = "rain";
       fromRadar = true;
@@ -149,16 +122,21 @@ export function RainCountdownPanel({ current, countdown, daily }: RainCountdownP
     }
     case "later":
     case "dry": {
+      // Rain likely, or only possible: its chance is under an even one.
+      const likely = countdown.kind === "later" && countdown.chance >= RAIN_LIKELY;
       if (countdown.kind === "later" && countdown.soon) {
-        // The models expect rain within the nowcast's 2 hours, though it shows none:
-        // this hour, or from the start of a later one.
+        // The live forecast has rain within 2 hours: this hour, or from the start of a later one.
         const minutes = minutesUntil(countdown.at, now);
-        title = minutes <= 0 ? m.countdown.likelyNow : m.countdown.likelyAround(clock(countdown.at));
+        title =
+          minutes <= 0
+            ? likely
+              ? m.countdown.likelyNow
+              : m.countdown.possibleNow
+            : (likely ? m.countdown.likelyAround : m.countdown.possibleAround)(clock(countdown.at));
         Icon = CloudRain;
         tone = "rain";
         urgent = minutes <= 30;
-        detail = models ?? m.countdown.rainFrom(clock(countdown.at), countdown.chance);
-        models = null;
+        detail = m.countdown.chance(countdown.chance);
         break;
       }
       const hours = countdown.kind === "later" ? dryHoursUntil(countdown.at, now) : countdown.hours;
@@ -166,9 +144,7 @@ export function RainCountdownPanel({ current, countdown, daily }: RainCountdownP
       tone = countdown.clear ? (isDay ? "sun" : "moon") : "cloud";
       Icon = countdown.clear ? (isDay ? Sun : Moon) : isDay ? CloudSun : CloudMoon;
       if (countdown.kind === "later") {
-        // The models' line says the same, and how sure they are.
-        detail = models ?? m.countdown.rainFrom(clock(countdown.at), countdown.chance);
-        models = null;
+        detail = (likely ? m.countdown.rainFrom : m.countdown.possibleFrom)(clock(countdown.at), countdown.chance);
       } else {
         const index = countdown.nextRainDay;
         const day = index === null ? undefined : daily[index];
@@ -181,13 +157,6 @@ export function RainCountdownPanel({ current, countdown, daily }: RainCountdownP
       break;
     }
   }
-
-  // Rain, or a dry spell: the models that back what the badge says (for a dry spell, dry all through it).
-  const backing = outlook
-    ? { agree: outlook.agree, total: outlook.total, level: outlook.level }
-    : vote && countdown.kind !== "dry"
-      ? { agree: vote.wet, total: vote.models, level: support(vote, true) }
-      : null;
 
   // Bar i is centred on its step, so the marker lines up with the bar it falls on.
   const markerLeft =
@@ -239,16 +208,7 @@ export function RainCountdownPanel({ current, countdown, daily }: RainCountdownP
             {m.countdown.radar}
           </span>
         )}
-        {backing && (
-          <span
-            className={`glass-chip flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium th:text-[11px] ${LEVEL_CHIP[backing.level]}`}
-          >
-            <Layers className="size-3" aria-hidden />
-            {m.countdown.modelsAgree(backing.agree, backing.total)}
-          </span>
-        )}
       </div>
-      {models && <p className="mt-1 pl-1 text-[11px] leading-snug text-white/55 th:text-xs">{models}</p>}
 
       <div className="relative mt-3">
         <div className="flex h-8 items-end gap-1" aria-hidden>

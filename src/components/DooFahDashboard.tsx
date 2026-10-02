@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { AlertTriangle, RotateCw, WifiOff } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { AtmosphereBackground } from "@/components/AtmosphereBackground";
 import { CurrentWeatherCard } from "@/components/CurrentWeatherCard";
 import { DailyForecastList } from "@/components/DailyForecastList";
@@ -28,7 +28,6 @@ import { previewAlerts, weatherAlerts, type AlertKind } from "@/lib/alerts";
 import { readOpeningPlace, saveLastPlace } from "@/lib/favorites";
 import { lifestyleIndex } from "@/lib/lifestyle";
 import { previewCountdown, previewNowcast, rainCountdown, type CountdownPreview } from "@/lib/rainCountdown";
-import { blendTrip } from "@/lib/routeWeather";
 import { weatherSummary } from "@/lib/voiceSummary";
 import { weatherService, type WeatherSetup } from "@/services/weatherService";
 import {
@@ -126,11 +125,7 @@ export function DooFahDashboard({
       ? weatherSummary({ current: data.current, hourly: data.hourly, daily: data.daily, countdown }, locale)
       : null;
 
-  // Stops near the dashboard's place show its chance of rain, so the two never disagree.
-  const trip = useMemo(
-    () => (route.trip && data ? blendTrip(route.trip, data.current.place.point, data.hourly) : route.trip),
-    [route.trip, data],
-  );
+  const { trip } = route;
   // The trip's stops: the start and end by their places, the rest by the nearest town, else the distance.
   const stopName = (i: number) => {
     if (!trip) return "";
@@ -224,7 +219,7 @@ export function DooFahDashboard({
             className="h-[600px] lg:col-start-2 lg:row-start-1 lg:h-auto lg:min-h-[580px]"
           />
           <RouteWeatherCard
-            state={trip === route.trip ? route : { ...route, trip }}
+            state={route}
             place={place}
             timeZone={place.timeZone}
             stopName={stopName}
@@ -276,12 +271,21 @@ export function DooFahDashboard({
               )}
             </>
           ) : (
-            // Open-Meteo's data is CC BY 4.0 and its air quality comes from Copernicus CAMS; both must be credited.
+            // Whose forecasts these are: TMD's WRF when it is used, and ECMWF's through Open-Meteo (CC BY 4.0,
+            // which asks for credit). The air quality is Copernicus CAMS's.
             <>
-              DooFah ดูฟ้า · {m.footer.weatherBy} <FooterLink href="https://open-meteo.com/">Open-Meteo.com</FooterLink>{" "}
-              (<FooterLink href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</FooterLink>) ·{" "}
-              {m.footer.airBy} <FooterLink href="https://atmosphere.copernicus.eu/">Copernicus CAMS</FooterLink>
-              {data?.current.blend && <BlendCredit centres={data.current.blend.map((b) => b.centre)} />}
+              DooFah ดูฟ้า · {m.footer.forecastBy}{" "}
+              {data?.current.models?.includes("WRF") && (
+                <>
+                  {m.footer.wrf.before}
+                  <FooterLink href="https://www.tmd.go.th/">{m.footer.tmd}</FooterLink>
+                  {m.footer.wrf.after} ·{" "}
+                </>
+              )}
+              <FooterLink href="https://www.ecmwf.int/">ECMWF</FooterLink> {m.footer.via}{" "}
+              <FooterLink href="https://open-meteo.com/">Open-Meteo.com</FooterLink> (
+              <FooterLink href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</FooterLink>) · {m.footer.airBy}{" "}
+              <FooterLink href="https://atmosphere.copernicus.eu/">Copernicus CAMS</FooterLink>
             </>
           )}
           {/* FOSSGIS's routing terms ask every site using its router to show how to reach the operator. */}
@@ -293,43 +297,6 @@ export function DooFahDashboard({
         </footer>
       </main>
     </>
-  );
-}
-
-const CENTRE_LINK: Record<string, string> = {
-  ECMWF: "https://www.ecmwf.int/",
-  DWD: "https://www.dwd.de/",
-  NOAA: "https://www.nco.ncep.noaa.gov/",
-  CMA: "https://www.cma.gov.cn/en/",
-};
-
-/**
- * Whose models the chance of rain blends. The blend is DooFah's own (CC BY
- * asks that changes are marked), and Canada's data asks for its own credit line.
- */
-function BlendCredit({ centres }: { centres: string[] }) {
-  const { m } = useI18n();
-  const unique = [...new Set(centres)];
-  const linked = unique.filter((c) => CENTRE_LINK[c]);
-  return (
-    <p className="mt-1">
-      {m.footer.blendBy}{" "}
-      {linked.map((c, i) => (
-        <span key={c}>
-          {i > 0 && ", "}
-          <FooterLink href={CENTRE_LINK[c]}>{c}</FooterLink>
-        </span>
-      ))}
-      {unique.includes("ECCC") && (
-        <>
-          {" · "}
-          Data Source:{" "}
-          <FooterLink href="https://eccc-msc.github.io/open-data/licence/readme_en/">
-            Environment and Climate Change Canada
-          </FooterLink>
-        </>
-      )}
-    </p>
   );
 }
 

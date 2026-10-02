@@ -9,7 +9,6 @@ import {
   MAX_STOPS,
   positionAt,
   routeOutlook,
-  blendTrip,
   routeStops,
   stopInterval,
   stopRain,
@@ -29,7 +28,7 @@ import { clearRouteCache, getRoute } from "../src/services/routing/routeService"
 import { TOWNS } from "../src/services/routing/towns";
 import { RouteError, type Route, type RouteRequest } from "../src/services/routing/types";
 import { distanceKm } from "../src/services/weathernext3/places";
-import type { GeoPoint, HourlyForecast } from "../src/services/weathernext3/types";
+import type { GeoPoint } from "../src/services/weathernext3/types";
 import { PLACES, WeatherNext3MockService, type AtmosphericSample } from "../src/services/WeatherNext3MockService";
 
 const NOW = Date.UTC(2026, 8, 30, 7, 20); // 30 Sep 2026, 14:20 in Bangkok
@@ -408,24 +407,6 @@ async function main() {
     "พายุฝนฟ้าคะนองเป็นช่วง\u00a0ๆ ตั้งแต่นครสวรรค์ถึงเชียงใหม่ ช่วง 18:00–21:00\u00a0น.",
   );
   console.log(`  ${th.routeOutlook(outlook, (i) => ["กรุงเทพฯ", "นครสวรรค์", "ตาก"][i], clock)}`);
-  // Stops near the dashboard's place take its blended chance of rain for their hour, so the two agree.
-  const legs = withWeather(dry, dry, dry);
-  const start = legs[0];
-  const hourStart = Math.floor(Date.parse(start.eta) / 3_600_000) * 3_600_000;
-  const blendHour = (chance: number, vote = true) =>
-    ({
-      ...dry,
-      time: new Date(hourStart).toISOString(),
-      precipitationProbability: chance,
-      ...(vote ? { vote: { chance } } : {}),
-    }) as unknown as HourlyForecast;
-  const plain = { stops: legs, outlook: routeOutlook(legs) };
-  const blendedTrip = blendTrip(plain, start.point, [blendHour(40)]);
-  assert.equal(blendedTrip.stops[0].weather.precipitationProbability, 40, "the start reads the dashboard's hour");
-  assert.deepEqual(blendedTrip.outlook, { kind: "possible", stop: 0, chance: 40 }, "and the outlook follows");
-  assert.equal(blendedTrip.stops[1], legs[1], "stops away from the place keep their own forecast");
-  assert.equal(blendTrip(plain, start.point, [blendHour(40, false)]), plain, "only hours the models voted on");
-  assert.equal(blendTrip(plain, { lat: 0, lon: 0 }, [blendHour(40)]), plain, "nowhere near the place");
   console.log("✓ Weather at each stop for when you get there, and the trip's rain in one line");
 }
 

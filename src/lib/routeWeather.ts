@@ -1,7 +1,7 @@
 import { TOWNS } from "@/services/routing/towns";
 import type { Route, RoutePoint } from "@/services/routing/types";
 import { distanceKm, PLACES } from "@/services/weathernext3/places";
-import type { AtmosphericSample, GeoPoint, HourlyForecast, SpotWeather } from "@/services/weathernext3/types";
+import type { AtmosphericSample, GeoPoint, SpotWeather } from "@/services/weathernext3/types";
 import { RAIN_LIKELY, WET_RATE } from "./rainCountdown";
 
 /** Where to stop along the route and check the weather: every this many minutes of driving, picked to give at most 10 stops. */
@@ -15,11 +15,8 @@ export const RAIN_POSSIBLE = 30;
 export const HEAVY_RATE = 4;
 /** Leave now, or up to 3 hours later. */
 export const DEPARTURE_OFFSETS_H = [0, 1, 2, 3] as const;
-/** A stop this close to the dashboard's place reads its forecast's chance of rain, km. */
-export const BLEND_KM = 10;
 
 const MINUTE_MS = 60_000;
-const HOUR_MS = 60 * MINUTE_MS;
 
 export interface TownName {
   name: string;
@@ -184,28 +181,4 @@ export function routeOutlook(stops: RouteStopWeather[]): RouteOutlook {
     chance: Math.max(...stops.slice(from, to + 1).map((s) => s.weather.precipitationProbability)),
     patchy: !stretch.every(isWet),
   };
-}
-
-/**
- * The trip with the dashboard's chance of rain at stops near its place
- * (`near`), for the hours the weather models cover (see
- * openmeteo/consensus.ts). A stop's own forecast comes from one model, so
- * without this the trip and the dashboard could disagree about the same
- * spot and hour.
- */
-export function blendTrip<T extends { stops: RouteStopWeather[]; outlook: RouteOutlook }>(
-  trip: T,
-  near: GeoPoint,
-  hourly: HourlyForecast[],
-): T {
-  let changed = false;
-  const stops = trip.stops.map((stop) => {
-    if (distanceKm(stop.point, near) > BLEND_KM) return stop;
-    const at = Date.parse(stop.eta);
-    const hour = hourly.find((h) => h.vote && Date.parse(h.time) <= at && at < Date.parse(h.time) + HOUR_MS);
-    if (!hour || hour.precipitationProbability === stop.weather.precipitationProbability) return stop;
-    changed = true;
-    return { ...stop, weather: { ...stop.weather, precipitationProbability: hour.precipitationProbability } };
-  });
-  return changed ? { ...trip, stops, outlook: routeOutlook(stops) } : trip;
 }

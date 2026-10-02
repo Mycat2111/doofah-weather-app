@@ -184,9 +184,9 @@ function DayDetails({ day, timeZone }: { day: DailyForecast; timeZone: string })
     <div className="mb-3 rounded-2xl bg-black/15 p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-sm text-white/90">{m.daySummary(day.outlook)}</p>
-        {day.vote ? (
+        {day.modelUsed ? (
           <p className="text-[11px] text-white/45 th:text-xs">
-            {m.daily.vote(day.vote.wet, day.vote.models, Math.round(day.vote.confidence * 100))}
+            {m.forecastModel.label}: {m.forecastModel.about[day.modelUsed]}
           </p>
         ) : (
           day.confidence !== null && (

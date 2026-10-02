@@ -1,7 +1,7 @@
 /**
  * From hourly values to what the dashboard shows: the mood of the sky, each
  * day's outlook and the next two hours of rain. Shared by the simulation and
- * by Open-Meteo, so both read the same way.
+ * the live forecast, so both read the same way.
  */
 
 import { describeDayEn, describeNowcastEn, rainIntensity } from "./describe";

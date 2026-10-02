@@ -1,14 +1,17 @@
 /**
- * Data contracts for DooFah's weather data, from either source: real
- * forecasts from Open-Meteo, or the simulated WeatherNext 3 API.
+ * Data contracts for DooFah's weather data, from either source: the live
+ * forecast (WRF and ECMWF, see services/forecast), or the simulated
+ * WeatherNext 3 API.
  *
  * In the simulation every value comes from a deterministic, continuous field
  * model, so a point forecast, an hourly series and a radar grid for the same
  * place and time always agree with each other.
  */
 
-/** Where the weather comes from: Open-Meteo's real forecasts, or DooFah's simulation. */
-export type WeatherSource = "open-meteo" | "simulated";
+import type { Model, ModelUsed } from "../forecast/types";
+
+/** Where the weather comes from: the live forecast from /api/forecast, or DooFah's simulation. */
+export type WeatherSource = "live" | "simulated";
 
 export interface GeoPoint {
   lat: number;
@@ -179,39 +182,6 @@ export interface ModelInfo {
   simulated: true;
 }
 
-/** How much the weather models agree about rain. */
-export type ConfidenceLevel = "high" | "medium" | "low";
-
-/** How several weather models see an hour, or a day (real forecasts only; see openmeteo/consensus.ts). */
-export interface ModelVote {
-  /** Models with a forecast for it. */
-  models: number;
-  /** Of them, how many have rain... */
-  wet: number;
-  /** ...and which (their ids). */
-  wetModels: string[];
-  /** Of the models stepping hourly then, how many have rain, and how many heavy rain (none for a day). */
-  hourlyWet: number;
-  heavy: number;
-  /** Of the models that can forecast thunder (not the AI ones), how many answered, and how many have it. */
-  stormModels: number;
-  storm: number;
-  /** Ensembles behind the chance, and their runs in all. */
-  ensembles: number;
-  members: number;
-  /** Chance of rain, percent. */
-  chance: number;
-  /** 0–1: the sources agree, and lean clearly wet or dry. */
-  confidence: number;
-}
-
-/** A weather model blended into the forecast, for the credits. */
-export interface BlendedModel {
-  /** The centre that runs it, e.g. "ECMWF". */
-  centre: string;
-  name: string;
-}
-
 export interface CurrentConditions {
   place: Place;
   source: WeatherSource;
@@ -233,20 +203,19 @@ export interface CurrentConditions {
   nowcast: Nowcast;
   /** The simulated model run; null for real data. */
   model: ModelInfo | null;
-  /** The models the real forecast's chance of rain blends, when they could be reached. */
-  blend?: BlendedModel[];
+  /** Live forecasts: the model behind this hour, for the tag on the card. */
+  modelUsed?: ModelUsed;
+  /** Live forecasts: the models behind any of its hours, for the credits. */
+  models?: Model[];
 }
 
 export interface HourlyForecast extends AtmosphericSample {
   /** Hours after the current hour (0 = this hour). */
   leadHours: number;
-  /**
-   * Confidence 0–1: the simulation's model confidence, which decays with lead
-   * time, or for real forecasts how well several models agree (see `vote`).
-   */
+  /** Confidence 0–1: the simulation's model confidence, which decays with lead time; null for live forecasts. */
   confidence: number | null;
-  /** Real forecasts, the first days: how the models see the hour. */
-  vote?: ModelVote;
+  /** Live forecasts: the model behind the hour (both while WRF eases into ECMWF). */
+  modelUsed?: ModelUsed;
 }
 
 export type DayPeriod = "overnight" | "morning" | "afternoon" | "evening";
@@ -291,10 +260,10 @@ export interface DailyForecast {
   meanHumidity: number;
   sunrise: string | null;
   sunset: string | null;
-  /** As for an hour; for real forecasts, only the days the models are compared over. */
+  /** As for an hour: the simulation's only. */
   confidence: number | null;
-  /** Real forecasts, the first days: how the models see the day. */
-  vote?: ModelVote;
+  /** Live forecasts: the model behind the day's hours, "WRF+ECMWF" when they come from both. */
+  modelUsed?: ModelUsed;
   hours: HourlyForecast[];
 }
 

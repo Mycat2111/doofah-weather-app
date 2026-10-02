@@ -17,7 +17,8 @@
  * - Cloud comes as low, middle and high layers in percent; the total is
  *   worked out with the layers overlapping at random.
  * WRF gives no chance of rain, gusts, visibility, feels-like, dew point or UV
- * here: the router works them out or takes them from ECMWF, and says so.
+ * here: the router works them out (the chance of rain from WRF's own rain) or
+ * takes them from ECMWF, and says so.
  */
 
 import { HOUR_MS, localDateKey, zonedParts } from "../weathernext3/time";

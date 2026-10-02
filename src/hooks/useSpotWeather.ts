@@ -8,9 +8,9 @@ import type { GeoPoint, SpotWeather } from "@/services/WeatherNext3MockService";
 const spotKey = (p: GeoPoint) => `${p.lat},${p.lon}`;
 
 /**
- * The weather at a few spots (the favorites) at `time`, in one request.
- * Each spot keeps its last weather while the next loads; one with none yet
- * is undefined.
+ * The weather at a few spots (the favorites) at `time`, read from the same
+ * forecast as each place's dashboard. Each spot keeps its last weather while
+ * the next loads; one with none yet is undefined.
  */
 export function useSpotWeather(
   weather: WeatherService,
