@@ -38,7 +38,7 @@ npm run dev          # http://localhost:3000
 | `npm run verify:route` | Reading OSRM's replies (a real Koh Samui ferry route), the router's limits, stops along the way and the trip outlook |
 | `npm run verify:voice` | Spoken times, voice choice and the summary for every place in both languages |
 | `npm run verify:open-meteo` | Open-Meteo requests, reading its replies, the models' blend, offline copies and the key proxy |
-| `npm run verify:forecast` | The unified forecast: the ECMWF request, which model each hour takes, the 48-hour blend, the condition rule, the days and `/api/forecast` |
+| `npm run verify:forecast` | The unified forecast: the ECMWF and TMD requests, which model each hour takes, the 48-hour blend, the condition rule, the days and `/api/forecast` |
 | `npm run icons`       | Re-render the app icons and favicon from `scripts/icons/doofah-icon.svg` |
 
 Preview any sky mood with a query parameter:
@@ -73,7 +73,8 @@ The parameters combine, e.g. `/?data=sim&sky=rain`.
   `CONTACT_EMAIL` for the road router (see [Route weather](#route-weather)),
   and `GOOGLE_CLOUD_TTS_API_KEY` for the AI voice (see
   [Spoken weather summary](#spoken-weather-summary)). `OPEN_METEO_API_KEY` and `OSRM_URL`
-  are optional.
+  are optional. `TMD_API_TOKEN` connects WRF to `/api/forecast` (see
+  [Unified forecast](#unified-forecast-wrf--ecmwf-being-built)).
 - **Free API terms.** Non-commercial use only, with up to 10,000 calls a day,
   5,000 an hour and 600 a minute. Open-Meteo counts a request for more than 10
   values as more than one call, and each place separately, so opening a place
@@ -168,10 +169,26 @@ move onto it in the next steps.
 | 42 to 48 | WRF easing into ECMWF in six even steps |
 | 48 to day 15 | ECMWF |
 
-- **WRF isn't connected yet.** It needs a token from the Thai Meteorological
-  Department and their permission to show it, so for now every hour is
-  ECMWF and the reply says why (`"wrf_missing": "not-configured"`). If WRF's
-  run ends before 48 hours, the easing moves up to its last 6 hours.
+- **WRF** is the Thai Meteorological Department's WRF run, from TMD's NWP
+  API (`src/services/forecast/tmd.ts`), for places in Thailand. It needs
+  TMD's token as `TMD_API_TOKEN` in Vercel → Settings → Environment
+  Variables, never in the code. Set it for Preview first, and for
+  Production once TMD has agreed that DooFah may show WRF publicly. Without
+  the token, outside Thailand, or while TMD fails, every hour is ECMWF and
+  the reply says why (`wrf_missing`, and `wrf_reason` when TMD failed);
+  answers without WRF because TMD failed are kept for only 5 minutes.
+- **What WRF gives.** Temperature, humidity, pressure, rain, wind and cloud
+  in three layers, every hour for 48 hours from now. Its gusts and
+  visibility come from ECMWF (listed in `borrowed`), and it has no chance of
+  rain: that needs WRF's grid, a later step. One request reaches 46 hours
+  (an hour's rain is in the next record), so for now WRF eases into ECMWF
+  over hours 40 to 46; when a run ends early, the easing always moves up to
+  its last 6 hours.
+- **Not yet seen from the real TMD.** The sandbox can't reach TMD, so its
+  replies are read as its documentation describes them. To check on the
+  first real reply: that the rain at a time is for the hour before it, that
+  48 hours is the most one request gives, the cloud layers in percent, and
+  TMD's area (Thailand is assumed).
 - **ECMWF** is ECMWF's 9 km IFS from Open-Meteo, asked for on its own
   (`models=ecmwf_ifs`), never Open-Meteo's best match. DooFah's server asks
   for it, with `OPEN_METEO_API_KEY` when it is set; without a key, everyone
@@ -195,7 +212,8 @@ move onto it in the next steps.
   answer until the hour ends, then serves it for up to 10 more minutes while
   it fetches a new one. Other sites' pages are refused, as for `/api/weather`.
 - **Not tested here against the real Open-Meteo**, which the sandbox can't
-  reach; `npm run verify:forecast` uses replies in Open-Meteo's format.
+  reach; `npm run verify:forecast` uses replies in Open-Meteo's and TMD's
+  formats.
 
 ## Setting it up from scratch
 
@@ -627,6 +645,7 @@ src/
     │   ├── router.ts              Which model each hour takes, the 48-hour blend, wind by its parts
     │   ├── condition.ts           The condition from an hour's numbers, shared with the map
     │   ├── ecmwf.ts               ECMWF's IFS from Open-Meteo in the router's units
+    │   ├── tmd.ts                 WRF from TMD's NWP API (TMD_API_TOKEN) in the router's units
     │   ├── http.ts                Server side of /api/forecast: checks, caching, errors
     │   └── types.ts               The reply: hours and days with model_used
     ├── tts/

@@ -4,8 +4,9 @@
  * and sums the hours into days. Runs on DooFah's server (/api/forecast), so
  * the models' keys stay there and everyone gets the same answer.
  *
- * WRF isn't connected yet (step 5 of the plan), so for now every hour is
- * ECMWF's and the answer says why (`wrf_missing`).
+ * WRF comes from TMD (tmd.ts) when the server has TMD_API_TOKEN. Without it,
+ * outside Thailand or while TMD is down, every hour is ECMWF's and the answer
+ * says why (`wrf_missing`, and `wrf_reason` when TMD failed).
  */
 
 import { FORECAST_DAYS } from "../openmeteo/api";
@@ -15,25 +16,38 @@ import { floorToHour, HOUR_MS, localDateKey, zonedMidnight, zonedParts } from ".
 import type { GeoPoint, HourlyForecast } from "../weathernext3/types";
 import { fetchEcmwf, type EcmwfAnswer } from "./ecmwf";
 import { routeHours, type ModelSeries } from "./router";
+import { fetchWrf, inTmdArea } from "./tmd";
 import type { ModelUsed, UnifiedDay, UnifiedForecast, UnifiedHour, WrfMissing } from "./types";
 
 /** Coordinates are rounded to this many degrees (about 1 km), far finer than either model. */
 export const SNAP_DEGREES = 0.01;
 
 /** WRF for a place, or why there is none. */
-export type WrfAnswer = { series: ModelSeries } | { missing: WrfMissing };
+export type WrfAnswer = { series: ModelSeries } | { missing: WrfMissing; reason?: string };
 
 export interface ForecastSources {
   ecmwf: (point: GeoPoint) => Promise<EcmwfAnswer>;
-  wrf: (point: GeoPoint) => Promise<WrfAnswer>;
+  /** WRF from `start` (a whole hour) on. */
+  wrf: (point: GeoPoint, start: number) => Promise<WrfAnswer>;
 }
 
-/** The sources DooFah uses: ECMWF from Open-Meteo (with the commercial key when set); no WRF yet. */
-export function defaultSources(env: Record<string, string | undefined> = process.env): ForecastSources {
+/**
+ * The sources DooFah uses: ECMWF from Open-Meteo (with the commercial key
+ * when set), and WRF from TMD inside Thailand when TMD_API_TOKEN is set.
+ */
+export function defaultSources(
+  env: Record<string, string | undefined> = process.env,
+  fetcher: typeof fetch = fetch,
+): ForecastSources {
   const apiKey = env.OPEN_METEO_API_KEY?.trim() || undefined;
+  const token = env.TMD_API_TOKEN?.trim() || undefined;
   return {
-    ecmwf: (point) => fetchEcmwf(point, { apiKey }),
-    wrf: async () => ({ missing: "not-configured" }),
+    ecmwf: (point) => fetchEcmwf(point, { apiKey, fetch: fetcher }),
+    wrf: async (point, start) => {
+      if (!token) return { missing: "not-configured" };
+      if (!inTmdArea(point)) return { missing: "outside-area" };
+      return { series: await fetchWrf(point, start, { token, fetch: fetcher }) };
+    },
   };
 }
 
@@ -143,13 +157,18 @@ export async function getUnifiedForecast(
   const start = floorToHour(timestamp);
   const [ecmwf, wrf] = await Promise.all([
     sources.ecmwf(point),
-    sources.wrf(point).catch((): WrfAnswer => ({ missing: "unavailable" })),
+    sources.wrf(point, start).catch((error: unknown): WrfAnswer => {
+      const reason = error instanceof Error ? error.message : "WRF could not be had";
+      console.error("[forecast] no WRF:", reason);
+      return { missing: "unavailable", reason };
+    }),
   ]);
   const wrfSeries = "series" in wrf ? wrf.series : null;
   const routed = routeHours(start, point, ecmwf.series, wrfSeries);
   // WRF that doesn't reach now isn't used (router.ts), and the answer says so.
   const usedWrf = routed.blend !== null;
   const missing: WrfMissing | undefined = "missing" in wrf ? wrf.missing : usedWrf ? undefined : "unavailable";
+  const reason = "missing" in wrf ? wrf.reason : usedWrf ? undefined : "WRF's forecast doesn't reach this hour";
   const days = daysFrom(routed.hours, point, ecmwf.timeZone, start);
   // The hours of the days shown, from local midnight today.
   const from = localDay(start, ecmwf.timeZone).midnight;
@@ -163,6 +182,7 @@ export async function getUnifiedForecast(
     place: { lat: point.lat, lon: point.lon, time_zone: ecmwf.timeZone },
     runs: { WRF: usedWrf && wrfSeries ? wrfSeries.run : null, ECMWF: ecmwf.series.run },
     ...(missing ? { wrf_missing: missing } : {}),
+    ...(reason ? { wrf_reason: reason } : {}),
     blend: routed.blend
       ? { from: new Date(routed.blend.from).toISOString(), to: new Date(routed.blend.to).toISOString() }
       : null,

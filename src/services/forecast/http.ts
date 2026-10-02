@@ -15,6 +15,8 @@ import { defaultSources, getUnifiedForecast, type ForecastSources } from "./unif
 const STALE_SECONDS = 600;
 /** An answer is never kept for less than this. */
 const MIN_SECONDS = 60;
+/** An answer without WRF because TMD failed is kept no longer than this, so WRF is back soon after TMD is. */
+const WRF_RETRY_SECONDS = 300;
 
 const refuse = (status: number, reason: string) =>
   Response.json({ error: true, reason }, { status, headers: { "Cache-Control": "no-store" } });
@@ -41,7 +43,8 @@ export async function forecastResponse(
 
   try {
     const forecast = await getUnifiedForecast(lat, lon, now, sources);
-    const seconds = Math.max(MIN_SECONDS, Math.round((floorToHour(now) + HOUR_MS - now) / 1000));
+    const untilHour = Math.max(MIN_SECONDS, Math.round((floorToHour(now) + HOUR_MS - now) / 1000));
+    const seconds = forecast.wrf_missing === "unavailable" ? Math.min(untilHour, WRF_RETRY_SECONDS) : untilHour;
     return Response.json(forecast, {
       headers: { "Cache-Control": `public, s-maxage=${seconds}, stale-while-revalidate=${STALE_SECONDS}` },
     });

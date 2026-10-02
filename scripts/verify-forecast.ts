@@ -1,8 +1,8 @@
 /**
- * Checks for the unified forecast (step 1 of the WRF + ECMWF plan): the
- * ECMWF request, the router's rules, the 48-hour blend, the condition rule
- * (rain from the map's first rain colour), the days and /api/forecast. Uses replies built here in
- * Open-Meteo's format and a made-up WRF run, so it needs no network.
+ * Checks for the unified forecast: the ECMWF request, WRF from TMD, the
+ * router's rules, the 48-hour blend, the condition rule (rain from the map's
+ * first rain colour), the days and /api/forecast. Uses replies built here in
+ * Open-Meteo's and TMD's formats, so it needs no network.
  * Run with: npm run verify:forecast
  */
 import assert from "node:assert/strict";
@@ -28,8 +28,25 @@ import {
   type ModelHour,
   type ModelSeries,
 } from "../src/services/forecast/router";
+import {
+  fetchWrf,
+  inTmdArea,
+  TMD_FIELDS,
+  TMD_HOURS,
+  TMD_URL,
+  TmdError,
+  tmdUrl,
+  wrfFromTmd,
+  type TmdReply,
+} from "../src/services/forecast/tmd";
 import type { UnifiedForecast, UnifiedHour } from "../src/services/forecast/types";
-import { getUnifiedForecast, snapPoint, type ForecastSources, type WrfAnswer } from "../src/services/forecast/unified";
+import {
+  defaultSources,
+  getUnifiedForecast,
+  snapPoint,
+  type ForecastSources,
+  type WrfAnswer,
+} from "../src/services/forecast/unified";
 import { dewPoint, feelsLike, uvIndex } from "../src/services/weathernext3/fieldModel";
 import { sunElevation } from "../src/services/weathernext3/solar";
 import { HOUR_MS, localDateKey } from "../src/services/weathernext3/time";
@@ -105,6 +122,49 @@ function wrfRun(ecmwf: ModelSeries, from: number, to: number): ModelSeries {
       };
     });
   return { run: { model: "WRF", init: iso(START - 6 * HOUR_MS), resolution_km: 3, source: "test" }, hours };
+}
+
+/** TMD's reply for `count` hours from `from`: times in Thai time, a thunderstorm in the fourth record. */
+function tmdReply(
+  from: number,
+  count: number,
+  change: (i: number) => Record<string, number | string> = () => ({}),
+): TmdReply {
+  const thai = (ms: number) => new Date(ms + 7 * HOUR_MS).toISOString().replace(".000Z", "+07:00");
+  return {
+    WeatherForecasts: [
+      {
+        location: { lat: 13.76, lon: 100.5 },
+        forecasts: Array.from({ length: count }, (_, i) => ({
+          time: thai(from + i * HOUR_MS),
+          data: {
+            tc: 30 + (i % 5),
+            rh: 70,
+            slp: 1008.5,
+            rain: i === 3 ? 5.2 : 0,
+            ws10m: 5,
+            wd10m: 90,
+            cloudlow: 50,
+            cloudmed: 20,
+            cloudhigh: 0,
+            cond: i === 3 ? 8 : 2,
+            ...change(i),
+          },
+        })),
+      },
+    ],
+  };
+}
+
+/** Runs `work` without its console.error lines (the server logs why WRF is missing). */
+async function quiet<T>(work: () => Promise<T>): Promise<T> {
+  const error = console.error;
+  console.error = () => {};
+  try {
+    return await work();
+  } finally {
+    console.error = error;
+  }
 }
 
 function sources(wrf: (ecmwf: ModelSeries) => Promise<WrfAnswer> = async () => ({ missing: "not-configured" })) {
@@ -351,17 +411,21 @@ async function main() {
     sources(async (ecmwf) => ({ series: wrfRun(ecmwf, START + HOUR_MS, START + 60 * HOUR_MS) })).sources,
   );
   assert.equal(late.wrf_missing, "unavailable", "a WRF run that doesn't reach now isn't used");
+  assert.equal(late.wrf_reason, "WRF's forecast doesn't reach this hour");
   assert.ok(late.hours.every((h) => h.model_used === "ECMWF"));
 
-  const failing = await getUnifiedForecast(
-    13.7563,
-    100.5018,
-    NOW,
-    sources(async () => {
-      throw new Error("TMD is down");
-    }).sources,
+  const failing = await quiet(() =>
+    getUnifiedForecast(
+      13.7563,
+      100.5018,
+      NOW,
+      sources(async () => {
+        throw new Error("TMD is down");
+      }).sources,
+    ),
   );
   assert.equal(failing.wrf_missing, "unavailable");
+  assert.equal(failing.wrf_reason, "TMD is down");
   assert.ok(failing.hours.every((h) => h.model_used === "ECMWF"));
 
   const outside = await getUnifiedForecast(
@@ -454,6 +518,131 @@ async function main() {
   );
   await assert.rejects(fetchEcmwf(BANGKOK, { fetch: fake(200, { timezone: "Asia/Bangkok" }) }), OpenMeteoError);
   console.log("✓ Open-Meteo's free servers, or its customer servers with the key; its errors come through");
+
+  // --- WRF from TMD ----------------------------------------------------------------------
+  // TMD's dates and hours are Thai time: 16:00 on 2 October, and midnight into 3 October.
+  const asked = new URL(tmdUrl(BANGKOK, START));
+  assert.equal(`${asked.origin}${asked.pathname}`, TMD_URL);
+  assert.deepEqual(Object.fromEntries(asked.searchParams), {
+    lat: "13.76",
+    lon: "100.50",
+    fields: TMD_FIELDS.join(","),
+    date: "2026-10-02",
+    hour: "16",
+    duration: String(TMD_HOURS),
+  });
+  const nextDay = new URL(tmdUrl(BANGKOK, Date.UTC(2026, 9, 2, 17))).searchParams;
+  assert.equal(`${nextDay.get("date")} ${nextDay.get("hour")}`, "2026-10-03 0");
+
+  const tmd = wrfFromTmd(tmdReply(START, TMD_HOURS));
+  assert.equal(tmd.run.model, "WRF");
+  assert.equal(tmd.run.source, "tmd");
+  assert.equal(tmd.hours.length, TMD_HOURS - 1, "the last record only gives the rain of the hour before it");
+  assert.equal(tmd.hours[0].time, START);
+  assert.equal(tmd.hours[0].temperatureC, 30);
+  assert.equal(tmd.hours[2].rainMm, 5.2, "an hour's rain is in the record an hour later");
+  assert.equal(tmd.hours[2].thunder, 1, "TMD's code 8 is a thunderstorm");
+  assert.equal(tmd.hours[3].rainMm, 0);
+  assert.equal(tmd.hours[3].thunder, 0);
+  assert.equal(Math.round(tmd.hours[0].cloudCover!), 60, "50% low and 20% middle cloud at random make 60%");
+  const tmdWind = windFrom(tmd.hours[0].windU!, tmd.hours[0].windV!);
+  assert.ok(Math.abs(tmdWind.speedKmh - 18) < 1e-9 && Math.abs(tmdWind.fromDeg - 90) < 1e-9, "5 m/s from the east");
+  for (const key of ["rainChance", "gustKmh", "visibilityKm", "uvIndex", "dewPointC", "feelsLikeC"] as const) {
+    assert.equal(tmd.hours[0][key], null, `TMD gives no ${key}`);
+  }
+  const asText = wrfFromTmd(tmdReply(START, 3, () => ({ tc: "29.5" })));
+  assert.equal(asText.hours[0].temperatureC, 29.5, "numbers sent as text");
+  assert.throws(() => wrfFromTmd({ WeatherForecasts: [] }), TmdError);
+  assert.ok(inTmdArea(BANGKOK) && inTmdArea({ lat: 6, lon: 101 }) && !inTmdArea({ lat: 35.68, lon: 139.69 }));
+  console.log(
+    `✓ TMD: asked in Thai time; ${tmd.hours.length} WRF hours, rain from the record after, cloud layers combined`,
+  );
+
+  const calls: { url: string; headers: Headers }[] = [];
+  const tmdFake = (status: number, body: unknown) =>
+    (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), headers: new Headers(init?.headers) });
+      return new Response(typeof body === "string" ? body : JSON.stringify(body), { status });
+    }) as typeof fetch;
+  const fetched = await fetchWrf(BANGKOK, START, { token: "test-token", fetch: tmdFake(200, tmdReply(START, 48)) });
+  assert.equal(fetched.hours.length, 47);
+  assert.equal(calls[0].url, tmdUrl(BANGKOK, START));
+  assert.equal(calls[0].headers.get("authorization"), "Bearer test-token");
+  assert.equal(calls[0].headers.get("accept"), "application/json");
+  await assert.rejects(
+    fetchWrf(BANGKOK, START, { token: "wrong", fetch: tmdFake(401, { message: "Unauthenticated." }) }),
+    (e) => e instanceof TmdError && e.status === 401 && e.message === "TMD answered 401: Unauthenticated.",
+  );
+  await assert.rejects(
+    fetchWrf(BANGKOK, START, { token: "t", fetch: tmdFake(429, "Too Many Attempts.") }),
+    (e) => e instanceof TmdError && e.message === "TMD answered 429",
+  );
+  await assert.rejects(
+    fetchWrf(BANGKOK, START, {
+      token: "t",
+      fetch: (async () => {
+        throw new TypeError("fetch failed");
+      }) as typeof fetch,
+    }),
+    (e) => e instanceof TmdError && e.status === 502,
+  );
+  await assert.rejects(fetchWrf(BANGKOK, START, { token: "t", fetch: tmdFake(200, "<html>") }), TmdError);
+  console.log("✓ TMD is asked with the token as a Bearer header; its refusals and failures come through");
+
+  // The server's sources: no token, no WRF; outside Thailand, TMD isn't asked; inside, WRF from TMD.
+  const servers = (tmdStatus = 200, tmdBody: unknown = tmdReply(START, TMD_HOURS)) => {
+    const seen: string[] = [];
+    const fetcher = (async (url: string | URL | Request) => {
+      seen.push(String(url));
+      const fromTmd = String(url).startsWith(TMD_URL);
+      return new Response(JSON.stringify(fromTmd ? tmdBody : ecmwfReply()), { status: fromTmd ? tmdStatus : 200 });
+    }) as typeof fetch;
+    return { fetcher, seen };
+  };
+  const idle = servers();
+  assert.deepEqual(await defaultSources({}, idle.fetcher).wrf(BANGKOK, START), { missing: "not-configured" });
+  assert.deepEqual(await defaultSources({ TMD_API_TOKEN: " " }, idle.fetcher).wrf(BANGKOK, START), {
+    missing: "not-configured",
+  });
+  const tokyo = { lat: 35.68, lon: 139.69 };
+  assert.deepEqual(await defaultSources({ TMD_API_TOKEN: "test-token" }, idle.fetcher).wrf(tokyo, START), {
+    missing: "outside-area",
+  });
+  assert.equal(idle.seen.length, 0, "TMD isn't asked without a token, or outside Thailand");
+
+  const live = servers();
+  const viaTmd = await getUnifiedForecast(
+    13.7563,
+    100.5018,
+    NOW,
+    defaultSources({ TMD_API_TOKEN: "test-token" }, live.fetcher),
+  );
+  assert.equal(live.seen.filter((url) => url.startsWith(TMD_URL)).length, 1);
+  assert.equal(viaTmd.wrf_missing, undefined);
+  assert.equal(viaTmd.runs.WRF?.source, "tmd");
+  // 48 records reach 46 hours with the rain shift, so WRF eases into ECMWF over hours 40 to 46.
+  assert.deepEqual(viaTmd.blend, { from: iso(START + 40 * HOUR_MS), to: iso(START + 46 * HOUR_MS) });
+  assert.equal(byLead(viaTmd, -1).model_used, "ECMWF", "earlier today is ECMWF's: TMD is asked from now");
+  assert.equal(byLead(viaTmd, 0).model_used, "WRF");
+  assert.equal(byLead(viaTmd, 2).condition, "thunderstorm", "TMD's storm in the hour from 18:00");
+  assert.deepEqual(byLead(viaTmd, 0).borrowed, { gust_kmh: "ECMWF", visibility_km: "ECMWF" });
+  assert.equal(byLead(viaTmd, 0).rain_chance, null, "no chance of rain from a single WRF run");
+  assert.equal(byLead(viaTmd, 43).model_used, "WRF+ECMWF");
+  assert.equal(byLead(viaTmd, 46).model_used, "ECMWF");
+
+  const refused = servers(401, { message: "Unauthenticated." });
+  const withoutWrf = await quiet(() =>
+    getUnifiedForecast(13.7563, 100.5018, NOW, defaultSources({ TMD_API_TOKEN: "expired" }, refused.fetcher)),
+  );
+  assert.equal(withoutWrf.wrf_missing, "unavailable");
+  assert.equal(withoutWrf.wrf_reason, "TMD answered 401: Unauthenticated.");
+  assert.ok(withoutWrf.hours.every((h) => h.model_used === "ECMWF"));
+  const busy = defaultSources({ TMD_API_TOKEN: "test-token" }, servers(429).fetcher);
+  const soon = await quiet(() => ask("lat=13.75&lon=100.5", {}, NOW, busy));
+  assert.equal(soon.headers.get("cache-control"), "public, s-maxage=300, stale-while-revalidate=600");
+  console.log(
+    "✓ with TMD_API_TOKEN, WRF from TMD in Thailand; when TMD fails, ECMWF alone, why, and only for 5 minutes",
+  );
 }
 
 main().catch((error) => {
