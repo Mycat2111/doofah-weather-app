@@ -48,6 +48,8 @@ const HOUR = 3_600_000;
 const fixture = (name: string) => new Uint8Array(readFileSync(join(__dirname, "fixtures", name)));
 const TRACKS = fixture("ecmwf-tc-tracks-2015-11-18.bufr");
 const UNCOMPRESSED = fixture("ecmwf-ens-uncompressed.bufr");
+/** One storm (33W CHOI-WAN) from ECMWF's track file of 3 October 2026 00 UTC, in today's 3-16-082 layout. */
+const TODAY = fixture("ecmwf-tc-tracks-2026-10-03-33W.bufr");
 
 const BANGKOK = { lat: 13.75, lon: 100.5 };
 const NOW = Date.UTC(2026, 9, 3, 18, 0); // 4 Oct 2026, 01:00 in Bangkok
@@ -125,6 +127,36 @@ async function main() {
   assert.deepEqual([valueOf(ens.subsets[0], 12004), valueOf(ens.subsets[0], 12004, 2)], [292.7, 291.6]);
   assert.deepEqual([valueOf(ens.subsets[50], 12004), valueOf(ens.subsets[50], 12004, 2)], [292.7, 291.7]);
 
+  /* ---------------- BUFR: today's layout (sequence 3-16-082) ---------------- */
+  const [today] = decodeBufr(TODAY);
+  assert.equal(today.masterTablesVersion, 35);
+  assert.deepEqual(today.descriptors, [316082], "the whole message is one tropical cyclone sequence");
+  assert.equal(today.subsets.length, 51, "50 perturbed members and the high-resolution forecast");
+  // Values ecCodes 2.49 reads from the same message.
+  const todayHres = today.subsets[50];
+  assert.equal(todayHres.length, 1142);
+  assert.deepEqual(
+    [1090, 1091, 1092, 31001].map((code) => valueOf(todayHres, code)),
+    [2, 51, 0, 22],
+    "high-resolution, 22 six-hourly steps",
+  );
+  assert.deepEqual(
+    [8005, 5002, 6002].map((code) => valueOf(todayHres, code, 2)),
+    [5, 18.5, 145.5],
+    "the high-resolution analysis is significance 5 (members use 4)",
+  );
+  assert.equal(valueOf(today.subsets[0], 8005, 2), 4);
+  assert.deepEqual(
+    [1, 2, 3].map((i) => valueOf(todayHres, 19003, i)),
+    [18, 26, 33],
+    "wind radii thresholds (m/s)",
+  );
+  assert.deepEqual(
+    [1, 2, 3, 4, 5, 6].map((i) => valueOf(todayHres, 19004, i)),
+    [337100, 616700, 540800, 296300, 79600, 96300],
+    "wind radii (m): 2-01-131 makes 0-19-004 3 bits wider, so 616.7 km fits",
+  );
+
   /* ---------------- BUFR: what it refuses ---------------- */
   assert.throws(() => decodeBufr(TRACKS.slice(0, 5000)), BufrError, "a cut-short file");
   const u24 = (bytes: Uint8Array, at: number) => (bytes[at] << 16) | (bytes[at + 1] << 8) | bytes[at + 2];
@@ -172,6 +204,23 @@ async function main() {
     assert.ok(inside / here.length >= 2 / 3 - 1e-9, `${c.time}: ${inside} of ${here.length} inside`);
   }
   assert.deepEqual(buildCone([]), [], "no members, no cone");
+
+  const choiWan = cyclonesFromBufr(TODAY);
+  assert.equal(choiWan.run, "2026-10-03T00:00:00.000Z");
+  const [cw] = choiWan.storms;
+  assert.deepEqual(
+    [cw.id, cw.name, cw.basin, cw.track_from, cw.members.length],
+    ["33W", "CHOI-WAN", "typhoon", "hres", 51],
+  );
+  assert.deepEqual(
+    cw.track.slice(0, 2),
+    [
+      { time: "2026-10-03T00:00:00.000Z", lat: 18.5, lon: 145.5, pressure_hpa: 968, wind_kmh: 141 },
+      { time: "2026-10-03T06:00:00.000Z", lat: 19.3, lon: 145.8, pressure_hpa: 962, wind_kmh: 107 },
+    ],
+    "today's layout: the path starts at the analysis",
+  );
+  assert.ok(cw.cone.length > 10);
 
   /* ---------------- Strength and names ---------------- */
   assert.equal(categoryOf(null, "typhoon"), "depression");

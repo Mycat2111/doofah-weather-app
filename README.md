@@ -399,10 +399,13 @@ the region".
   however many people use DooFah. A failure is kept for a minute; the page
   says the tracks are unavailable and tries again.
 - **Tables.** `src/services/cyclones/bufrTables.ts` holds the parts of WMO's
-  BUFR tables the tracks use, made from ecCodes by
-  `scripts/generate-bufr-tables.py` (`python3 -m pip install eccodes`, then
-  run it). If ECMWF starts using an element that isn't there, `/api/cyclones`
-  answers 502 naming it, and the tables need regenerating.
+  BUFR tables the tracks use, made by `scripts/generate-bufr-tables.py`
+  (`python3 -m pip install eccodes`, then run it): elements from the ecCodes
+  library, and sequences from the same ecCodes release's definition files on
+  GitHub, as WMO writes them. ECMWF's files today are one sequence per storm,
+  3-16-082, with wind radii. If ECMWF starts using an element or sequence
+  that isn't there, `/api/cyclones` answers 502 naming it, and the tables
+  need regenerating.
 
 ## Rain countdown and lifestyle cards
 
