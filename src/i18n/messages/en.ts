@@ -511,7 +511,7 @@ export const en: Messages = {
     credit: "DooFah ดูฟ้า · Forecast data is simulated in the style of WeatherNext 3 (5 km grid, hourly, 15 days)",
     modelRun: (utc) => `model run ${utc} UTC`,
     forecastBy: "Forecast:",
-    wrf: { before: "WRF by the ", after: "" },
+    wrf: { before: "WRF model by the ", after: " (TMD)" },
     tmd: "Thai Meteorological Department",
     via: "via",
     airBy: "Air quality by",
