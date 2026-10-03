@@ -12,11 +12,21 @@
  *   commercial key.
  * - The last forecast for a few places is saved on the device. With no
  *   connection, the dashboard shows it and says when it was downloaded.
+ * - The map's layers come from /api/fields (FieldService), ECMWF too.
  */
 
+import { FieldService } from "../fields/FieldService";
 import { airQualityParams, FREE_URL, type AirQualityResponse } from "../openmeteo/api";
 import { HOUR_MS } from "../weathernext3/time";
-import type { ForecastBundle, GeoPoint, Place, SpotWeather } from "../weathernext3/types";
+import type {
+  ForecastBundle,
+  GeoPoint,
+  Place,
+  RadarFrameSet,
+  RadarLayerType,
+  RadarRequest,
+  SpotWeather,
+} from "../weathernext3/types";
 import type { WeatherService } from "../weatherService";
 import { forecastBundle, spotFrom } from "./bundle";
 import { forecastQuery } from "./point";
@@ -90,6 +100,7 @@ export class ForecastService implements WeatherService {
   private readonly storage: Store | null | undefined;
   private readonly recent = new Map<string, { until: number; reply: Promise<unknown> }>();
   private readonly savedReplies = new WeakSet<UnifiedForecast>();
+  private readonly fields: FieldService;
   private oldCopiesCleared = false;
 
   constructor(options: ForecastServiceOptions = {}) {
@@ -97,6 +108,7 @@ export class ForecastService implements WeatherService {
     this.fetcher = options.fetch ?? ((input, init) => fetch(input, init));
     this.now = options.now ?? Date.now;
     this.storage = options.storage;
+    this.fields = new FieldService({ fetch: this.fetcher, now: this.now });
   }
 
   async getForecastBundle(place: Place): Promise<ForecastBundle> {
@@ -132,6 +144,10 @@ export class ForecastService implements WeatherService {
     const forecasts = await eachLimited(unique, AT_ONCE, (key) => this.forecastFor(key));
     const byKey = new Map(unique.map((key, i) => [key, forecasts[i]]));
     return stops.map((stop, i) => spotFrom(byKey.get(keys[i])!, stop.point, Date.parse(stop.time)));
+  }
+
+  getRadarFrames<L extends RadarLayerType>(request: RadarRequest<L>): Promise<RadarFrameSet<L>> {
+    return this.fields.getRadarFrames(request);
   }
 
   private forecast(point: GeoPoint): Promise<UnifiedForecast> {

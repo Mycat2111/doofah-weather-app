@@ -7,11 +7,13 @@
  * rain and cloud the motion between the two frames is estimated instead
  * (block matching on a small image pyramid, the optical flow radar nowcasts
  * use), and each in-between frame carries both frames part of the way along
- * it before blending them. Temperature, pressure and wind are smooth and
- * slow-changing, so they blend linearly.
+ * it before blending them. The cloud cover layer moves the same way.
+ * Temperature, pressure and wind are smooth and slow-changing, so they blend
+ * linearly.
  *
- * Works on any hourly frames on a grid: the simulation's today, the models'
- * fields later.
+ * Works on any hourly frames on a grid: the simulation's, or ECMWF's from
+ * /api/fields. Cells the model left empty (NaN) count as clear sky when
+ * tracking motion.
  */
 
 import type { RadarFrame, RadarGridSpec } from "@/services/WeatherNext3MockService";
@@ -270,12 +272,29 @@ export function lerp(a: Float32Array, b: Float32Array, t: number): Float32Array 
   return out;
 }
 
+/** A number, or 0 where the model left a cell empty. */
+const orZero = (v: number) => (Number.isFinite(v) ? v : 0);
+
 /** What the motion is tracked on for rain: the rain itself, saturating, plus a little of the cloud. */
 function rainFeature(rate: Float32Array, cloud: Float32Array): Float32Array {
   const out = new Float32Array(rate.length);
   for (let i = 0; i < rate.length; i++)
-    out[i] = 0.65 * Math.min(1, Math.sqrt(Math.max(0, rate[i])) / 3) + 0.35 * cloud[i];
+    out[i] = 0.65 * Math.min(1, Math.sqrt(Math.max(0, orZero(rate[i]))) / 3) + 0.35 * orZero(cloud[i]);
   return out;
+}
+
+/** What the motion is tracked on for cloud cover: the cover, 0 to 1. */
+function cloudFeature(cover: Float32Array): Float32Array {
+  const out = new Float32Array(cover.length);
+  for (let i = 0; i < cover.length; i++) out[i] = orZero(cover[i]) / 100;
+  return out;
+}
+
+/** The field the motion between two frames is tracked on, for the layers that move with the weather. */
+function feature(frame: RadarFrame): Float32Array | null {
+  if (frame.layer === "precipitation") return rainFeature(frame.rate, frame.cloud);
+  if (frame.layer === "clouds") return cloudFeature(frame.cover);
+  return null;
 }
 
 /**
@@ -317,9 +336,10 @@ const IGNORED = 0.95;
  * blend, and when no motion explains the change.
  */
 export function frameFlow(grid: RadarGridSpec, a: RadarFrame, b: RadarFrame, hours = 1): Flow | null {
-  if (a.layer !== "precipitation" || b.layer !== "precipitation") return null;
-  const fa = rainFeature(a.rate, a.cloud);
-  const fb = rainFeature(b.rate, b.cloud);
+  if (a.layer !== b.layer) return null;
+  const fa = feature(a);
+  const fb = feature(b);
+  if (!fa || !fb) return null;
   const flow = estimateFlow(grid.rows, grid.cols, fa, fb, (MAX_SPEED_KMH * hours) / grid.cellSizeKm);
   const trust = Math.min(1, Math.max(0, (IGNORED - unexplained(flow, fa, fb)) / (IGNORED - TRUSTED)));
   if (trust === 0) return null;
@@ -344,6 +364,9 @@ export function frameBetween(a: RadarFrame, b: RadarFrame, t: number, time: numb
   if (a.layer === "precipitation" && b.layer === "precipitation") {
     const move = (x: Float32Array, y: Float32Array) => (flow ? advect(x, y, flow, t) : lerp(x, y, t));
     return { ...base, layer: "precipitation", rate: move(a.rate, b.rate), cloud: move(a.cloud, b.cloud) };
+  }
+  if (a.layer === "clouds" && b.layer === "clouds") {
+    return { ...base, layer: "clouds", cover: flow ? advect(a.cover, b.cover, flow, t) : lerp(a.cover, b.cover, t) };
   }
   if (a.layer === "temperature" && b.layer === "temperature") {
     return { ...base, layer: "temperature", temperature: lerp(a.temperature, b.temperature, t) };

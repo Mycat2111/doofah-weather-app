@@ -72,8 +72,8 @@ interface DooFahRadarMapProps {
   /** Night at the place. */
   night?: boolean;
   /**
-   * Where the rest of the dashboard's forecast comes from. The map's layers
-   * are always simulated, so with a real forecast the map says so.
+   * Where the dashboard's forecast and the map's layers come from: ECMWF
+   * (/api/fields) when live, the WeatherNext 3 simulation otherwise.
    */
   source?: WeatherSource;
   /** A planned road trip to draw over the radar, and requests to show it. */
@@ -84,11 +84,11 @@ interface DooFahRadarMapProps {
 }
 
 /**
- * Top-view radar: Leaflet + OpenStreetMap base, WeatherNext 3 layers
- * (rain, wind streamlines, temperature, isobars) and a time-lapse scrubber
- * from 3 hours ago to 24 hours ahead. The timeline plays smoothly between
- * the hourly frames (rain moves along its track) and stops on 10-minute
- * steps; the rest of the dashboard follows its time.
+ * Top-view radar: Leaflet + OpenStreetMap base, the model's layers (rain,
+ * cloud cover, wind streamlines, temperature, isobars) and a time-lapse
+ * scrubber from 3 hours ago to 24 hours ahead. The timeline plays smoothly
+ * between the hourly frames (rain and cloud move along their tracks) and
+ * stops on 10-minute steps; the rest of the dashboard follows its time.
  */
 export function DooFahRadarMap({
   place,
@@ -109,7 +109,7 @@ export function DooFahRadarMap({
   const [map, setMap] = useState<LeafletMap | null>(null);
   const [gestureHint, setGestureHint] = useState(false);
   const nextZoomRef = useRef<number | null>(null);
-  const { frameSet, loading } = useRadarFrames(layer, bounds);
+  const { frameSet, loading, error } = useRadarFrames(layer, bounds);
   const { time, setTime, followMap, seek } = useWeatherState();
   const now = useNow();
   const reduceMotion = useReducedMotion();
@@ -307,16 +307,20 @@ export function DooFahRadarMap({
               </motion.span>
             )}
           </AnimatePresence>
-          <span>
-            {source === "simulated" ? "WeatherNext 3" : m.radar.simulated} ·{" "}
-            {m.radar.grid(frameSet?.grid.cellSizeKm ?? 5)}
-            {frameSet && (
-              <span className="hidden text-white/50 sm:inline">
-                {" · "}
-                {m.radar.run(f.clock(frameSet.model.runInitTime, "UTC"))}
-              </span>
-            )}
-          </span>
+          {error ? (
+            <span role="status">{m.radar.unavailable}</span>
+          ) : (
+            <span>
+              {source === "simulated" ? "WeatherNext 3" : "ECMWF"}
+              {frameSet && ` · ${m.radar.grid(frameSet.grid.cellSizeKm)}`}
+              {frameSet?.model.runInitTime && (
+                <span className="hidden text-white/50 sm:inline">
+                  {" · "}
+                  {m.radar.run(f.clock(frameSet.model.runInitTime, "UTC"))}
+                </span>
+              )}
+            </span>
+          )}
         </div>
       </div>
 

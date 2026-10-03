@@ -1,8 +1,17 @@
 import { ForecastService } from "./forecast/ForecastService";
-import type { ForecastBundle, GeoPoint, Place, SpotWeather, WeatherSource } from "./weathernext3/types";
+import type {
+  ForecastBundle,
+  GeoPoint,
+  Place,
+  RadarFrameSet,
+  RadarLayerType,
+  RadarRequest,
+  SpotWeather,
+  WeatherSource,
+} from "./weathernext3/types";
 import { weatherNext3 } from "./WeatherNext3MockService";
 
-/** What the app asks of a weather source. The radar map layers always come from the simulation. */
+/** What the app asks of a weather source. */
 export interface WeatherService {
   readonly source: WeatherSource;
   /** Current conditions, the next 48 hours and 15 days for a place. */
@@ -12,6 +21,11 @@ export interface WeatherService {
    * road trip's stops at the times you reach them.
    */
   getWeatherAlong(stops: { point: GeoPoint; time: string }[]): Promise<SpotWeather[]>;
+  /**
+   * The map's layers over an area, every hour from 3 hours back to a day
+   * ahead: from ECMWF when live (/api/fields), from the simulation otherwise.
+   */
+  getRadarFrames<L extends RadarLayerType>(request: RadarRequest<L>): Promise<RadarFrameSet<L>>;
 }
 
 /** Which source the page uses, decided on the server. */

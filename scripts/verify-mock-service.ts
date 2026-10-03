@@ -56,7 +56,7 @@ async function main() {
     [p.lat - 1.2, p.lon - 1.2],
     [p.lat + 1.2, p.lon + 1.2],
   ];
-  for (const layer of ["precipitation", "wind", "temperature", "pressure"] as RadarLayerType[]) {
+  for (const layer of ["precipitation", "clouds", "wind", "temperature", "pressure"] as RadarLayerType[]) {
     const t0 = performance.now();
     const set = await svc.getRadarFrames({ layer, bounds });
     const ms = performance.now() - t0;
@@ -72,6 +72,10 @@ async function main() {
         gridValue = sampleGrid(set.grid, f.rate, p.lat, p.lon);
         pointValue = hour.precipitationMm;
         break;
+      case "clouds":
+        gridValue = sampleGrid(set.grid, f.cover, p.lat, p.lon);
+        pointValue = hour.cloudCover;
+        break;
       case "wind":
         gridValue = sampleGrid(set.grid, f.speed, p.lat, p.lon);
         pointValue = hour.windSpeedKmh;
@@ -85,7 +89,7 @@ async function main() {
         pointValue = hour.pressureHpa;
         break;
     }
-    const tolerance = layer === "precipitation" ? 1.5 : layer === "wind" ? 4 : 0.8;
+    const tolerance = layer === "precipitation" ? 1.5 : layer === "wind" ? 4 : layer === "clouds" ? 10 : 0.8;
     assert.ok(
       Math.abs(gridValue - pointValue) <= tolerance,
       `${layer}: grid ${gridValue.toFixed(2)} vs point ${pointValue} at +3 h`,

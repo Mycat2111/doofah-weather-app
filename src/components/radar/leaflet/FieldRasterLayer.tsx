@@ -64,6 +64,20 @@ function axisTaps(positions: Float64Array, count: number) {
 
 type Taps = ReturnType<typeof axisTaps>;
 
+/** Cells over which a field fades out towards its edge, so where it ends (zoomed far out) is soft, not a hard box. */
+const EDGE_FADE_CELLS = 1.5;
+
+/** For each painted pixel along one axis, how far it is from the grid's edges as an opacity (0 at the edge, 1 inside). */
+function edgeFade(positions: Float64Array, count: number) {
+  const out = new Float32Array(positions.length);
+  for (let p = 0; p < positions.length; p++) {
+    const inside = Math.min(positions[p] + 0.5, count - 0.5 - positions[p]) / EDGE_FADE_CELLS;
+    const t = inside <= 0 ? 0 : inside >= 1 ? 1 : inside;
+    out[p] = t * t * (3 - 2 * t);
+  }
+  return out;
+}
+
 function sample(values: Float32Array, cols: number, xs: Taps, x: number, ys: Taps, y: number) {
   let sum = 0;
   for (let r = 0; r < 4; r++) {
@@ -110,6 +124,8 @@ function paintField(
   for (let y = 0; y < H; y++) rowPos[y] = (north - h.unproject(0, (y + 0.5) * step).lat) / grid.latStep - 0.5;
   const xs = axisTaps(colPos, grid.cols);
   const ys = axisTaps(rowPos, grid.rows);
+  const xFade = edgeFade(colPos, grid.cols);
+  const yFade = edgeFade(rowPos, grid.rows);
 
   const isPrecip = scale === PRECIP_SCALE;
   const { lut } = scale;
@@ -125,11 +141,12 @@ function paintField(
       }
       const v = sample(values, grid.cols, xs, xo, ys, yo);
       const k = lutIndex(scale, v);
+      const fade = xFade[x] * yFade[y];
       if (!isPrecip) {
         px[o] = lut[k];
         px[o + 1] = lut[k + 1];
         px[o + 2] = lut[k + 2];
-        px[o + 3] = lut[k + 3];
+        px[o + 3] = lut[k + 3] * fade;
         continue;
       }
       // Soft cloud where it is dry (fading in above ~35% cover), blended into
@@ -140,7 +157,7 @@ function paintField(
       px[o] = 225 + (lut[k] - 225) * t;
       px[o + 1] = 232 + (lut[k + 1] - 232) * t;
       px[o + 2] = 245 + (lut[k + 2] - 245) * t;
-      px[o + 3] = cloudAlpha + (lut[k + 3] - cloudAlpha) * t;
+      px[o + 3] = (cloudAlpha + (lut[k + 3] - cloudAlpha) * t) * fade;
     }
   }
   paint.ctx.putImageData(image, 0, 0);

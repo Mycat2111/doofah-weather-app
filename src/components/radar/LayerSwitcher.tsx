@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { CloudRain, Gauge, Thermometer, Wind, type LucideIcon } from "lucide-react";
+import { Cloud, CloudRain, Gauge, Thermometer, Wind, type LucideIcon } from "lucide-react";
 import { PRESSED_LABEL } from "@/components/ui/TapButton";
 import { useI18n } from "@/i18n/I18nProvider";
 import { haptic } from "@/lib/haptics";
@@ -10,6 +10,7 @@ import type { RadarLayerType } from "@/services/WeatherNext3MockService";
 export const LAYER_OPTIONS: { id: RadarLayerType; icon: LucideIcon }[] = [
   { id: "precipitation", icon: CloudRain },
   { id: "wind", icon: Wind },
+  { id: "clouds", icon: Cloud },
   { id: "temperature", icon: Thermometer },
   { id: "pressure", icon: Gauge },
 ];
@@ -64,8 +65,8 @@ export function LayerSwitcher({ value, onChange }: LayerSwitcherProps) {
               >
                 <Icon className="size-3.5" aria-hidden />
               </motion.span>
-              {/* On the narrowest phones only the picked layer shows its name, so all four fit. */}
-              <span className={selected ? undefined : "max-[379px]:sr-only"}>{short}</span>
+              {/* On phones only the picked layer shows its name, so all five fit. */}
+              <span className={selected ? undefined : "max-[447px]:sr-only"}>{short}</span>
             </motion.span>
           </motion.button>
         );

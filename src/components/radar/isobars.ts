@@ -62,6 +62,8 @@ export function computeIsobars(grid: RadarGridSpec, values: Float32Array): Isoba
         const tr = at(r, c + 1);
         const br = at(r + 1, c + 1);
         const bl = at(r + 1, c);
+        // A cell the model left empty has no line through it.
+        if (Number.isNaN(tl + tr + br + bl)) continue;
         const idx = (tl >= level ? 8 : 0) | (tr >= level ? 4 : 0) | (br >= level ? 2 : 0) | (bl >= level ? 1 : 0);
         const edges = CASES[idx];
         if (!edges.length) continue;
@@ -94,6 +96,7 @@ export function computeIsobars(grid: RadarGridSpec, values: Float32Array): Isoba
   for (let r = win; r < rows - win; r += 2) {
     for (let c = win; c < cols - win; c += 2) {
       const v = at(r, c);
+      if (Number.isNaN(v)) continue;
       let isMax = true;
       let isMin = true;
       for (let dr = -win; dr <= win && (isMax || isMin); dr++) {

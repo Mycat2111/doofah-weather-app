@@ -59,6 +59,20 @@ export const PRECIP_SCALE = buildScale(
   (v) => Math.log(v),
 );
 
+/** Cloud cover: clear sky shows the map, thicker cloud a whiter veil (never opaque, so roads stay readable). */
+export const CLOUD_SCALE = buildScale(
+  [
+    [0, [236, 241, 250, 0]],
+    [20, [236, 241, 250, 0.04]],
+    [40, [232, 238, 248, 0.2]],
+    [60, [226, 233, 246, 0.38]],
+    [80, [220, 228, 243, 0.56]],
+    [100, [214, 223, 240, 0.7]],
+  ],
+  "%",
+  [0, 25, 50, 75, 100],
+);
+
 export const TEMPERATURE_SCALE = buildScale(
   [
     [-20, [150, 110, 230, 0.6]],
@@ -103,6 +117,7 @@ export const PRESSURE_SCALE = buildScale(
 
 export const SCALES: Record<RadarLayerType, ColorScale> = {
   precipitation: PRECIP_SCALE,
+  clouds: CLOUD_SCALE,
   temperature: TEMPERATURE_SCALE,
   wind: WIND_SCALE,
   pressure: PRESSURE_SCALE,

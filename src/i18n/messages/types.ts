@@ -310,11 +310,12 @@ export interface Messages {
     twoFingers: string;
     /** Text around the "OpenStreetMap" link in the map credit. */
     attribution: { before: string; after: string };
-    /** Tag on the map when the forecast is real but the radar layers are still simulated. */
-    simulated: string;
+    /** The live map layers could not be loaded; they are asked for again shortly. */
+    unavailable: string;
     probe: {
       noRain: (cloudPercent: number) => string;
       rain: (rate: string) => string;
+      clouds: (percent: number) => string;
       temperature: (temp: string) => string;
       wind: (speed: number) => string;
       pressure: (hpa: string) => string;

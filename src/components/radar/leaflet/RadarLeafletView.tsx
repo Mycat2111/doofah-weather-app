@@ -18,7 +18,7 @@ import {
   type RadarFrameSet,
   type RadarGridSpec,
 } from "@/services/WeatherNext3MockService";
-import { PRECIP_SCALE, PRESSURE_SCALE, TEMPERATURE_SCALE, WIND_SCALE } from "../colorScales";
+import { CLOUD_SCALE, PRECIP_SCALE, PRESSURE_SCALE, TEMPERATURE_SCALE, WIND_SCALE } from "../colorScales";
 import { FieldRasterLayer } from "./FieldRasterLayer";
 import { IsobarLayer } from "./IsobarLayer";
 import { ReportMarkers } from "./ReportMarkers";
@@ -213,6 +213,8 @@ function FrameLayers({ grid, frame, draft }: { grid: RadarGridSpec; frame: Radar
       return (
         <FieldRasterLayer grid={grid} values={frame.rate} cloud={frame.cloud} scale={PRECIP_SCALE} draft={draft} />
       );
+    case "clouds":
+      return <FieldRasterLayer grid={grid} values={frame.cover} scale={CLOUD_SCALE} draft={draft} />;
     case "temperature":
       return (
         <FieldRasterLayer
@@ -248,6 +250,10 @@ function describe(grid: RadarGridSpec, frame: RadarFrame, p: GeoPoint, m: Messag
       const r = at(frame.rate);
       if (Number.isNaN(r)) return outsideArea;
       return r < 0.1 ? probe.noRain(Math.round(at(frame.cloud) * 100)) : probe.rain(r.toFixed(1));
+    }
+    case "clouds": {
+      const c = at(frame.cover);
+      return Number.isNaN(c) ? outsideArea : probe.clouds(Math.round(Math.min(100, Math.max(0, c))));
     }
     case "temperature": {
       const t = at(frame.temperature);

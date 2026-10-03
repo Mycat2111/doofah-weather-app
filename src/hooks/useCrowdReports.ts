@@ -24,8 +24,8 @@ interface CommunityState {
  * localStorage and, with `simulated` data, other people's from the mock
  * backend (refreshed every minute), with how they compare with the radar.
  *
- * With real forecasts there is no backend of other people's reports yet, and
- * the radar they would check is simulated, so only your own reports show.
+ * With real forecasts there is no backend of other people's reports yet, so
+ * only your own reports show.
  */
 export function useCrowdReports(place: Place, simulated: boolean) {
   const mine = useSyncExternalStore(
