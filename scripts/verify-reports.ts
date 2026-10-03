@@ -7,7 +7,6 @@ import { MESSAGES } from "../src/i18n/messages";
 import { agreesWithRadar, verifyRadar } from "../src/lib/crowdVerify";
 import {
   addMyReport,
-  CrowdReportMockService,
   liveReports,
   parseMyReports,
   radarKind,
@@ -17,16 +16,17 @@ import {
   reportLife,
   type CrowdReport,
   type ReportKind,
-} from "../src/services/CrowdReportMockService";
-import { distanceKm } from "../src/services/weathernext3/places";
-import { PLACES, WeatherNext3MockService } from "../src/services/WeatherNext3MockService";
+} from "../src/lib/crowdReports";
+import { SimulatedCrowdReports } from "../src/services/simulation/SimulatedCrowdReports";
+import { SimulatedWeatherService } from "../src/services/simulation/SimulatedWeatherService";
+import { distanceKm, PLACES } from "../src/services/weather/places";
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 const NOW = Date.UTC(2026, 8, 30, 7, 20); // 30 Sep 2026, 14:20 in Bangkok
 const bangkok = PLACES.find((p) => p.id === "bangkok")!;
-const weather = new WeatherNext3MockService({ latencyMs: 0, now: () => NOW });
-const service = new CrowdReportMockService({ weather, latencyMs: 0, now: () => NOW });
+const weather = new SimulatedWeatherService({ latencyMs: 0, now: () => NOW });
+const service = new SimulatedCrowdReports({ weather, latencyMs: 0, now: () => NOW });
 const { en, th } = MESSAGES;
 
 const report = (kind: ReportKind, minutesAgo: number, mine = false): CrowdReport => ({
@@ -64,8 +64,8 @@ async function main() {
   const statuses: Record<string, number> = {};
   for (let h = 0; h < 7 * 24; h += 7) {
     const now = NOW + h * HOUR;
-    const w = new WeatherNext3MockService({ latencyMs: 0, now: () => now });
-    const s = new CrowdReportMockService({ weather: w, latencyMs: 0, now: () => now });
+    const w = new SimulatedWeatherService({ latencyMs: 0, now: () => now });
+    const s = new SimulatedCrowdReports({ weather: w, latencyMs: 0, now: () => now });
     for (const place of PLACES) {
       const reports = s.communityReports(place.point, now);
       for (const r of reports) {

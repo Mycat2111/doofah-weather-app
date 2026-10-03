@@ -13,7 +13,7 @@ import {
   type LucideIcon,
   type LucideProps,
 } from "lucide-react";
-import type { WeatherCondition } from "@/services/WeatherNext3MockService";
+import type { WeatherCondition } from "@/services/weather/types";
 
 const ICONS: Record<WeatherCondition, { day: LucideIcon; night: LucideIcon; color: string }> = {
   clear: { day: Sun, night: Moon, color: "#fcd34d" },

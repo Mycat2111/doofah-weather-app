@@ -8,7 +8,7 @@
  */
 
 import { OpenMeteoError } from "../openmeteo/api";
-import { floorToHour, HOUR_MS } from "../weathernext3/time";
+import { floorToHour, HOUR_MS } from "../weather/time";
 import { defaultSources, getUnifiedForecast, type ForecastSources } from "./unified";
 
 /** While a new answer is fetched after the hour, the old one may still be served for this long. */

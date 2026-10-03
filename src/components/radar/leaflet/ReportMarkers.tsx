@@ -4,7 +4,7 @@ import L from "leaflet";
 import { useEffect, useMemo, useRef } from "react";
 import { Marker, Popup } from "react-leaflet";
 import { useI18n } from "@/i18n/I18nProvider";
-import { reportLife, type CrowdReport, type ReportKind } from "@/services/CrowdReportMockService";
+import { reportLife, type CrowdReport, type ReportKind } from "@/lib/crowdReports";
 
 // Lucide's icons (sun, moon, cloud, cloud-drizzle, cloud-rain-wind) as SVG
 // strings, since Leaflet markers are plain HTML rather than React.

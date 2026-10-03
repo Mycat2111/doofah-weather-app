@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { routeOutlook, routeStops, type RouteOutlook, type RouteStopWeather } from "@/lib/routeWeather";
 import { getRoute, RouteError, type Route, type RouteErrorCode } from "@/services/routing/routeService";
 import type { WeatherService } from "@/services/weatherService";
-import type { Place } from "@/services/WeatherNext3MockService";
+import type { Place } from "@/services/weather/types";
 
 const HOUR_MS = 3_600_000;
 

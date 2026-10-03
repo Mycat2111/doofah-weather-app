@@ -5,14 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import { useNow } from "@/hooks/useNow";
 import { useWeatherState } from "@/hooks/useWeatherState";
 import { frameBetween, frameFlow, frameSpan, type Flow } from "@/components/radar/interpolate";
-import { floorToHour } from "@/services/weathernext3/time";
-import type {
-  GeoBounds,
-  RadarFrame,
-  RadarFrameSet,
-  RadarGridSpec,
-  RadarLayerType,
-} from "@/services/WeatherNext3MockService";
+import { floorToHour } from "@/services/weather/time";
+import type { GeoBounds, RadarFrame, RadarFrameSet, RadarGridSpec, RadarLayerType } from "@/services/weather/types";
 
 export const TIMELINE_FROM = -3;
 export const TIMELINE_TO = 24;

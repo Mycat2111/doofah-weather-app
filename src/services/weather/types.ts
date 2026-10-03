@@ -1,11 +1,8 @@
 /**
  * Data contracts for DooFah's weather data, from either source: the live
- * forecast (WRF and ECMWF, see services/forecast), or the simulated
- * WeatherNext 3 API.
- *
- * In the simulation every value comes from a deterministic, continuous field
- * model, so a point forecast, an hourly series and a radar grid for the same
- * place and time always agree with each other.
+ * forecast (WRF and ECMWF, see services/forecast, and the map's layers from
+ * services/fields), or the simulation kept for tests and demos
+ * (services/simulation, `?data=sim`).
  */
 
 import type { Model, ModelUsed } from "../forecast/types";
@@ -43,7 +40,7 @@ export interface Place {
   timeZone: string;
 }
 
-/** One cell of the 5 km × 5 km WeatherNext 3 grid. */
+/** One cell of the simulation's 5 km × 5 km grid. */
 export interface GridCell {
   id: string;
   row: number;

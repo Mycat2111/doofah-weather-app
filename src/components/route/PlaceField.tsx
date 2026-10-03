@@ -9,7 +9,8 @@ import { useGeolocation } from "@/hooks/useGeolocation";
 import { useI18n } from "@/i18n/I18nProvider";
 import { favoriteName, placeLabel } from "@/i18n/places";
 import { isSamePlace } from "@/lib/favorites";
-import { weatherNext3, type GeoPoint, type Place } from "@/services/WeatherNext3MockService";
+import { placeForPoint, searchPlaces } from "@/services/weather/places";
+import type { GeoPoint, Place } from "@/services/weather/types";
 
 interface Option {
   key: string;
@@ -40,25 +41,17 @@ export function PlaceField({ label, role, value, placeholder, onChange, current 
   const [active, setActive] = useState(0);
   const listId = useId();
 
-  const onLocated = useCallback((point: GeoPoint) => onChange(weatherNext3.placeForPoint(point)), [onChange]);
+  const onLocated = useCallback((point: GeoPoint) => onChange(placeForPoint(point)), [onChange]);
   const geo = useGeolocation(onLocated);
 
   useEffect(() => {
-    let cancelled = false;
     const q = query.trim();
     const timer = window.setTimeout(() => {
       if (!q) return setResults([]);
-      weatherNext3.searchPlaces(q).then((found) => {
-        if (!cancelled) {
-          setResults(found);
-          setActive(0);
-        }
-      });
+      setResults(searchPlaces(q));
+      setActive(0);
     }, 120);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
+    return () => window.clearTimeout(timer);
   }, [query]);
 
   const describe = (p: Place) => placeLabel(p, locale);

@@ -7,7 +7,7 @@ import { CardLabel, GlassCard } from "@/components/ui/GlassCard";
 import { TapButton } from "@/components/ui/TapButton";
 import { WeatherIcon } from "@/components/ui/WeatherIcon";
 import { useI18n } from "@/i18n/I18nProvider";
-import type { DailyForecast, HourlyForecast } from "@/services/WeatherNext3MockService";
+import type { DailyForecast, HourlyForecast } from "@/services/weather/types";
 
 interface HourlyForecastSliderProps {
   hours: HourlyForecast[];

@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, type CSSProperties } from "react";
-import type { AtmosphereTheme } from "@/services/WeatherNext3MockService";
+import type { AtmosphereTheme } from "@/services/weather/types";
 
 interface Palette {
   gradient: string;

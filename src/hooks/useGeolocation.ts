@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import type { GeoPoint } from "@/services/WeatherNext3MockService";
+import type { GeoPoint } from "@/services/weather/types";
 
 export type GeolocationStatus = "idle" | "locating" | "denied" | "unavailable";
 

@@ -1,3 +1,4 @@
+import type { ReportKind } from "@/lib/crowdReports";
 import type {
   AqiCategory,
   DayOutlook,
@@ -5,11 +6,10 @@ import type {
   RadarLayerType,
   RainIntensity,
   WeatherCondition,
-} from "@/services/weathernext3/types";
+} from "@/services/weather/types";
 import type { AlertTip } from "@/lib/alerts";
 import type { CycloneCategory } from "@/lib/cyclones";
 import type { Activity, Level, LifestyleReason } from "@/lib/lifestyle";
-import type { ReportKind } from "@/services/CrowdReportMockService";
 import type { RouteOutlook, StopRain } from "@/lib/routeWeather";
 import type { SummaryContext, SummaryFact } from "@/lib/voiceSummary";
 import type { RouteErrorCode } from "@/services/routing/types";
@@ -302,6 +302,8 @@ export interface Messages {
     layers: Record<RadarLayerType, { short: string; long: string; legend: string }>;
     loading: string;
     grid: (km: number) => string;
+    /** `?data=sim`: the layers' source, where live layers name their model. */
+    simulation: string;
     run: (utcClock: string) => string;
     play: string;
     pause: string;
@@ -369,7 +371,7 @@ export interface Messages {
   };
 
   footer: {
-    /** Credit for the simulated forecast. */
+    /** `?data=sim`: says the weather is simulated demo data, and its made-up run. */
     credit: string;
     modelRun: (utc: string) => string;
     /** Live forecasts: "Forecast:", then the text around TMD's name when WRF is used, then ECMWF "via" Open-Meteo.com. */

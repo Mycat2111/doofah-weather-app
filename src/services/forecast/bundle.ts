@@ -1,6 +1,6 @@
 /**
  * The unified forecast (/api/forecast's reply, in snake_case) in the app's
- * own shapes (weathernext3/types.ts, in camelCase), turned once when it
+ * own shapes (weather/types.ts, in camelCase), turned once when it
  * arrives: the dashboard's ForecastBundle, and a spot's weather for a
  * favorite's chip or a stop on a road trip. Both read the same hours by the
  * same rules, so a favorite's chip shows what its dashboard shows.
@@ -11,10 +11,10 @@
 
 import { airQualityFrom } from "../openmeteo/air";
 import type { AirQualityResponse } from "../openmeteo/api";
-import { describeDayEn } from "../weathernext3/describe";
-import { sunElevation } from "../weathernext3/solar";
-import { atmosphereFor, nowcastFromSteps } from "../weathernext3/summarise";
-import { floorToHour, HOUR_MS, localDateKey } from "../weathernext3/time";
+import { describeDayEn } from "../weather/describe";
+import { sunElevation } from "../weather/solar";
+import { atmosphereFor, nowcastFromSteps } from "../weather/summarise";
+import { floorToHour, HOUR_MS, localDateKey } from "../weather/time";
 import type {
   AtmosphericSample,
   CurrentConditions,
@@ -26,7 +26,7 @@ import type {
   NowcastStep,
   Place,
   SpotWeather,
-} from "../weathernext3/types";
+} from "../weather/types";
 import type { Model, UnifiedDay, UnifiedForecast, UnifiedHour } from "./types";
 
 const STEP_MS = 10 * 60_000;

@@ -3,7 +3,7 @@
 import { useCallback } from "react";
 import { useNow } from "@/hooks/useNow";
 import { useI18n } from "@/i18n/I18nProvider";
-import { daysBetween, localDateKey } from "@/services/weathernext3/time";
+import { daysBetween, localDateKey } from "@/services/weather/time";
 
 /** A time with its day in `timeZone`, the way the storm text says it: "14:00 tomorrow" / "พรุ่งนี้ 14:00 น.". */
 export function useWhen(timeZone: string) {

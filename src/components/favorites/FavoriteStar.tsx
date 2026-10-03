@@ -10,7 +10,7 @@ import { useI18n } from "@/i18n/I18nProvider";
 import { placeLabel } from "@/i18n/places";
 import { FAVORITE_KINDS } from "@/lib/favorites";
 import { haptic } from "@/lib/haptics";
-import type { Place } from "@/services/WeatherNext3MockService";
+import type { Place } from "@/services/weather/types";
 
 /**
  * Star beside the place name. One tap saves the place; the panel that opens

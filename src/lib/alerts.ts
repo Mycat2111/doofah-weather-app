@@ -1,4 +1,4 @@
-import type { AqiCategory, CurrentConditions, HourlyForecast } from "@/services/WeatherNext3MockService";
+import type { AqiCategory, CurrentConditions, HourlyForecast } from "@/services/weather/types";
 import type { CycloneAlert } from "./cyclones";
 
 /** Air alert above this US AQI: "Unhealthy" and worse. */

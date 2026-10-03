@@ -1,5 +1,5 @@
 import type { Favorite } from "@/lib/favorites";
-import type { Place } from "@/services/weathernext3/types";
+import type { Place } from "@/services/weather/types";
 import type { Locale } from "./config";
 import type { Messages } from "./messages/types";
 

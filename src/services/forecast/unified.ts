@@ -10,10 +10,10 @@
  */
 
 import { FORECAST_DAYS } from "../openmeteo/api";
-import { sunTimes } from "../weathernext3/solar";
-import { summariseDay } from "../weathernext3/summarise";
-import { floorToHour, HOUR_MS, localDateKey, zonedMidnight, zonedParts } from "../weathernext3/time";
-import type { GeoPoint } from "../weathernext3/types";
+import { sunTimes } from "../weather/solar";
+import { summariseDay } from "../weather/summarise";
+import { floorToHour, HOUR_MS, localDateKey, zonedMidnight, zonedParts } from "../weather/time";
+import type { GeoPoint } from "../weather/types";
 import { appHour } from "./bundle";
 import { fetchEcmwf, type EcmwfAnswer } from "./ecmwf";
 import { snapPoint } from "./point";

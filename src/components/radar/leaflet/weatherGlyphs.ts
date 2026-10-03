@@ -1,4 +1,4 @@
-import type { WeatherCondition } from "@/services/WeatherNext3MockService";
+import type { WeatherCondition } from "@/services/weather/types";
 
 // Lucide's weather, car and flag icons as SVG markup, for Leaflet markers
 // (plain HTML rather than React). Same icons as components/ui/WeatherIcon.

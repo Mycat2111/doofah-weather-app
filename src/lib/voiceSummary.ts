@@ -1,7 +1,7 @@
 import type { Locale } from "@/i18n/config";
 import { MESSAGES } from "@/i18n/messages";
 import { placeLabel } from "@/i18n/places";
-import { zonedParts } from "@/services/weathernext3/time";
+import { zonedParts } from "@/services/weather/time";
 import type {
   AqiCategory,
   CurrentConditions,
@@ -10,7 +10,7 @@ import type {
   HourlyForecast,
   RainIntensity,
   WeatherCondition,
-} from "@/services/WeatherNext3MockService";
+} from "@/services/weather/types";
 import { AIR_CAUTION, HEAT_DANGER, UV_HIGH } from "./lifestyle";
 import { hoursBetween, minutesUntil, type RainCountdown } from "./rainCountdown";
 import { HEAVY_RATE } from "./routeWeather";

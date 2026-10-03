@@ -1,5 +1,5 @@
-import { PLACES } from "../weathernext3/places";
-import type { GeoPoint } from "../weathernext3/types";
+import { PLACES } from "../weather/places";
+import type { GeoPoint } from "../weather/types";
 
 /**
  * Towns along Thailand's main highways and the roads into its neighbours, in

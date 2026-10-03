@@ -20,7 +20,7 @@ import {
   type ForecastResponse,
   type Values,
 } from "../openmeteo/api";
-import type { GeoPoint } from "../weathernext3/types";
+import type { GeoPoint } from "../weather/types";
 import { windParts, type ModelHour, type ModelSeries } from "./router";
 
 export const ECMWF_MODEL = "ecmwf_ifs";

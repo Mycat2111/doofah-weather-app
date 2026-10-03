@@ -1,7 +1,7 @@
 "use client";
 
 import { useI18n } from "@/i18n/I18nProvider";
-import type { RadarLayerType } from "@/services/WeatherNext3MockService";
+import type { RadarLayerType } from "@/services/weather/types";
 import { SCALES, legendGradient, legendPosition } from "./colorScales";
 
 // Units spelled differently in Thai; °C and hPa read the same in both languages.

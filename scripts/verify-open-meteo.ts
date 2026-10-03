@@ -9,8 +9,8 @@ import assert from "node:assert/strict";
 import { airQualityFrom } from "../src/services/openmeteo/air";
 import { AIR_VARIABLES, airQualityParams, type AirQualityResponse } from "../src/services/openmeteo/api";
 import { proxyAirQuality } from "../src/services/openmeteo/proxy";
-import { HOUR_MS } from "../src/services/weathernext3/time";
-import { PLACES } from "../src/services/WeatherNext3MockService";
+import { PLACES } from "../src/services/weather/places";
+import { HOUR_MS } from "../src/services/weather/time";
 
 const NOW = Date.UTC(2026, 8, 30, 7, 20); // 30 Sep 2026, 14:20 in Bangkok
 const MIN = 60_000;

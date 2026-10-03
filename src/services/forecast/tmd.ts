@@ -21,8 +21,8 @@
  * takes them from ECMWF, and says so.
  */
 
-import { HOUR_MS, localDateKey, zonedParts } from "../weathernext3/time";
-import type { GeoPoint } from "../weathernext3/types";
+import { HOUR_MS, localDateKey, zonedParts } from "../weather/time";
+import type { GeoPoint } from "../weather/types";
 import { windParts, type ModelHour, type ModelSeries } from "./router";
 
 export const TMD_URL = "https://data.tmd.go.th/nwpapi/v1/forecast/location/hourly/at";

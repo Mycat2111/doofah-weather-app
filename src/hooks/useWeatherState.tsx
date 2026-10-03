@@ -14,7 +14,8 @@ import { useForecast } from "@/hooks/useForecast";
 import { readOpeningPlace, saveLastPlace } from "@/lib/favorites";
 import { bundleAt } from "@/services/forecast/bundle";
 import type { WeatherService } from "@/services/weatherService";
-import { DEFAULT_PLACE, weatherNext3, type ForecastBundle, type Place } from "@/services/WeatherNext3MockService";
+import { DEFAULT_PLACE } from "@/services/weather/places";
+import type { ForecastBundle, Place } from "@/services/weather/types";
 
 /**
  * The dashboard's one place, one forecast and one moment, shared by every
@@ -84,12 +85,8 @@ export function WeatherStateProvider({ weather, children }: { weather: WeatherSe
 
   const here = useMemo(() => {
     if (!forecast || time === null) return forecast;
-    // The simulation answers for any moment from the model behind its radar.
-    const point = forecast.current.place.point;
-    const own =
-      weather.source === "simulated"
-        ? { sample: weatherNext3.sampleAt(point, time), nowcast: weatherNext3.nowcastAt(point, time) }
-        : {};
+    // The simulation answers for any moment from the model behind its map layers.
+    const own = weather.momentAt?.(forecast.current.place.point, time) ?? {};
     return bundleAt(forecast, time, own) ?? forecast;
   }, [forecast, time, weather]);
 

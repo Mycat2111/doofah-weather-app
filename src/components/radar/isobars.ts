@@ -1,4 +1,4 @@
-import type { RadarGridSpec } from "@/services/WeatherNext3MockService";
+import type { RadarGridSpec } from "@/services/weather/types";
 
 /** A contour segment as [lat1, lon1, lat2, lon2]. */
 export type Segment = [number, number, number, number];

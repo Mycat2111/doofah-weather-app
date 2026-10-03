@@ -4,9 +4,9 @@
  * asks for it on its own.
  */
 
-import { aqiCategory } from "../weathernext3/fieldModel";
-import { HOUR_MS } from "../weathernext3/time";
-import type { AirQuality, Pollutant } from "../weathernext3/types";
+import { aqiCategory } from "../weather/physics";
+import { HOUR_MS } from "../weather/time";
+import type { AirQuality, Pollutant } from "../weather/types";
 import type { AirQualityResponse } from "./api";
 
 /** Air quality is shown while this recent. */
