@@ -7,7 +7,7 @@ import { AtmosphereBackground } from "@/components/AtmosphereBackground";
 import { CurrentWeatherCard } from "@/components/CurrentWeatherCard";
 import { DailyForecastList } from "@/components/DailyForecastList";
 import { DooFahHeader } from "@/components/DooFahHeader";
-import { DooFahRadarMap } from "@/components/DooFahRadarMap";
+import { DooFahRadarMap, type StormFocus } from "@/components/DooFahRadarMap";
 import { FavoritesBar } from "@/components/favorites/FavoritesBar";
 import { HourlyForecastSlider } from "@/components/HourlyForecastSlider";
 import { LifestyleIndex } from "@/components/LifestyleIndex";
@@ -19,13 +19,17 @@ import { WeatherDetailsGrid } from "@/components/WeatherDetailsGrid";
 import { VoiceSummaryButton } from "@/components/VoiceSummaryButton";
 import { WeatherReportBar } from "@/components/WeatherReportBar";
 import { useCrowdReports } from "@/hooks/useCrowdReports";
+import { useCyclones } from "@/hooks/useCyclones";
+import { useFavorites } from "@/hooks/useFavorites";
 import { useGeolocation } from "@/hooks/useGeolocation";
+import { useNow } from "@/hooks/useNow";
 import { useRouteWeather } from "@/hooks/useRouteWeather";
 import { useWeatherState, WeatherStateProvider } from "@/hooks/useWeatherState";
 import type { Locale } from "@/i18n/config";
 import { useI18n } from "@/i18n/I18nProvider";
-import { placeLabel } from "@/i18n/places";
-import { previewAlerts, weatherAlerts, type AlertKind } from "@/lib/alerts";
+import { favoriteName, placeLabel } from "@/i18n/places";
+import { previewAlerts, weatherAlerts, type AlertKind, type WeatherAlert } from "@/lib/alerts";
+import { cycloneAlerts } from "@/lib/cyclones";
 import { lifestyleIndex } from "@/lib/lifestyle";
 import { previewCountdown, previewNowcast, rainCountdown, type CountdownPreview } from "@/lib/rainCountdown";
 import { weatherSummary } from "@/lib/voiceSummary";
@@ -44,6 +48,8 @@ interface DooFahDashboardProps {
   alertPreview?: AlertKind[];
   /** Show a sample rain countdown, e.g. from `?rain=soon`. */
   rainPreview?: CountdownPreview;
+  /** Show a made-up tropical cyclone near the place (`?cyclones=demo`) instead of ECMWF's. */
+  cyclonePreview?: boolean;
   /** Where the forecast comes from, decided on the server. */
   weather: WeatherSetup;
   /** The OSRM server road trips are routed by, or null when the site has none it may use. */
@@ -67,6 +73,7 @@ function Dashboard({
   atmosphereOverride,
   alertPreview,
   rainPreview,
+  cyclonePreview,
   weather,
   osrmUrl,
   contactEmail,
@@ -79,6 +86,10 @@ function Dashboard({
   const crowd = useCrowdReports(place, simulated);
   const route = useRouteWeather(weather, place, osrmUrl);
   const [routeFocus, setRouteFocus] = useState<RouteFocus>({ key: 0, stop: null });
+  const cyclones = useCyclones(cyclonePreview ? place.point : null);
+  const [stormFocus, setStormFocus] = useState<StormFocus>({ key: 0, stormId: "" });
+  const { favorites } = useFavorites();
+  const now = useNow();
 
   const onLocated = useCallback((point: GeoPoint) => setPlace(weatherNext3.placeForPoint(point)), [setPlace]);
   const geo = useGeolocation(onLocated);
@@ -91,7 +102,27 @@ function Dashboard({
   // data stays visible, dimmed, while the next one loads).
   const tz = data?.current.place.timeZone ?? place.timeZone;
 
-  const alerts = useMemo(() => alertsFor(data, alertPreview), [data, alertPreview]);
+  // Storm alerts for the place and the favorites, worked out again every 10 minutes as the storms move on.
+  const tick = now === null ? null : Math.floor(now / 600_000) * 600_000;
+  const stormAlerts = useMemo(() => {
+    if (!cyclones.feed || tick === null) return [];
+    const here = { id: place.id, name: placeLabel(place, locale).name, point: place.point };
+    const starred = favorites.map((fav) => ({
+      id: fav.place.id,
+      name: favoriteName(fav, locale, m),
+      point: fav.place.point,
+    }));
+    return cycloneAlerts(cyclones.feed, here, starred, tick);
+  }, [cyclones.feed, tick, place, favorites, locale, m]);
+  const alerts = useMemo(() => {
+    const all: WeatherAlert[] = [...stormAlerts, ...alertsFor(data, alertPreview)];
+    // Severe first, storms ahead of the rest at the same level.
+    return all.sort((a, b) => (a.level === b.level ? 0 : a.level === "severe" ? -1 : 1));
+  }, [stormAlerts, data, alertPreview]);
+  const showStorm = useCallback((stormId: string) => {
+    setStormFocus((f) => ({ key: f.key + 1, stormId }));
+    document.getElementById("doofah-radar")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, []);
 
   const countdownOf = (bundle: typeof data) =>
     !bundle
@@ -139,10 +170,10 @@ function Dashboard({
       <>
         <DooFahHeader place={place} onSelectPlace={setPlace} onLocate={geo.locate} geoStatus={geo.status} />
         <FavoritesBar place={place} onSelectPlace={setPlace} weather={weather} sampleTime={sampleTime} />
-        <WeatherAlertBanner alerts={alerts} placeId={placeId} timeZone={tz} />
+        <WeatherAlertBanner alerts={alerts} placeId={placeId} timeZone={tz} onShowStorm={showStorm} />
       </>
     ),
-    [place, setPlace, geo.locate, geo.status, weather, sampleTime, alerts, placeId, tz],
+    [place, setPlace, geo.locate, geo.status, weather, sampleTime, alerts, placeId, tz, showStorm],
   );
   const hourly = useMemo(
     () =>
@@ -247,6 +278,8 @@ function Dashboard({
             trip={trip}
             tripFocus={routeFocus}
             tripStopName={stopName}
+            cyclones={cyclones}
+            stormFocus={stormFocus}
             className="h-[600px] lg:col-start-2 lg:row-start-1 lg:h-auto lg:min-h-[580px]"
           />
           {routeCard}

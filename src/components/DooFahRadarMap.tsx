@@ -13,15 +13,19 @@ import { Hand, LoaderCircle, Radar } from "lucide-react";
 import dynamic from "next/dynamic";
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CrowdVerifiedBadge } from "@/components/radar/CrowdVerifiedBadge";
+import { CycloneStatus } from "@/components/radar/CycloneStatus";
 import { LayerSwitcher } from "@/components/radar/LayerSwitcher";
 import { RadarLegend } from "@/components/radar/RadarLegend";
 import { RecenterButton } from "@/components/radar/RecenterButton";
 import { TimelineScrubber } from "@/components/radar/TimelineScrubber";
 import { ZoomButtons } from "@/components/radar/ZoomButtons";
+import type { CycloneState } from "@/hooks/useCyclones";
 import { useNow } from "@/hooks/useNow";
 import { TIMELINE_STEP_MS, toStep, useRadarFrames } from "@/hooks/useRadarFrames";
 import { useWeatherState } from "@/hooks/useWeatherState";
 import { useI18n } from "@/i18n/I18nProvider";
+import { placeLabel } from "@/i18n/places";
+import { inRegion, lonShift, trackAhead, type Cyclone } from "@/lib/cyclones";
 import type { RouteFocus } from "@/components/radar/leaflet/RouteLayer";
 import type { Trip } from "@/hooks/useRouteWeather";
 import type { Verification } from "@/lib/crowdVerify";
@@ -80,7 +84,16 @@ interface DooFahRadarMapProps {
   trip?: Trip | null;
   tripFocus?: RouteFocus;
   tripStopName?: (index: number) => string;
+  /** Active tropical cyclones, and requests to show one (from the storm alert). */
+  cyclones?: CycloneState;
+  stormFocus?: StormFocus;
   className?: string;
+}
+
+export interface StormFocus {
+  /** Changes each time the dashboard asks the map to show a storm. */
+  key: number;
+  stormId: string;
 }
 
 /**
@@ -101,9 +114,11 @@ export function DooFahRadarMap({
   trip = null,
   tripFocus,
   tripStopName,
+  cyclones,
+  stormFocus,
   className = "",
 }: DooFahRadarMapProps) {
-  const { m, f } = useI18n();
+  const { m, f, locale } = useI18n();
   const [layer, setLayer] = useState<RadarLayerType>("precipitation");
   const [bounds, setBounds] = useState<GeoBounds | null>(null);
   const [map, setMap] = useState<LeafletMap | null>(null);
@@ -238,6 +253,54 @@ export function DooFahRadarMap({
   // Reports describe the last hour, so they show on the timeline's last hour up to now.
   const live = shown === null || nowStep === null || (shown <= nowStep && shown > nowStep - HOUR_MS);
 
+  // Tropical cyclones: every active storm is drawn; the ones whose path or cone comes near the place
+  // are listed, and turn the tracks on by themselves until the toggle is used. Asking to see a storm
+  // from its alert turns them on again.
+  const feed = cyclones?.feed ?? null;
+  const storms = useMemo(
+    () => (nowStep === null || !feed ? [] : feed.storms.filter((s) => trackAhead(s.track, nowStep).length > 1)),
+    [feed, nowStep],
+  );
+  const nearby = useMemo(
+    () => (nowStep === null ? [] : storms.filter((s) => inRegion(s, place.point, nowStep))),
+    [storms, place.point, nowStep],
+  );
+  const focusKey = stormFocus?.key ?? 0;
+  const [stormsChoice, setStormsChoice] = useState<{ on: boolean; focusKey: number } | null>(null);
+  const stormsOn =
+    stormsChoice && stormsChoice.focusKey === focusKey ? stormsChoice.on : nearby.length > 0 || focusKey > 0;
+
+  const showStorm = useCallback(
+    (storm: Cyclone) => {
+      if (!map || nowStep === null) return;
+      const shift = lonShift(storm.track[0].lon, place.point.lon);
+      const points = [
+        ...trackAhead(storm.track, nowStep).map((p) => [p.lat, p.lon - shift]),
+        [place.point.lat, place.point.lon],
+      ];
+      const lats = points.map((p) => p[0]);
+      const lons = points.map((p) => p[1]);
+      map.flyToBounds(
+        [
+          [Math.min(...lats), Math.min(...lons)],
+          [Math.max(...lats), Math.max(...lons)],
+        ],
+        // Room for the storm's name to the right of its eye, and for the controls above and below.
+        { paddingTopLeft: [40, 120], paddingBottomRight: [80, 190], duration: 1.2, maxZoom: 7 },
+      );
+    },
+    [map, nowStep, place.point],
+  );
+
+  const seenStormFocus = useRef(focusKey);
+  useEffect(() => {
+    if (!stormFocus || stormFocus.key === seenStormFocus.current) return;
+    const storm = storms.find((s) => s.id === stormFocus.stormId);
+    if (!storm || !map) return;
+    seenStormFocus.current = stormFocus.key;
+    showStorm(storm);
+  }, [stormFocus, storms, map, showStorm]);
+
   return (
     <section
       id="doofah-radar"
@@ -261,6 +324,11 @@ export function DooFahRadarMap({
           tripFocus={tripFocus}
           tripStopName={tripStopName}
           timeZone={place.timeZone}
+          cyclones={
+            stormsOn && nowStep !== null
+              ? { storms, now: nowStep, placeName: placeLabel(place, locale).name, demo: feed?.demo }
+              : undefined
+          }
         />
       </div>
 
@@ -288,11 +356,31 @@ export function DooFahRadarMap({
       </AnimatePresence>
 
       {/* Top overlay */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-wrap items-start justify-between gap-2 bg-gradient-to-b from-black/35 to-transparent p-3 sm:p-4">
+      <div className="@container pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-wrap items-start justify-between gap-2 bg-gradient-to-b from-black/35 to-transparent p-3 sm:p-4">
         <div className="flex min-w-0 flex-col items-start gap-2">
           <div className="pointer-events-auto max-w-full">
-            <LayerSwitcher value={layer} onChange={setLayer} />
+            <LayerSwitcher
+              value={layer}
+              onChange={setLayer}
+              storms={
+                cyclones && {
+                  on: stormsOn,
+                  near: nearby.length,
+                  onToggle: () => setStormsChoice({ on: !stormsOn, focusKey }),
+                }
+              }
+            />
           </div>
+          {cyclones && stormsOn && nowStep !== null && (
+            <CycloneStatus
+              state={cyclones}
+              nearby={nearby}
+              elsewhere={storms.length - nearby.length}
+              place={place.point}
+              now={nowStep}
+              onPick={showStorm}
+            />
+          )}
           <CrowdVerifiedBadge verification={live && layer === "precipitation" ? verification : null} />
         </div>
         <div className="glass-dark pointer-events-auto flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] text-white/80">
@@ -370,6 +458,21 @@ export function DooFahRadarMap({
                 OpenStreetMap
               </a>
               {m.radar.attribution.after}
+              {stormsOn && feed && (
+                <>
+                  <br />
+                  {m.cyclones.credit.before}
+                  <a
+                    href="https://www.ecmwf.int/en/forecasts/datasets/open-data"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline decoration-white/30 hover:text-white/70"
+                  >
+                    ECMWF
+                  </a>
+                  {m.cyclones.credit.after}
+                </>
+              )}
             </p>
           </div>
         </div>

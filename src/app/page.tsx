@@ -8,7 +8,7 @@ import { ATMOSPHERE_THEMES, type AtmosphereTheme } from "@/services/WeatherNext3
 const ALERT_KINDS: AlertKind[] = ["storm", "rain", "air"];
 
 export default async function Home({ searchParams }: PageProps<"/">) {
-  const { sky, alert, rain, data } = await searchParams;
+  const { sky, alert, rain, data, cyclones } = await searchParams;
   const contactEmail = process.env.CONTACT_EMAIL || undefined;
   const override = ATMOSPHERE_THEMES.find((t) => t === sky) as AtmosphereTheme | undefined;
   // `?alert=storm`, `?alert=rain,air` or `?alert=all` previews the alert banner.
@@ -27,6 +27,8 @@ export default async function Home({ searchParams }: PageProps<"/">) {
       atmosphereOverride={override}
       alertPreview={alertPreview.length ? alertPreview : undefined}
       rainPreview={rainPreview}
+      // `?cyclones=demo` shows a made-up tropical cyclone near the place, with its alert.
+      cyclonePreview={cyclones === "demo"}
       weather={weather}
       // Road routes from OSRM: FOSSGIS's public server unless OSRM_URL names another. FOSSGIS's
       // terms ask every site using it to show the operator's address, so without one there are no routes.

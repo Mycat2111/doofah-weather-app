@@ -523,6 +523,52 @@ html:lang(th) {
   }
 }
 
+/* A tropical cyclone at the timeline's time: its symbol turning the way the storm does
+   (anticlockwise in the north, mirrored and clockwise in the south), ringed in its category's colour. */
+.doofah-cyclone {
+  background: none;
+  border: 0;
+}
+.doofah-cyclone .eye {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 9999px;
+  background: rgba(10, 14, 30, 0.85);
+  box-shadow:
+    0 0 0 2.5px var(--c),
+    0 0 18px 2px color-mix(in srgb, var(--c) 55%, transparent),
+    0 4px 12px rgba(0, 0, 0, 0.45);
+  color: var(--c);
+}
+.doofah-cyclone svg {
+  animation: doofah-cyclone-turn 2.4s linear infinite;
+}
+.doofah-cyclone.south svg {
+  transform: scaleX(-1);
+  animation-name: doofah-cyclone-turn-south;
+}
+@keyframes doofah-cyclone-turn {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+@keyframes doofah-cyclone-turn-south {
+  from {
+    transform: scaleX(-1) rotate(0deg);
+  }
+  to {
+    transform: scaleX(-1) rotate(-360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .doofah-cyclone svg,
+  .doofah-cyclone.south svg {
+    animation: none;
+  }
+}
+
 .doofah-canvas-layer {
   pointer-events: none;
   transition: opacity 0.25s ease;

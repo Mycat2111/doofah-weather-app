@@ -275,6 +275,24 @@ export const en: Messages = {
       noOutdoorExercise: "Skip outdoor exercise",
       closeWindows: "Keep windows shut and run an air purifier",
       sensitiveGroups: "Children, older people and anyone with heart or lung conditions should stay indoors",
+      followWarnings: "Follow official warnings",
+      secureItems: "Tie down or bring in loose items",
+      chargeDevices: "Charge phones and power banks",
+      avoidSea: "Avoid boat trips and the beach",
+    },
+    cyclone: {
+      near: (storm, km, place) => `${storm} may pass about ${km} km from ${place}`,
+      already: (storm, km, place) => `${storm} is ${km} km from ${place}`,
+      detail: (when, windKmh, chance, alertKm) =>
+        [
+          when && `Closest at ${when}`,
+          windKmh !== null && `winds near the centre up to ${windKmh} km/h`,
+          chance !== null && `${chance}% of ECMWF's forecasts bring it within ${alertKm} km`,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      also: (places, alertKm) => `Also within ${alertKm} km: ${places}`,
+      showOnMap: "Show on map",
     },
   },
 
@@ -507,6 +525,34 @@ export const en: Messages = {
       temperature: (temp) => `${temp} °C at 2 m`,
       wind: (speed) => `Wind ${speed} km/h at 10 m`,
       pressure: (hpa) => `${hpa} hPa`,
+    },
+  },
+
+  cyclones: {
+    category: {
+      depression: "Tropical depression",
+      storm: "Tropical storm",
+      typhoon: "Typhoon",
+      hurricane: "Hurricane",
+      cyclone: "Cyclone",
+    },
+    storm: (category, name) => `${category} ${name}`,
+    when: (clock, day, weekday) => `${clock} ${day === 0 ? "today" : day === 1 ? "tomorrow" : weekday}`,
+    toggle: { short: "Storms", long: "Tropical cyclone tracks" },
+    loading: "Loading cyclone tracks",
+    none: "No active tropical cyclones in the region",
+    elsewhere: (count) => `${count} elsewhere`,
+    unavailable: "Cyclone tracks unavailable · retrying",
+    demo: "Sample storm",
+    credit: { before: "Cyclone tracks © ", after: " (CC BY 4.0) · the cone holds 2 in 3 of its forecasts" },
+    popup: {
+      point: (when, windKmh, pressureHpa) =>
+        [when, windKmh !== null && `wind ${windKmh} km/h`, pressureHpa !== null && `${pressureHpa} hPa`]
+          .filter(Boolean)
+          .join(" · "),
+      away: (km, place) => `${km} km from ${place}`,
+      closest: (km, place, when) => `Closest to ${place}: ${km} km at ${when}`,
+      at: (when) => `Here at ${when}`,
     },
   },
 

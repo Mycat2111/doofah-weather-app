@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { Messages } from "@/i18n/messages";
+import type { Cyclone } from "@/lib/cyclones";
 import { haptic } from "@/lib/haptics";
 import { useFrameAt } from "@/hooks/useRadarFrames";
 import type { Trip } from "@/hooks/useRouteWeather";
@@ -19,6 +20,7 @@ import {
   type RadarGridSpec,
 } from "@/services/WeatherNext3MockService";
 import { CLOUD_SCALE, PRECIP_SCALE, PRESSURE_SCALE, TEMPERATURE_SCALE, WIND_SCALE } from "../colorScales";
+import { CycloneLayer } from "./CycloneLayer";
 import { FieldRasterLayer } from "./FieldRasterLayer";
 import { IsobarLayer } from "./IsobarLayer";
 import { ReportMarkers } from "./ReportMarkers";
@@ -50,6 +52,8 @@ export interface RadarLeafletViewProps {
   tripStopName?: (index: number) => string;
   tripFocus?: RouteFocus;
   timeZone?: string;
+  /** Tropical cyclones to draw, with now (to the timeline's step) and the place's name for distances. */
+  cyclones?: { storms: Cyclone[]; now: number; placeName: string; demo?: boolean };
 }
 
 /** Closest zoom level (street level). */
@@ -322,6 +326,7 @@ export default function RadarLeafletView({
   tripStopName = String,
   tripFocus,
   timeZone = "UTC",
+  cyclones,
 }: RadarLeafletViewProps) {
   // The same array between renders, so playback and new frames never make
   // react-leaflet move the marker (which would fight a zoom in progress).
@@ -363,6 +368,16 @@ export default function RadarLeafletView({
       <Recenter center={center} nextZoomRef={nextZoomRef} />
       <ViewReporter onViewChange={onViewChange} />
       <TimelineLayers frameSet={frameSet} playhead={playhead} />
+      {cyclones && (
+        <CycloneLayer
+          storms={cyclones.storms}
+          time={time ?? cyclones.now}
+          now={cyclones.now}
+          place={{ name: cyclones.placeName, point: center }}
+          timeZone={timeZone}
+          demo={cyclones.demo}
+        />
+      )}
       {trip && (
         <RouteLayer trip={trip} frameTime={time} focus={tripFocus} timeZone={timeZone} stopName={tripStopName} />
       )}
