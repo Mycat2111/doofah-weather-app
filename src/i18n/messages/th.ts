@@ -607,7 +607,7 @@ export const th: Messages = {
     credit: "DooFah ดูฟ้า · ข้อมูลพยากรณ์จำลองตามแบบ WeatherNext 3 (กริด 5 กม. รายชั่วโมง 15 วัน)",
     modelRun: (utc) => `โมเดลรอบ ${utc} UTC`,
     forecastBy: "พยากรณ์:",
-    wrf: { before: "WRF จาก", after: "" },
+    wrf: { before: "แบบจำลอง WRF จาก", after: " (TMD)" },
     tmd: "กรมอุตุนิยมวิทยา",
     via: "ผ่าน",
     airBy: "ข้อมูลคุณภาพอากาศจาก",

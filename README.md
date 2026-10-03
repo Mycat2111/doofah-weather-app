@@ -125,8 +125,9 @@ map moves onto it in the next step.
 - **WRF** is the Thai Meteorological Department's WRF run, from TMD's NWP
   API (`src/services/forecast/tmd.ts`), for places in Thailand. It needs
   TMD's token as `TMD_API_TOKEN` in Vercel → Settings → Environment
-  Variables, never in the code. Set it for Preview first, and for
-  Production once TMD has agreed that DooFah may show WRF publicly. Without
+  Variables, never in the code, for both Preview and Production (TMD's NWP
+  API is TMD's open data service for developers; the project owner checked
+  this on 3 October 2026), then redeploy for it to take effect. Without
   the token, outside Thailand, or while TMD fails, every hour is ECMWF and
   the reply says why (`wrf_missing`, and `wrf_reason` when TMD failed);
   answers without WRF because TMD failed are kept for only 5 minutes.
@@ -164,9 +165,9 @@ map moves onto it in the next step.
 - **On the screens.** A chip on the hero card names this hour's model (WRF,
   ECMWF or WRF+ECMWF, with its resolution on hover), the hourly strip tags
   the hour where each model's hours start, and a day's details in the
-  15-day list name its model. The footer credits WRF to the Thai
-  Meteorological Department when the forecast has it, and ECMWF via
-  Open-Meteo. The rain countdown steps an hour at a time, since neither
+  15-day list name its model. The footer credits the WRF model to the Thai
+  Meteorological Department (TMD), with a link to TMD, whenever the
+  forecast has WRF hours, alongside ECMWF via Open-Meteo. The rain countdown steps an hour at a time, since neither
   model has real 15-minute steps over Thailand: its bars carry each hour's
   rain, and it names hours, never minutes ("Rain likely around 17:00", or
   "Rain possible" under a 50% chance).
