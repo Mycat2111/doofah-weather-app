@@ -1,17 +1,19 @@
 # DooFah ดูฟ้า · Look at the Sky
 
 A hyper-local weather app with a glassmorphism UI, a sky that changes with the
-weather, and an interactive top-view radar map. Forecasts and air quality are
-real, from [Open-Meteo](https://open-meteo.com/). The radar map's layers come
-from a simulated **WeatherNext 3** style model (5 km grid, hourly steps, 15-day
+weather, and an interactive top-view radar map. Forecasts are real: the Thai
+Meteorological Department's WRF for the first two days in Thailand, then
+ECMWF's IFS, through DooFah's own `/api/forecast`; air quality comes from
+[Open-Meteo](https://open-meteo.com/). The radar map's layers still come from a
+simulated **WeatherNext 3** style model (5 km grid, hourly steps, 15-day
 horizon), which can also run the whole dashboard with `?data=sim`.
 
 - **Stack:** Next.js 16 (App Router, TypeScript), Tailwind CSS 4, Framer Motion, Lucide icons, Leaflet + react-leaflet with OpenStreetMap tiles.
-- **No API keys needed.** The browser asks Open-Meteo's free API and OSRM's public road router directly; place search runs on the device. See [Weather data](#weather-data) and [Route weather](#route-weather).
+- **No API keys needed to start.** ECMWF and air quality come from Open-Meteo's free API, and place search runs on the device; WRF needs TMD's token. See [Weather data](#weather-data) and [Route weather](#route-weather).
 - **Thai and English.** A TH / EN switch in the header changes every label, forecast phrase, date and place name.
 - **Favorite places.** Star any place and it joins a one-tap bar under the header, saved in the browser.
 - **Installable app.** Add it to the home screen and it opens full screen like a native app, works offline, and is tuned for touch.
-- **Seven models, one chance of rain.** The chance of rain and how sure it is come from seven global weather models compared hour by hour. See [The models' blend](#the-models-blend).
+- **Two models, one forecast.** WRF for the first 48 hours, ECMWF after, and every hour says which. See [Unified forecast](#unified-forecast-wrf--ecmwf).
 - **Route weather.** Pick where you are going and see the weather at each stop on the way, at the time you get there, on real roads.
 - **Spoken summary.** A floating button reads a short weather summary aloud, in Thai or English.
 
@@ -37,8 +39,9 @@ npm run dev          # http://localhost:3000
 | `npm run verify:reports` | Crowd report simulation, fading, your reports and "verified" |
 | `npm run verify:route` | Reading OSRM's replies (a real Koh Samui ferry route), the router's limits, stops along the way and the trip outlook |
 | `npm run verify:voice` | Spoken times, voice choice and the summary for every place in both languages |
-| `npm run verify:open-meteo` | Open-Meteo requests, reading its replies, the models' blend, offline copies and the key proxy |
+| `npm run verify:open-meteo` | Open-Meteo's air quality: the request, the AQI and the key proxy |
 | `npm run verify:forecast` | The unified forecast: the ECMWF and TMD requests, which model each hour takes, the 48-hour blend, the condition rule, the days and `/api/forecast` |
+| `npm run verify:forecast-service` | The screens on the unified forecast: the dashboard, a favorite's chip and trip stops from one reply per place, model tags, the hourly countdown and the offline copy |
 | `npm run icons`       | Re-render the app icons and favicon from `scripts/icons/doofah-icon.svg` |
 
 Preview any sky mood with a query parameter:
@@ -52,116 +55,64 @@ Preview the rain countdown with `/?rain=soon` (rain in 20 minutes), `now`
 (heavy rain easing in 35 minutes), `later` (dry for 3 hours) or `dry`
 (dry for a day). The lifestyle cards follow the previewed countdown.
 
-Show the simulated WeatherNext 3 data instead of Open-Meteo with `/?data=sim`.
+Show the simulated WeatherNext 3 data instead of the live forecast with `/?data=sim`.
 The parameters combine, e.g. `/?data=sim&sky=rain`.
 
 ## Weather data
 
 | What | Where it comes from |
 | ---- | ------------------- |
-| Now, the 48-hour strip, 15 days, the rain countdown, alerts, lifestyle cards, the spoken summary | [Open-Meteo forecast API](https://open-meteo.com/en/docs), which picks the best weather model for each place (ECMWF's 9 km IFS over Thailand) |
-| The chance of rain and its confidence for this week | Seven models from Open-Meteo compared by DooFah; see [The models' blend](#the-models-blend) |
+| Now, the 48-hour strip, 15 days, the rain countdown, alerts, lifestyle cards, the spoken summary, favorites' chips and the weather at each road trip stop | DooFah's [unified forecast](#unified-forecast-wrf--ecmwf) at `/api/forecast`: the Thai Meteorological Department's WRF for the first 40 to 48 hours in Thailand, then ECMWF's 9 km IFS from [Open-Meteo](https://open-meteo.com/en/docs/ecmwf-api) |
 | Air quality (US AQI, PM2.5, PM10, ozone) | [Open-Meteo air quality API](https://open-meteo.com/en/docs/air-quality-api), from Copernicus CAMS |
-| Favorites' temperatures and the weather at each road trip stop | Open-Meteo, one request for up to 12 places |
-| Radar map layers (rain, wind, temperature, pressure) | The WeatherNext 3 simulation, tagged "Simulated radar" on the map |
+| Radar map layers (rain, wind, temperature, pressure) | The WeatherNext 3 simulation, tagged "Simulated radar" on the map, until the map moves onto the unified forecast |
 | Road trip routes | [OSRM](https://project-osrm.org) over [OpenStreetMap](https://www.openstreetmap.org/copyright)'s roads, from FOSSGIS's public car router; see [Route weather](#route-weather) |
 | Other people's weather reports and the "Verified by N local users" badge | Only with `?data=sim` until there is a shared backend; your own reports always show |
 
-- **Environment variables.** The forecasts need none: the browser asks
-  `api.open-meteo.com` and `air-quality-api.open-meteo.com` directly, and each
-  visitor's requests count against their own address's limits. Set
-  `CONTACT_EMAIL` for the road router (see [Route weather](#route-weather)),
-  and `GOOGLE_CLOUD_TTS_API_KEY` for the AI voice (see
-  [Spoken weather summary](#spoken-weather-summary)). `OPEN_METEO_API_KEY` and `OSRM_URL`
-  are optional. `TMD_API_TOKEN` connects WRF to `/api/forecast` (see
-  [Unified forecast](#unified-forecast-wrf--ecmwf-being-built)).
+- **Environment variables.** The forecast needs none: DooFah's server asks
+  Open-Meteo for ECMWF, and the browser asks `air-quality-api.open-meteo.com`
+  for air quality. `TMD_API_TOKEN` adds WRF (see
+  [Unified forecast](#unified-forecast-wrf--ecmwf)). Set `CONTACT_EMAIL` for
+  the road router (see [Route weather](#route-weather)), and
+  `GOOGLE_CLOUD_TTS_API_KEY` for the AI voice (see
+  [Spoken weather summary](#spoken-weather-summary)). `OPEN_METEO_API_KEY`
+  and `OSRM_URL` are optional.
 - **Free API terms.** Non-commercial use only, with up to 10,000 calls a day,
-  5,000 an hour and 600 a minute. Open-Meteo counts a request for more than 10
-  values as more than one call, and each place separately, so opening a place
-  costs about 5 calls (about 2 of them for the seven models) and each favorite
-  or trip stop 1. The same request within 5 minutes is answered from memory
-  (the models' within 30 minutes) and the forecast refreshes every 10
-  minutes, so a tab left open all day stays well under the limit. The data is
-  licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), so the
-  footer credits Open-Meteo and Copernicus.
+  5,000 an hour and 600 a minute. ECMWF is asked by DooFah's server, so
+  everyone using DooFah shares those calls: about 2 per place (rounded to
+  about 1 km) per hour, since Vercel keeps each answer until the hour ends.
+  Air quality is asked by each visitor's browser, 1 call per place opened,
+  reused for 5 minutes. The data is licensed
+  [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), so the footer
+  credits ECMWF via Open-Meteo, and Copernicus.
 - **`OPEN_METEO_API_KEY` (optional).** For commercial use (ads,
   subscriptions), buy an [Open-Meteo API plan](https://open-meteo.com/en/pricing)
   and set its key as `OPEN_METEO_API_KEY` in Vercel → Settings → Environment
-  Variables, then redeploy. The browser then asks
-  `/api/weather/forecast` and `/api/weather/air-quality`, which add the key on
-  the server (`src/services/openmeteo/proxy.ts`), so it never reaches the
-  browser. They only pass on DooFah's own parameters, refuse other sites, and
-  let Vercel answer the same request again for 5 minutes. The models' request
-  may only name the seven models DooFah blends.
-- **Offline.** The last forecast for up to 6 places is saved in `localStorage`
-  (`doofah-saved-forecasts`). With no connection the dashboard shows it for up
-  to 2 days, says when it was downloaded, and offers a retry.
-- **How the replies are read.** `src/services/openmeteo/adapter.ts`. Open-Meteo
-  gives rain, its chance and gusts for the hour *before* each time, so a
-  DooFah hour takes them from the next hour. Weather codes map to DooFah's
-  conditions, and the condition now always agrees with the rain countdown.
-  Open-Meteo has no forecast confidence of its own; the 15-day list shows the
-  models' blend's for this week and none after.
+  Variables, then redeploy. The server then asks Open-Meteo's customer
+  servers for ECMWF, and the browser asks `/api/weather/air-quality`, which
+  adds the key on the server (`src/services/openmeteo/proxy.ts`), so it
+  never reaches the browser. It passes on only DooFah's own parameters for
+  one place, refuses other sites, and lets Vercel answer the same request
+  again for 5 minutes.
+- **Offline.** The last forecast for up to 6 places is saved in
+  `localStorage` (`doofah-offline-forecasts`, about 135 kB a place). With no
+  connection the dashboard shows it for up to 2 days, says when it was
+  downloaded, and offers a retry. Copies saved before the unified forecast
+  (`doofah-saved-forecasts`) are cleared.
+- **How the reply is read.** `src/services/forecast/ForecastService.ts` asks
+  `/api/forecast` for each place, and `src/services/forecast/bundle.ts` turns
+  the reply into the dashboard's shapes once, when it arrives. The
+  dashboard, a favorite's chip and a road trip's stop read the same hours by
+  the same rules: the temperature, humidity, wind and cloud between one hour
+  and the next, the rain, its chance and the icon of the hour. So a
+  favorite's chip shows what its dashboard shows, and the chip for the place
+  on screen reuses the dashboard's reply.
 
-## The models' blend
+## Unified forecast: WRF + ECMWF
 
-Next to its forecast, DooFah asks Open-Meteo for the rain of seven global
-models at the same place, in one request for 8 days
-(`consensusParams` in `src/services/openmeteo/api.ts`), and compares them hour
-by hour (`src/services/openmeteo/consensus.ts`):
-
-| Model | Centre | Steps over Thailand | Its chance of rain from |
-| ----- | ------ | ------------------- | ----------------------- |
-| IFS 9 km | ECMWF | hourly for 90 h, then 3-hourly | ECMWF's ensemble, 51 runs |
-| ICON | DWD | hourly for 78 h, then 3-hourly | ICON-EPS, 40 runs |
-| GFS | NOAA | hourly for 120 h, then 3-hourly | GEFS, 31 runs |
-| GEM | Environment and Climate Change Canada | hourly for 84 h, then 3-hourly | GEPS, 21 runs |
-| GRAPES | CMA | 3-hourly | none |
-| AIFS (AI) | ECMWF | 6-hourly | none |
-| AIGFS (AI) | NOAA | 6-hourly | none (Open-Meteo sends it empty) |
-
-Left out: BOM's ACCESS-G and KMA's GDPS (no longer updated), JMA's GSM (55
-km), the UK Met Office (its CC BY-SA licence would carry over to the blend)
-and Google's WeatherNext (separate, experimental terms).
-
-- **Each hour.** Every model votes wet with 0.1 mm or more, weighted by
-  DooFah's own skill score for it and less when it only steps every 3 or 6
-  hours then (its timing is blurred). The chance of rain is 60% the
-  ensembles' chances (weighted by the square root of their runs) and 40% the
-  weighted share of wet votes. The confidence is the geometric mean of how
-  well those sources agree (1 minus twice their standard deviation) and how
-  clearly the chance leans wet or dry, so a 50% chance is never confident.
-  High is 75% or more, medium 50%.
-- **Each day.** A model votes wet when any hour of the day has 0.1 mm or
-  more, as for each hour, and each ensemble brings its highest hourly chance.
-  The day's chance is never below its wettest hour's.
-- **Where it shows.** The hourly and daily chance of rain and the confidence
-  for this week (the rain amounts and the sky stay the 9 km forecast's). The
-  hero card's "7 models" badge. Under the rain countdown, a chip such as
-  "6/7 models" and a line such as "High confidence of rain from about 15:00:
-  all 7 models agree, 4 with thunderstorms." Thunder is named when at least
-  2 models, and a third of those that forecast it, have it; heavy rain (4 mm
-  in the hour) when at least 2, and half of those stepping hourly with rain,
-  do. For a dry spell the line counts the models dry through all of it. The
-  spoken summary adds how many models agree. Stops of a road trip within 10
-  km of the place on screen take its chance of rain, so the two agree. The
-  footer credits the centres.
-- **What it can't do.** None of these models is finer than 9 km over
-  Thailand, and none has real 15-minute steps there (Open-Meteo's 15-minute
-  rain for Thailand is the hourly rain spread out). So DooFah names the hour,
-  "from about 15:00", and never claims "in 15 minutes" or local
-  high-resolution data from the models. The weights and thresholds are
-  DooFah's choices, not a published method, and haven't been checked
-  against rain gauges yet.
-- **When it fails.** The forecast shows without it. A models' reply under 6
-  hours old, saved with the forecast, fills in.
-
-## Unified forecast: WRF + ECMWF (being built)
-
-DooFah is moving to exactly two weather models: WRF for the first 48 hours,
-ECMWF after that. The first piece is in: `/api/forecast?lat=…&lon=…`, which
-no screen reads yet. The screens, the map and a shared `useWeatherState`
-move onto it in the next steps.
+DooFah reads exactly two weather models: WRF for the first 48 hours, ECMWF
+after that, from `/api/forecast?lat=…&lon=…`. The dashboard, favorites'
+chips and road trip stops read it; a shared `useWeatherState` and the radar
+map move onto it in the next steps.
 
 | Hours from now | Model |
 | -------------- | ----- |
@@ -179,41 +130,53 @@ move onto it in the next steps.
   answers without WRF because TMD failed are kept for only 5 minutes.
 - **What WRF gives.** Temperature, humidity, pressure, rain, wind and cloud
   in three layers, every hour for 48 hours from now. Its gusts and
-  visibility come from ECMWF (listed in `borrowed`), and it has no chance of
-  rain: that needs WRF's grid, a later step. One request reaches 46 hours
-  (an hour's rain is in the next record), so for now WRF eases into ECMWF
-  over hours 40 to 46; when a run ends early, the easing always moves up to
-  its last 6 hours.
-- **Not yet seen from the real TMD.** The sandbox can't reach TMD, so its
-  replies are read as its documentation describes them. To check on the
-  first real reply: that the rain at a time is for the hour before it, that
-  48 hours is the most one request gives, the cloud layers in percent, and
-  TMD's area (Thailand is assumed).
+  visibility come from ECMWF (listed in `borrowed`). One request reaches 46
+  hours (an hour's rain is in the next record), so for now WRF eases into
+  ECMWF over hours 40 to 46; when a run ends early, the easing always moves
+  up to its last 6 hours.
+- **WRF's chance of rain.** A single WRF run has no chance of rain of its
+  own; the real one needs WRF's grid (the share of nearby cells with rain),
+  a later step. Until then it is worked out from WRF's own rain in the hour:
+  10% when dry, 60% from 0.1 mm, 80% from 1 mm and 90% from 4 mm
+  (`rainChanceFrom` in `src/services/forecast/condition.ts`), the same steps
+  at which the icon changes. Never ECMWF's chance for WRF's rain.
+- **Checked against the real TMD** on a Vercel preview (2 October 2026):
+  WRF for hours 0 to 40, easing into ECMWF over 41 to 45. Still to check:
+  that the rain at a time is for the hour before it, the cloud layers in
+  percent, and TMD's exact area (Thailand is assumed).
 - **ECMWF** is ECMWF's 9 km IFS from Open-Meteo, asked for on its own
   (`models=ecmwf_ifs`), never Open-Meteo's best match. DooFah's server asks
-  for it, with `OPEN_METEO_API_KEY` when it is set; without a key, everyone
-  using DooFah shares the free limit of 10,000 calls a day, which the
-  caching below keeps small.
+  for it, with `OPEN_METEO_API_KEY` when it is set. Its chance of rain is
+  its 51-member ensemble's.
 - **Each hour** carries `model_used`: `"WRF"`, `"ECMWF"`, or `"WRF+ECMWF"`
   with its `weights` during the easing. Each value is blended on its own,
   the wind by its east–west and north–south parts. A value the hour's model
   lacks is worked out from the hour's numbers (feels-like, dew point, UV
-  from the sun's height and the cloud) or taken from the other model and
-  listed in `borrowed`. The chance of rain is never taken from the other
-  model.
+  from the sun's height and the cloud, the chance of rain from the rain) or
+  taken from the other model and listed in `borrowed`. While easing, each
+  model's own chance of rain is blended by the weights.
 - **The condition** comes from the hour's numbers alone
   (`src/services/forecast/condition.ts`): rain from 0.1 mm, where the map's
   rain colours start, so once the map reads this forecast too, the card says
   rain exactly when the map shows it.
-- **Days** are summarised from their hours as the dashboard does today, and
-  only whole days are listed, so there are 14 or 15 depending on how far the
-  latest ECMWF run reaches.
+- **On the screens.** A chip on the hero card names this hour's model (WRF,
+  ECMWF or WRF+ECMWF, with its resolution on hover), the hourly strip tags
+  the hour where each model's hours start, and a day's details in the
+  15-day list name its model. The footer credits WRF to the Thai
+  Meteorological Department when the forecast has it, and ECMWF via
+  Open-Meteo. The rain countdown steps an hour at a time, since neither
+  model has real 15-minute steps over Thailand: its bars carry each hour's
+  rain, and it names hours, never minutes ("Rain likely around 17:00", or
+  "Rain possible" under a 50% chance).
+- **Days** are summarised from their hours, and only whole days are listed,
+  so there are 14 or 15 depending on how far the latest ECMWF run reaches.
 - **Caching.** Places are rounded to 0.01° (about 1 km). Vercel keeps each
   answer until the hour ends, then serves it for up to 10 more minutes while
-  it fetches a new one. Other sites' pages are refused, as for `/api/weather`.
-- **Not tested here against the real Open-Meteo**, which the sandbox can't
-  reach; `npm run verify:forecast` uses replies in Open-Meteo's and TMD's
-  formats.
+  it fetches a new one; the page reuses an answer for 5 minutes. Other
+  sites' pages are refused, as for `/api/weather/air-quality`.
+- **Not tested here against the real Open-Meteo or TMD**, which the sandbox
+  can't reach; `npm run verify:forecast` and `npm run verify:forecast-service`
+  use replies in their formats.
 
 ## Setting it up from scratch
 
@@ -295,28 +258,25 @@ are in `src/lib/alerts.ts`:
 
 ## Rain countdown and lifestyle cards
 
-The hero card opens its rain panel with a badge such as "Rain expected in 20
-min" / "ฝนจะตกในอีก 20 นาที" or "Clear sky for the next 3 hours". The rules are
-in `src/lib/rainCountdown.ts`:
+The hero card opens its rain panel with a badge such as "Rain likely around
+17:00" / "ฝนน่าจะตกราว 17:00 น." or "Clear sky for the next 3 hours". The
+rules are in `src/lib/rainCountdown.ts`:
 
-- The first 2 hours come from the 10-minute nowcast: each step takes the
-  rate of its quarter hour in Open-Meteo's 15-minute forecast (the radar with
-  `?data=sim`). The start (or end) of rain is where the rate crosses 0.1 mm/h,
-  interpolated between steps to the minute, and the badge counts down live
-  every 15 seconds. These times get a marker on the rain bars, and a "Radar"
-  chip with the simulation.
-- After that the hourly forecast takes over: the first hour with a 50% chance
-  of rain or more, looking 24 hours ahead. A dry spell reads "Clear sky" when
-  its cloud cover averages under 40%, otherwise "No rain".
-- With real data, the [models' blend](#the-models-blend) has a say. Rain the
-  15-minute forecast shows but under 50% likely by the blend, with most models
-  dry, reads "Rain possible in 20 min" (and "Rain possible now", never "Rain
-  starting now", once its time comes); the line under it and the spoken
-  summary say it may stay dry. Rain the blend puts at 50% or more
-  within the 2 hours, though the 15-minute forecast is dry, reads "Rain
-  likely around 15:00". A chip says how many models back the badge, and a
-  line says how firmly (`modelOutlook` in `src/lib/rainCountdown.ts`, worded
-  in `src/i18n/messages/`).
+- **Live forecasts** step an hour at a time, so the badge names hours,
+  never minutes. It is raining when this hour's forecast has rain (0.1 mm or
+  more, as the icon shows), until the first dry hour. Otherwise rain comes
+  from the first hour, looking 24 hours ahead, with rain or a 50% chance of
+  it or more: within 2 hours it reads "Rain likely around 17:00" (or "this
+  hour"), later "Rain likely from 17:00", and "Rain possible" when its
+  chance is under 50%. The 2-hour bars show each hour's rain.
+- **With the simulation** (`?data=sim`), the first 2 hours come from its
+  10-minute radar nowcast: the start (or end) of rain is where the rate
+  crosses 0.1 mm/h, interpolated between steps to the minute, and the badge
+  counts down live every 15 seconds, with a marker on the rain bars and a
+  "Radar" chip. After that the hourly forecast takes over: the first hour
+  with a 50% chance of rain or more.
+- A dry spell reads "Clear sky" when its cloud cover averages under 40%,
+  otherwise "No rain".
 
 Under the hero card (above the map on phones, a full row on wide screens) six cards
 answer "is now a good time?". Each is good (green), take care (amber) or not
@@ -397,8 +357,9 @@ The "Route weather" card under the radar map shows the weather along a drive.
   - Google's Routes API is not an option: its terms don't allow showing its
     routes on a non-Google map, and DooFah's map is OpenStreetMap.
 - **Stops.** Every 15 minutes to 3 hours of driving, at most 10 stops. Each
-  stop gets the Open-Meteo forecast for that spot at the time you get there,
-  all in one request (`src/lib/routeWeather.ts`). Stops are named after the
+  stop gets the [unified forecast](#unified-forecast-wrf--ecmwf) for that
+  spot at the time you get there (`src/lib/routeWeather.ts`): `/api/forecast`
+  once per place, 4 at a time. Stops are named after the
   nearest town within 40 km, otherwise by distance ("km 127").
 - **Journey timeline.** Time, weather icon, temperature and chance of rain at
   each stop, joined by a line coloured by rain. A line above the timeline sums
@@ -549,9 +510,9 @@ src/
 ├── app/
 │   ├── layout.tsx                 Fonts, language, metadata, viewport, Leaflet CSS
 │   ├── page.tsx                   Renders the dashboard (reads ?sky=, ?alert=, ?rain= and ?data=)
-│   ├── api/weather/               forecast/ and air-quality/: Open-Meteo with the commercial key, if one is set
+│   ├── api/weather/air-quality/   Open-Meteo's air quality with the commercial key, if one is set
 │   ├── api/voice/                 One sentence of the spoken summary as MP3 (Google Cloud Text-to-Speech, if a key is set)
-│   ├── api/forecast/              The unified forecast (WRF + ECMWF) for one place
+│   ├── api/forecast/              The unified forecast (WRF + ECMWF) for one place, read by every card
 │   ├── manifest.ts                Web app manifest (install name, colours, icons)
 │   ├── icon.svg, apple-icon.png, favicon.ico   App icons (from `npm run icons`)
 │   └── globals.css                Glass surfaces, sky effects, touch rules, Leaflet styling
@@ -565,7 +526,7 @@ src/
 │   │   ├── FavoritesBar.tsx       One-tap chips under the header, edit mode
 │   │   ├── FavoriteStar.tsx       Star beside the place name and the naming panel
 │   │   └── FavoriteIcon.tsx       House / briefcase / pin per favorite
-│   ├── CurrentWeatherCard.tsx     Hero: temperature, feels-like, rain countdown, AQI (5×5 km badge with the simulation)
+│   ├── CurrentWeatherCard.tsx     Hero: temperature, feels-like, rain countdown, AQI, this hour's model (5×5 km badge with the simulation)
 │   ├── RainCountdownPanel.tsx     Live time-to-rain badge over the 2-hour rain bars
 │   ├── WeatherReportBar.tsx       One-tap Sunny / Cloudy / Light rain / Heavy rain reports
 │   ├── VoiceSummaryButton.tsx     "Play AI summary" floating button and the words it reads
@@ -616,7 +577,7 @@ src/
 │   ├── useGeolocation.ts          Browser location with status
 │   ├── useNow.ts                  A shared clock that ticks every 15 s, for countdowns
 │   ├── useCrowdReports.ts         Local reports (yours, and simulated ones with ?data=sim), and whether they back the radar
-│   ├── useSpotWeather.ts          Weather at the favorites, in one request
+│   ├── useSpotWeather.ts          Weather at the favorites, from the forecast their dashboards read
 │   ├── useRouteWeather.ts         Route card state: places, leave time, route and stop weather
 │   ├── useSpeech.ts               Web Speech: voice choice, sentence by sentence, stop
 │   └── useVoiceReader.ts          The AI voice from /api/voice, the device voice as fallback
@@ -626,7 +587,7 @@ src/
 │   ├── favorites.ts               Favorite list rules and the localStorage store
 │   ├── haptics.ts                 Short vibrations on Android and iPhone
 │   ├── lifestyle.ts               Lifestyle card rules: good, take care or not now, and why
-│   ├── rainCountdown.ts           Time to the next rain from the nowcast, then the hourly forecast; what the models say
+│   ├── rainCountdown.ts           Time to the next rain: by the hour for live forecasts, the radar nowcast with the simulation
 │   ├── crowdVerify.ts             When local reports count as verifying the rain radar
 │   ├── routeWeather.ts            Stops along a route, how wet each is, the trip outlook
 │   ├── voiceSummary.ts            What the spoken summary says
@@ -635,12 +596,13 @@ src/
 └── services/
     ├── weatherService.ts          WeatherService: what the app asks of a weather source, and which one to use
     ├── openmeteo/
-    │   ├── OpenMeteoService.ts    Real forecasts: requests, reuse, the offline copy
     │   ├── api.ts                 Endpoints, the values asked for and the reply types
-    │   ├── adapter.ts             Open-Meteo's replies in DooFah's shapes
-    │   ├── consensus.ts           The models' blend: chance of rain and confidence
-    │   └── proxy.ts               Server side of /api/weather: adds OPEN_METEO_API_KEY
+    │   ├── air.ts                 Open-Meteo's air quality in DooFah's shape
+    │   └── proxy.ts               Server side of /api/weather/air-quality: adds OPEN_METEO_API_KEY
     ├── forecast/
+    │   ├── ForecastService.ts     The live forecast for the page: /api/forecast per place, reuse, the offline copy
+    │   ├── bundle.ts              /api/forecast's reply as the dashboard, a chip or a trip stop
+    │   ├── point.ts               Places rounded to 0.01°, and the query for one
     │   ├── unified.ts             getUnifiedForecast(): asks both models, routes the hours, sums the days
     │   ├── router.ts              Which model each hour takes, the 48-hour blend, wind by its parts
     │   ├── condition.ts           The condition from an hour's numbers, shared with the map
@@ -683,6 +645,7 @@ scripts/fixtures/                  A real OSRM reply (Don Sak to Koh Samui by ca
 scripts/verify-voice.ts            Checks behind `npm run verify:voice`
 scripts/verify-open-meteo.ts       Checks behind `npm run verify:open-meteo`
 scripts/verify-forecast.ts         Checks behind `npm run verify:forecast`
+scripts/verify-forecast-service.ts Checks behind `npm run verify:forecast-service`
 scripts/generate-icons.ts          `npm run icons`, from scripts/icons/doofah-icon.svg
 ```
 
@@ -735,6 +698,6 @@ Options: `new WeatherNext3MockService({ seed, latencyMs, now })`. A fixed
 **Real data.** Components only depend on the types in
 `services/weathernext3/types.ts` and the `WeatherService` interface in
 `services/weatherService.ts` (`getForecastBundle` and `getWeatherAlong`).
-`OpenMeteoService` implements it for real data, and `weatherService()` picks
-it or `weatherNext3` from the page's `?data=` setting. Another source only
+`ForecastService` implements it for the live forecast, and `weatherService()`
+picks it or `weatherNext3` from the page's `?data=` setting. Another source only
 needs the same two methods. The radar map still reads `weatherNext3` directly.

@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { Grid3x3, Layers, Leaf } from "lucide-react";
+import { Cpu, Grid3x3, Leaf } from "lucide-react";
 import type { ReactNode } from "react";
 import { FavoriteStar } from "@/components/favorites/FavoriteStar";
 import { RainCountdownPanel } from "@/components/RainCountdownPanel";
@@ -25,7 +25,7 @@ interface CurrentWeatherCardProps {
 
 export function CurrentWeatherCard({ current, daily, countdown, reportBar, className = "" }: CurrentWeatherCardProps) {
   const { locale, m, f } = useI18n();
-  const { sample, place, airQuality, cell, blend } = current;
+  const { sample, place, airQuality, cell, modelUsed } = current;
   const tz = place.timeZone;
   const label = placeLabel(place, locale);
   const today = daily[0];
@@ -73,14 +73,15 @@ export function CurrentWeatherCard({ current, daily, countdown, reportBar, class
             {m.hero.precisionAfter && <span className="hidden sm:inline lg:hidden">{m.hero.precisionAfter}</span>}
           </span>
         )}
-        {/* Real forecasts: how many models the chance of rain blends. */}
-        {!cell && blend && blend.length > 1 && (
+        {/* Live forecasts: the model behind this hour. */}
+        {!cell && modelUsed && (
           <span
             className="glass-chip flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-medium text-white/85"
-            title={`${m.hero.modelsTitle} ${blend.map((b) => b.name).join(", ")}`}
+            title={`${m.forecastModel.thisHour}: ${m.forecastModel.about[modelUsed]}`}
           >
-            <Layers className="size-3.5 text-sky-200" aria-hidden />
-            {m.hero.models(blend.length)}
+            <Cpu className="size-3.5 text-sky-200" aria-hidden />
+            <span className="sr-only">{m.forecastModel.thisHour}: </span>
+            {modelUsed}
           </span>
         )}
       </div>

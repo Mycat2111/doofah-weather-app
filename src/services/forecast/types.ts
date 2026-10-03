@@ -66,8 +66,13 @@ export interface UnifiedHour {
   humidity: number;
   dew_point_c: number;
   rain_mm: number;
-  /** Percent; null when the hour's model gives no chance of rain (it is never taken from the other model). */
-  rain_chance: number | null;
+  /**
+   * Percent. ECMWF's comes from its 51-member ensemble. WRF from TMD's API has
+   * none, so for WRF it is worked out from WRF's own rain (rainChanceFrom in
+   * condition.ts) until WRF's grid can give a real one. Never taken from the
+   * other model; blended like the rain while WRF eases into ECMWF.
+   */
+  rain_chance: number;
   /** Percent. */
   cloud_cover: number;
   pressure_hpa: number;
@@ -99,8 +104,8 @@ export interface UnifiedDay {
   min_temp_c: number;
   max_temp_c: number;
   rain_mm: number;
-  /** The highest chance of rain of any of its hours; null when no hour has one. */
-  rain_chance: number | null;
+  /** The highest chance of rain of any of its hours. */
+  rain_chance: number;
   max_wind_kmh: number;
   wind_from_deg: number;
   max_uv_index: number;

@@ -33,6 +33,10 @@ export function HourlyForecastSlider({ hours, days, timeZone }: HourlyForecastSl
     });
   };
 
+  // Live forecasts: each hour's model, named where it starts (and where WRF eases into ECMWF).
+  const tagged = hours.some((h) => h.modelUsed);
+  const runStarts = (i: number) => i === 0 || hours[i - 1].modelUsed !== hours[i].modelUsed;
+
   const scrollBy = (dir: 1 | -1) =>
     scroller.current?.scrollBy({ left: dir * scroller.current.clientWidth * 0.8, behavior: "smooth" });
 
@@ -68,6 +72,7 @@ export function HourlyForecastSlider({ hours, days, timeZone }: HourlyForecastSl
               label={i === 0 ? m.hourly.now : f.hour(h.time, timeZone)}
               index={i}
               highlight={i === 0}
+              model={tagged ? (runStarts(i) ? (h.modelUsed ?? null) : null) : undefined}
             />
             {eventsWithin(h).map((e) => (
               <motion.div
@@ -100,13 +105,16 @@ function HourChip({
   label,
   index,
   highlight,
+  model,
 }: {
   hour: HourlyForecast;
   label: string;
   index: number;
   highlight: boolean;
+  /** The model's tag where its hours start; null to keep the tag's room; undefined, no tags at all. */
+  model?: string | null;
 }) {
-  const { f } = useI18n();
+  const { m, f } = useI18n();
   const wet = hour.precipitationProbability >= 20;
   return (
     <motion.div
@@ -117,6 +125,7 @@ function HourChip({
       className={`flex w-[64px] shrink-0 snap-start flex-col items-center gap-2 rounded-2xl py-3 text-center ${
         highlight ? "bg-white/15 ring-1 ring-white/20" : ""
       }`}
+      title={hour.modelUsed ? `${m.forecastModel.label}: ${m.forecastModel.about[hour.modelUsed]}` : undefined}
     >
       <span className={`text-xs ${highlight ? "font-semibold text-white" : "font-medium text-white/65"}`}>{label}</span>
       <WeatherIcon condition={hour.condition} isDay={hour.isDay} className="size-7" />
@@ -125,6 +134,15 @@ function HourChip({
         <Droplet className="size-3" aria-hidden />
         {hour.precipitationProbability}%
       </span>
+      {model !== undefined && (
+        <span
+          className={`h-4 whitespace-nowrap rounded-full px-0.5 text-[9px] font-medium leading-4 ${
+            model ? "bg-white/12 text-white/75" : ""
+          }`}
+        >
+          {model}
+        </span>
+      )}
     </motion.div>
   );
 }

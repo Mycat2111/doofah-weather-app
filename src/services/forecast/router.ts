@@ -16,7 +16,7 @@ import { dewPoint, feelsLike, uvIndex } from "../weathernext3/fieldModel";
 import { sunElevation } from "../weathernext3/solar";
 import { HOUR_MS } from "../weathernext3/time";
 import type { GeoPoint } from "../weathernext3/types";
-import { conditionFrom } from "./condition";
+import { conditionFrom, rainChanceFrom } from "./condition";
 import type { BorrowableValue, Model, ModelUsed, Run, UnifiedHour } from "./types";
 
 /** WRF is used for this many hours from the forecast's start. */
@@ -145,10 +145,10 @@ function pick(
 }
 
 /**
- * A value that follows from the others (feels-like, dew point, UV): each
- * model that counts gives its own, or `workedOut` when it has none, weighted
- * like any value. So it eases from one model's to the other's with the
- * weights, rather than jumping where only one of them gives it.
+ * A value that follows from the others (feels-like, dew point, UV, the chance
+ * of rain): each model that counts gives its own, or `workedOut` when it has
+ * none, weighted like any value. So it eases from one model's to the other's
+ * with the weights, rather than jumping where only one of them gives it.
  */
 function ownOrWorkedOut(
   get: (h: ModelHour) => number | null,
@@ -172,8 +172,9 @@ function ownOrWorkedOut(
  * when neither model has its temperature, rain, cloud, pressure, humidity or
  * wind. Values a model lacks and that follow from the others (feels-like,
  * dew point, UV) are worked out from the hour's numbers rather than taken
- * from the other model; the chance of rain and thunder stay with the models
- * whose rain it is.
+ * from the other model. The chance of rain and thunder stay with the models
+ * whose rain it is: a model with no chance of rain (WRF) gets one worked out
+ * from its own rain (rainChanceFrom), never the other model's.
  */
 export function blendHour(
   time: number,
@@ -211,9 +212,7 @@ export function blendHour(
     return null;
   const gust = value("gust_kmh", (h) => h.gustKmh);
   const visibility = value("visibility_km", (h) => h.visibilityKm);
-  const own = (get: (h: ModelHour) => number | null) => pick(get, hours, weights, false).value;
-  const chance = own((h) => h.rainChance);
-  const thunder = own((h) => h.thunder);
+  const thunder = pick((h) => h.thunder, hours, weights, false).value;
 
   const temperatureC = round1(temperature);
   const rh = Math.round(clamp(humidity, 0, 100));
@@ -226,6 +225,8 @@ export function blendHour(
   const feels = ownOrWorkedOut((h) => h.feelsLikeC, hours, weights, feelsLike(temperatureC, rh, windKmh));
   const dew = ownOrWorkedOut((h) => h.dewPointC, hours, weights, dewPoint(temperatureC, rh));
   const uv = ownOrWorkedOut((h) => h.uvIndex, hours, weights, uvIndex(elevation, cloudCover / 100));
+  const ownChance = (h: ModelHour) => h.rainChance ?? (present(h.rainMm) ? rainChanceFrom(h.rainMm) : null);
+  const chance = ownOrWorkedOut(ownChance, hours, weights, rainChanceFrom(rainMm));
   const used = modelUsed(weights);
 
   return {
@@ -241,7 +242,7 @@ export function blendHour(
     humidity: rh,
     dew_point_c: round1(dew),
     rain_mm: rainMm,
-    rain_chance: present(chance) ? Math.round(clamp(chance, 0, 100)) : null,
+    rain_chance: Math.round(clamp(chance, 0, 100)),
     cloud_cover: cloudCover,
     pressure_hpa: round1(pressure),
     wind_u: round1(u.value),

@@ -1,7 +1,6 @@
 import { describeDayEn, describeNowcastEn } from "@/services/weathernext3/describe";
 import type { WeatherCondition } from "@/services/weathernext3/types";
 import type { LifestyleReason } from "@/lib/lifestyle";
-import type { ModelOutlook } from "@/lib/rainCountdown";
 import type { RouteOutlook } from "@/lib/routeWeather";
 import type { SummaryContext, SummaryFact } from "@/lib/voiceSummary";
 import type { AqiCategory } from "@/services/weathernext3/types";
@@ -134,7 +133,6 @@ function voiceSummary(facts: SummaryFact[], { place, clock }: SummaryContext): s
         return `Right now ${where} it's ${fact.tempC} degrees and ${sky}${feels}.`;
       }
       case "rainStarting":
-        if (fact.doubtful) return `Rain might start in ${spokenWaitEn(fact.minutes)}.`;
         switch (fact.intensity) {
           case "heavy":
             return `Heavy rain is on its way, arriving in ${spokenWaitEn(fact.minutes)}, so grab an umbrella before you head out.`;
@@ -159,22 +157,6 @@ function voiceSummary(facts: SummaryFact[], { place, clock }: SummaryContext): s
         return fact.weekday === null
           ? `No rain is expected in the next ${fact.hours} hours.`
           : `No rain is expected in the next ${fact.hours} hours, and the next rainy day looks like ${WEEKDAYS[fact.weekday]}.`;
-      case "models": {
-        const of = fact.agree === fact.total ? `All ${fact.total}` : `${fact.agree} of ${fact.total}`;
-        if (fact.about === "dry") {
-          if (fact.level !== "low") return `${of} weather models agree.`;
-          return fact.agree === fact.total
-            ? `There's still some chance of a shower, though all ${fact.total} weather models keep it dry.`
-            : `The weather models aren't sure, though: ${fact.agree} of ${fact.total} keep it dry.`;
-        }
-        if (fact.doubtful)
-          return fact.agree === 0
-            ? `None of the ${fact.total} weather models expect it, though, so it may stay dry.`
-            : `Only ${fact.agree} of ${fact.total} weather models expect it, though, so it may stay dry.`;
-        if (fact.level === "high") return `${of} weather models agree, so that's a fairly safe bet.`;
-        if (fact.level === "medium") return `${of} weather models agree.`;
-        return `The weather models are split on it, though: ${fact.agree} of ${fact.total} expect rain.`;
-      }
       case "today":
         return `Today's high is ${fact.maxC} degrees.`;
       case "tonight":
@@ -194,31 +176,6 @@ function voiceSummary(facts: SummaryFact[], { place, clock }: SummaryContext): s
 }
 
 const COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
-
-function modelOutlook(o: ModelOutlook): string {
-  if (o.kind === "dry") {
-    const at = o.shower ? `around ${o.shower}` : "this hour";
-    if (o.level === "low")
-      return o.agree === o.total
-        ? `Not certain: a ${o.chance}% chance of a shower ${at}, though all ${o.total} models keep it dry.`
-        : `Not certain: a ${o.chance}% chance of a shower ${at}; ${o.agree} of ${o.total} models keep it dry.`;
-    if (o.agree === o.total) return `All ${o.total} models agree: no rain in the next ${o.hours} hours.`;
-    return `${o.total - o.agree} of ${o.total} models show a shower in the next ${o.hours} hours, most likely ${at} (${o.chance}%).`;
-  }
-  const when = o.hour ? `from about ${o.hour}` : "this hour";
-  const around = o.hour ? `around ${o.hour}` : "this hour";
-  const of = o.agree === o.total ? `all ${o.total}` : `${o.agree} of ${o.total}`;
-  // Of those with rain, how many have it heavy or stormy, when enough do.
-  const also = o.storm ? `, ${o.storm} with thunderstorms` : o.heavy ? `, ${o.heavy} with heavy rain` : "";
-  // The badge says it may stay dry: most models and the chance say so.
-  if (o.doubtful)
-    return o.agree === 0
-      ? `None of the ${o.total} models expect rain ${around}, so it may stay dry (${o.chance}%).`
-      : `Only ${o.agree} of ${o.total} models expect rain ${around}, so it may stay dry (${o.chance}%).`;
-  if (o.level === "high") return `High confidence of rain ${when}: ${of} models agree${also}.`;
-  if (o.level === "medium") return `${o.agree} of ${o.total} models expect rain ${when}${also} (${o.chance}%).`;
-  return `Models are split on rain ${around}: ${o.agree} of ${o.total} expect it${also} (${o.chance}%).`;
-}
 
 export const en: Messages = {
   meta: {
@@ -256,8 +213,16 @@ export const en: Messages = {
   nowcast: describeNowcastEn,
   daySummary: describeDayEn,
   routeOutlook,
-  modelOutlook,
   voiceSummary,
+  forecastModel: {
+    label: "Forecast model",
+    thisHour: "This hour's forecast",
+    about: {
+      WRF: "WRF from the Thai Meteorological Department, 3 km",
+      ECMWF: "ECMWF's IFS, 9 km",
+      "WRF+ECMWF": "WRF easing into ECMWF",
+    },
+  },
   lifestyleReason,
 
   header: {
@@ -319,8 +284,6 @@ export const en: Messages = {
     precisionBefore: "",
     precisionAfter: " precision",
     cellTitle: (cellId) => `WeatherNext 3 grid cell ${cellId}`,
-    models: (count) => `${count} models`,
-    modelsTitle: "Chance of rain blended from:",
     feelsLike: (temp) => `Feels like ${temp}`,
     highLow: (high, low) => `H ${high} L ${low}`,
     now: "Now",
@@ -350,12 +313,12 @@ export const en: Messages = {
     nextRainTomorrow: "Next rain likely tomorrow",
     noRainAhead: "No rain in the 15-day outlook",
     radar: "Radar",
-    maybeIn: (duration) => `Rain possible in ${duration}`,
-    maybeNow: "Rain possible now",
-    maybeAt: (clock) => `Could start around ${clock}`,
     likelyAround: (clock) => `Rain likely around ${clock}`,
     likelyNow: "Rain likely this hour",
-    modelsAgree: (agree, total) => `${agree}/${total} models`,
+    possibleAround: (clock) => `Rain possible around ${clock}`,
+    possibleNow: "Rain possible this hour",
+    possibleFrom: (clock, chance) => `Rain possible from ${clock} · ${chance}% chance`,
+    chance: (chance) => `${chance}% chance of rain`,
     duration: (minutes) => {
       if (minutes < 60) return `${minutes} min`;
       const h = Math.floor(minutes / 60);
@@ -477,8 +440,6 @@ export const en: Messages = {
     range: (low, high) => `Low ${low}, high ${high}`,
     nowMarker: (temp) => `Now ${temp}`,
     confidence: (percent) => `Model confidence ${percent}%`,
-    vote: (wet, total, percent) =>
-      `${wet ? `Rain in ${wet} of ${total} models` : `No rain in any of the ${total} models`} · confidence ${percent}%`,
     sparkline: "Hourly temperature and rain",
     rain: "Rain",
     wind: "Wind",
@@ -549,9 +510,11 @@ export const en: Messages = {
   footer: {
     credit: "DooFah ดูฟ้า · Forecast data is simulated in the style of WeatherNext 3 (5 km grid, hourly, 15 days)",
     modelRun: (utc) => `model run ${utc} UTC`,
-    weatherBy: "Weather data by",
+    forecastBy: "Forecast:",
+    wrf: { before: "WRF by the ", after: "" },
+    tmd: "Thai Meteorological Department",
+    via: "via",
     airBy: "Air quality by",
     contact: "Contact:",
-    blendBy: "Chance of rain and confidence: DooFah's blend of models from",
   },
 };

@@ -10,17 +10,18 @@
  */
 
 import { FORECAST_DAYS } from "../openmeteo/api";
-import { sunElevation, sunTimes } from "../weathernext3/solar";
+import { sunTimes } from "../weathernext3/solar";
 import { summariseDay } from "../weathernext3/summarise";
 import { floorToHour, HOUR_MS, localDateKey, zonedMidnight, zonedParts } from "../weathernext3/time";
-import type { GeoPoint, HourlyForecast } from "../weathernext3/types";
+import type { GeoPoint } from "../weathernext3/types";
+import { appHour } from "./bundle";
 import { fetchEcmwf, type EcmwfAnswer } from "./ecmwf";
+import { snapPoint } from "./point";
 import { routeHours, type ModelSeries } from "./router";
 import { fetchWrf, inTmdArea } from "./tmd";
 import type { ModelUsed, UnifiedDay, UnifiedForecast, UnifiedHour, WrfMissing } from "./types";
 
-/** Coordinates are rounded to this many degrees (about 1 km), far finer than either model. */
-export const SNAP_DEGREES = 0.01;
+export { SNAP_DEGREES, snapPoint } from "./point";
 
 /** WRF for a place, or why there is none. */
 export type WrfAnswer = { series: ModelSeries } | { missing: WrfMissing; reason?: string };
@@ -48,38 +49,6 @@ export function defaultSources(
       if (!inTmdArea(point)) return { missing: "outside-area" };
       return { series: await fetchWrf(point, start, { token, fetch: fetcher }) };
     },
-  };
-}
-
-/** The point a forecast is made for: `lat`, `lon` rounded to SNAP_DEGREES, so nearby requests share answers. */
-export function snapPoint(lat: number, lon: number): GeoPoint {
-  const snap = (v: number) => Math.round(v / SNAP_DEGREES) * SNAP_DEGREES;
-  return { lat: Number(snap(lat).toFixed(2)), lon: Number(snap(lon).toFixed(2)) };
-}
-
-/** An hour in the app's own shape, for the shared day summary. */
-function asHourly(h: UnifiedHour, point: GeoPoint): HourlyForecast {
-  const time = Date.parse(h.time);
-  return {
-    time: h.time,
-    temperatureC: h.temperature_c,
-    feelsLikeC: h.feels_like_c,
-    dewPointC: h.dew_point_c,
-    humidity: h.humidity,
-    pressureHpa: h.pressure_hpa,
-    windSpeedKmh: h.wind_kmh,
-    windGustKmh: h.gust_kmh ?? h.wind_kmh,
-    windDirectionDeg: h.wind_from_deg,
-    precipitationMm: h.rain_mm,
-    precipitationProbability: h.rain_chance ?? 0,
-    cloudCover: h.cloud_cover,
-    visibilityKm: h.visibility_km ?? 10,
-    uvIndex: h.uv_index,
-    condition: h.condition,
-    isDay: h.is_day,
-    sunElevationDeg: Math.round(sunElevation(time, point.lat, point.lon) * 10) / 10,
-    leadHours: h.lead_hours,
-    confidence: null,
   };
 }
 
@@ -111,11 +80,10 @@ export function daysFrom(hours: UnifiedHour[], point: GeoPoint, timeZone: string
     const sun = sunTimes(midnight, point.lat, point.lon);
     const summary = summariseDay(
       date,
-      dayHours.map((h) => asHourly(h, point)),
+      dayHours.map((h) => appHour(h, point)),
       sun,
       timeZone,
     );
-    const chances = dayHours.flatMap((h) => (h.rain_chance === null ? [] : [h.rain_chance]));
     const models = new Set(dayHours.map((h) => h.model_used));
     const model: ModelUsed = models.size === 1 ? [...models][0] : "WRF+ECMWF";
     const { kind, period, wind } = summary.outlook;
@@ -128,7 +96,7 @@ export function daysFrom(hours: UnifiedHour[], point: GeoPoint, timeZone: string
         min_temp_c: summary.minTempC,
         max_temp_c: summary.maxTempC,
         rain_mm: summary.precipitationMm,
-        rain_chance: chances.length ? Math.max(...chances) : null,
+        rain_chance: summary.precipitationProbability,
         max_wind_kmh: summary.maxWindKmh,
         wind_from_deg: summary.dominantWindDirectionDeg,
         max_uv_index: summary.maxUvIndex,

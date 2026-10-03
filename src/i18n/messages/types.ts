@@ -9,10 +9,10 @@ import type {
 import type { AlertTip } from "@/lib/alerts";
 import type { Activity, Level, LifestyleReason } from "@/lib/lifestyle";
 import type { ReportKind } from "@/services/CrowdReportMockService";
-import type { ModelOutlook } from "@/lib/rainCountdown";
 import type { RouteOutlook, StopRain } from "@/lib/routeWeather";
 import type { SummaryContext, SummaryFact } from "@/lib/voiceSummary";
 import type { RouteErrorCode } from "@/services/routing/types";
+import type { ModelUsed } from "@/services/forecast/types";
 
 /**
  * Every piece of UI text. Functions take already-formatted values (times,
@@ -44,10 +44,18 @@ export interface Messages {
    * index; `clock` gives its arrival time, formatted for the place.
    */
   routeOutlook: (outlook: RouteOutlook, stop: (index: number) => string, clock: (index: number) => string) => string;
-  /** What the weather models say about the rain countdown, e.g. "High confidence of rain from about 15:00: 6 of 7 models agree." */
-  modelOutlook: (outlook: ModelOutlook) => string;
   /** The spoken weather summary, one sentence per fact, worded to be read aloud. */
   voiceSummary: (facts: SummaryFact[], context: SummaryContext) => string[];
+
+  /** The weather model behind a live forecast's hour or day (its tag shows the model's name as it is). */
+  forecastModel: {
+    /** Before the model in a tooltip or a line, e.g. "Forecast model". */
+    label: string;
+    /** Before the model in the weather card's tag tooltip, e.g. "This hour's forecast". */
+    thisHour: string;
+    /** Who runs it and how fine it is, e.g. "ECMWF's IFS, 9 km". */
+    about: Record<ModelUsed, string>;
+  };
 
   header: {
     searchPlaceholder: string;
@@ -103,10 +111,6 @@ export interface Messages {
     precisionBefore: string;
     precisionAfter: string;
     cellTitle: (cellId: string) => string;
-    /** Badge for a real forecast: how many models its chance of rain blends. */
-    models: (count: number) => string;
-    /** Before the list of models in the badge's tooltip. */
-    modelsTitle: string;
     feelsLike: (temp: string) => string;
     highLow: (high: string, low: string) => string;
     now: string;
@@ -137,15 +141,15 @@ export interface Messages {
     noRainAhead: string;
     /** Marks a time that comes from the radar nowcast. */
     radar: string;
-    /** Rain the nowcast shows but most weather models doubt: the badge, then the detail. */
-    maybeIn: (duration: string) => string;
-    maybeNow: string;
-    maybeAt: (clock: string) => string;
-    /** Rain the weather models expect within 2 hours though the nowcast is dry. */
+    /** Live forecasts: rain likely within 2 hours, by its hour (or this hour). */
     likelyAround: (clock: string) => string;
     likelyNow: string;
-    /** Chip: how many of the models back what the badge says. */
-    modelsAgree: (agree: number, total: number) => string;
+    /** Rain in the forecast with less than an even chance: within 2 hours, then after them. */
+    possibleAround: (clock: string) => string;
+    possibleNow: string;
+    possibleFrom: (clock: string, chance: number) => string;
+    /** Under rain within 2 hours: its chance. */
+    chance: (chance: number) => string;
     duration: (minutes: number) => string;
   };
 
@@ -248,9 +252,8 @@ export interface Messages {
     title: string;
     range: (low: string, high: string) => string;
     nowMarker: (temp: string) => string;
+    /** The simulation's model confidence. */
     confidence: (percent: number) => string;
-    /** For real forecasts: how many models have rain that day, and the confidence. */
-    vote: (wet: number, total: number, percent: number) => string;
     sparkline: string;
     rain: string;
     wind: string;
@@ -322,13 +325,14 @@ export interface Messages {
     /** Credit for the simulated forecast. */
     credit: string;
     modelRun: (utc: string) => string;
-    /** Before the "Open-Meteo.com" link, for real forecasts. */
-    weatherBy: string;
+    /** Live forecasts: "Forecast:", then the text around TMD's name when WRF is used, then ECMWF "via" Open-Meteo.com. */
+    forecastBy: string;
+    wrf: { before: string; after: string };
+    tmd: string;
+    via: string;
     /** Before "Copernicus CAMS". */
     airBy: string;
     /** Before the operator's email address. */
     contact: string;
-    /** Before the list of weather centres whose models the chance of rain blends. */
-    blendBy: string;
   };
 }

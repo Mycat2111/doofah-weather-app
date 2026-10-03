@@ -7,7 +7,6 @@ import { localeFromAcceptLanguage } from "../src/i18n/config";
 import { createFormatters } from "../src/i18n/format";
 import { MESSAGES } from "../src/i18n/messages";
 import { placeLabel } from "../src/i18n/places";
-import type { ModelOutlook } from "../src/lib/rainCountdown";
 import type { RouteOutlook } from "../src/lib/routeWeather";
 import type { SummaryFact } from "../src/lib/voiceSummary";
 import {
@@ -61,7 +60,7 @@ const AQI: AqiCategory[] = [
 ];
 
 // Latin text that legitimately stays in the Thai UI: names, symbols and units.
-const ALLOWED_LATIN = /DooFah|WeatherNext|Google Cloud|OpenStreetMap|PM2\.5|AQI|UV|AI|UTC|hPa|°C/g;
+const ALLOWED_LATIN = /DooFah|WeatherNext|Google Cloud|OpenStreetMap|WRF|ECMWF|IFS|PM2\.5|AQI|UV|AI|UTC|hPa|°C/g;
 const hasStrayLatin = (text: string) => /[A-Za-z]/.test(text.replace(ALLOWED_LATIN, ""));
 const hasThai = (text: string) => /[฀-๿]/.test(text);
 
@@ -155,45 +154,20 @@ async function main() {
       ),
       `route ${JSON.stringify(o)}`,
     );
-  const LEVELS = ["high", "medium", "low"] as const;
-  const rainOutlook = {
-    kind: "rain",
-    hour: "15:00",
-    total: 7,
-    chance: 70,
-    doubtful: false,
-    heavy: 0,
-    storm: 0,
-  } as const;
-  const modelOutlooks: ModelOutlook[] = [
-    ...LEVELS.flatMap((level) => [
-      { ...rainOutlook, level, agree: 6 },
-      { ...rainOutlook, level, agree: 7 },
-      { ...rainOutlook, level, agree: 2, chance: 22, doubtful: true },
-      { ...rainOutlook, level, agree: 0, chance: 8, doubtful: true },
-      { ...rainOutlook, level, agree: 3, chance: 60 },
-      { ...rainOutlook, level, agree: 4, hour: null },
-      { ...rainOutlook, level, agree: 1, hour: null, chance: 12, doubtful: true },
-      { ...rainOutlook, level, agree: 5, heavy: 3 },
-      { ...rainOutlook, level, agree: 5, heavy: 3, storm: 2 },
-    ]),
-    ...LEVELS.flatMap((level) =>
-      [7, 5].flatMap((agree) =>
-        ["16:00", null].map((shower) => ({
-          kind: "dry" as const,
-          hours: 24,
-          agree,
-          total: 7,
-          shower,
-          chance: 30,
-          level,
-        })),
-      ),
-    ),
-  ];
-  for (const o of modelOutlooks) {
-    assertThai(th.modelOutlook(o), `models ${JSON.stringify(o)}`);
-    assert.ok(!/undefined|null|NaN/.test(th.modelOutlook(o) + en.modelOutlook(o)), `models ${JSON.stringify(o)}`);
+  // The live countdown names hours, and calls rain under an even chance possible.
+  for (const text of [
+    th.countdown.possibleAround("17:00"),
+    th.countdown.possibleNow,
+    th.countdown.possibleFrom("17:00", 40),
+    th.countdown.chance(40),
+  ])
+    assertThai(text, "countdown");
+  assert.equal(en.countdown.possibleFrom("5 PM", 40), "Rain possible from 5 PM · 40% chance");
+  assert.equal(th.countdown.possibleFrom("17:00", 40), "อาจมีฝนตั้งแต่ 17:00\u00a0น. · โอกาส 40%");
+  // Each hour's forecast model, named the same way in both languages.
+  for (const model of ["WRF", "ECMWF", "WRF+ECMWF"] as const) {
+    assertThai(th.forecastModel.about[model], `model ${model}`);
+    assert.ok(en.forecastModel.about[model].includes(model.split("+")[0]), `English ${model}`);
   }
   const later = {
     at: "2026-09-30T10:00:00Z",
@@ -209,7 +183,6 @@ async function main() {
     { kind: "now", tempC: 32, condition: "cloudy", isDay: true, feelsLikeC: 38 },
     ...CONDITIONS.map((condition) => ({ kind: "now" as const, tempC: 25, condition, isDay: false, feelsLikeC: null })),
     ...INTENSITIES.map((intensity) => ({ kind: "rainStarting" as const, minutes: 12, intensity })),
-    { kind: "rainStarting", minutes: 25, intensity: "moderate", doubtful: true },
     ...INTENSITIES.map((intensity) => ({ kind: "raining" as const, intensity, until: "2026-09-30T11:00:00Z" })),
     { kind: "raining", intensity: "light", until: null },
     { kind: "rainLater", ...later },
@@ -220,20 +193,6 @@ async function main() {
     { kind: "rainLater", ...later, thisHour: true, chance: 80, likely: true, heavy: true },
     { kind: "dry", hours: 24, weekday: 4 },
     { kind: "dry", hours: 24, weekday: null },
-    ...(["rain", "dry"] as const).flatMap((about) =>
-      LEVELS.flatMap((level) =>
-        [7, 5, 2, 0].flatMap((agree) =>
-          [false, true].map((doubtful) => ({
-            kind: "models" as const,
-            about,
-            agree,
-            total: 7,
-            level,
-            doubtful,
-          })),
-        ),
-      ),
-    ),
     { kind: "today", maxC: 34 },
     { kind: "tonight", minC: 25 },
     ...DAY_KINDS.map((kind) => ({
@@ -263,7 +222,6 @@ async function main() {
     "daySummary",
     "lifestyleReason",
     "routeOutlook",
-    "modelOutlook",
     "voiceSummary",
   ]);
   for (const [key, value] of Object.entries(th)) if (!skip.has(key)) collect(value, key, strings);

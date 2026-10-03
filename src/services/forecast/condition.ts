@@ -1,9 +1,9 @@
 /**
  * The one rule that turns an hour's numbers into its condition (the icon and
- * its words). Rain starts where the map's rain colours start, so once the
- * weather card, the hourly strip and the map all read the unified forecast
- * (the next steps of the plan), the card says rain exactly when the map shows
- * rain at your spot.
+ * its words). Rain starts where the map's rain colours start: the weather card
+ * and the hourly strip read the unified forecast, and once the map draws the
+ * same models (a later step of the plan), the card says rain exactly when the
+ * map shows rain at your spot.
  */
 
 import type { WeatherCondition } from "../weathernext3/types";
@@ -56,6 +56,19 @@ export function conditionFrom({
   if (cloudCover >= CLOUDY) return "cloudy";
   if (cloudCover >= PARTLY_CLOUDY) return "partly-cloudy";
   return "clear";
+}
+
+/**
+ * A chance of rain, percent, for a model that gives none (WRF from TMD's API,
+ * until WRF's grid can give the share of nearby cells with rain): worked out
+ * from the model's own rain in the hour, so it always goes with the icon. 10%
+ * when dry, then 60% from WET_MM, 80% from RAIN_MM and 90% from HEAVY_MM.
+ */
+export function rainChanceFrom(rainMm: number): number {
+  if (rainMm >= HEAVY_MM) return 90;
+  if (rainMm >= RAIN_MM) return 80;
+  if (rainMm >= WET_MM) return 60;
+  return 10;
 }
 
 /** Whether a condition is one of rain (or snow): what the map's rain layer shows. */
