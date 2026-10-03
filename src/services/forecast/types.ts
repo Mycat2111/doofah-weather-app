@@ -19,7 +19,7 @@ export type ModelUsed = Model | "WRF+ECMWF";
 export type WrfMissing =
   /** DooFah has no WRF source set up yet. */
   | "not-configured"
-  /** The WRF source could not be reached, or had no run for now. */
+  /** The WRF source failed or had no run for now (see `wrf_reason`). */
   | "unavailable"
   /** The place is outside the area WRF covers. */
   | "outside-area";
@@ -117,6 +117,8 @@ export interface UnifiedForecast {
   runs: { WRF: Run | null; ECMWF: Run | null };
   /** Set when the answer has no WRF. */
   wrf_missing?: WrfMissing;
+  /** What went wrong when WRF was unavailable, e.g. "TMD answered 429". */
+  wrf_reason?: string;
   /** The hours over which WRF eases into ECMWF; null without WRF. */
   blend: { from: string; to: string } | null;
   /** Every hour from local midnight today to the end of the last day. */
