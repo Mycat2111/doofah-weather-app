@@ -1,4 +1,5 @@
 import type { AqiCategory, CurrentConditions, HourlyForecast } from "@/services/WeatherNext3MockService";
+import type { CycloneAlert } from "./cyclones";
 
 /** Air alert above this US AQI: "Unhealthy" and worse. */
 export const AQI_LIMIT = 150;
@@ -13,7 +14,8 @@ export const STORM_WINDOW_HOURS = 2;
 
 const HOUR_MS = 3_600_000;
 
-export type WeatherAlert =
+/** Alerts from the place's own forecast. */
+export type ForecastAlert =
   | {
       kind: "storm";
       level: "severe";
@@ -41,6 +43,9 @@ export type WeatherAlert =
       pm25: number;
     };
 
+/** Every alert the banner shows: the forecast's, and a tropical cyclone's path near the place or a favorite (lib/cyclones.ts). */
+export type WeatherAlert = ForecastAlert | CycloneAlert;
+
 export type AlertKind = WeatherAlert["kind"];
 
 /** Things to do, in the order they are shown. The wording lives in the message files. */
@@ -54,7 +59,11 @@ export type AlertTip =
   | "mask"
   | "noOutdoorExercise"
   | "closeWindows"
-  | "sensitiveGroups";
+  | "sensitiveGroups"
+  | "followWarnings"
+  | "secureItems"
+  | "chargeDevices"
+  | "avoidSea";
 
 export function alertTips(alert: WeatherAlert): AlertTip[] {
   switch (alert.kind) {
@@ -66,6 +75,10 @@ export function alertTips(alert: WeatherAlert): AlertTip[] {
       return alert.level === "severe"
         ? ["mask", "sensitiveGroups", "noOutdoorExercise", "closeWindows"]
         : ["mask", "noOutdoorExercise", "closeWindows"];
+    case "cyclone":
+      return alert.level === "severe"
+        ? ["followWarnings", "secureItems", "chargeDevices", "avoidSea"]
+        : ["followWarnings", "avoidSea"];
   }
 }
 
@@ -90,8 +103,8 @@ export function weatherAlerts(
   current: CurrentConditions,
   hourly: HourlyForecast[],
   now: number = Date.parse(current.observedAt),
-): WeatherAlert[] {
-  const alerts: WeatherAlert[] = [];
+): ForecastAlert[] {
+  const alerts: ForecastAlert[] = [];
 
   const stormHour = upcoming(hourly, now, STORM_WINDOW_HOURS).find((h) => h.condition === "thunderstorm");
   if (current.sample.condition === "thunderstorm") {
@@ -131,9 +144,10 @@ export function weatherAlerts(
  * Made-up alerts for previewing the banner with `?alert=storm`, `rain`, `air`
  * or `all`, whatever the simulated weather is doing.
  */
-export function previewAlerts(kinds: readonly AlertKind[], now: number): WeatherAlert[] {
+export function previewAlerts(kinds: readonly AlertKind[], now: number): ForecastAlert[] {
   const inAnHour = new Date(Math.floor(now / HOUR_MS + 1) * HOUR_MS).toISOString();
-  const all: Record<AlertKind, WeatherAlert> = {
+  // Storm alerts are previewed with a sample storm on the map instead (`?cyclones=demo`).
+  const all: Record<ForecastAlert["kind"], ForecastAlert> = {
     storm: { kind: "storm", level: "severe", startsAt: inAnHour, chance: 90 },
     air: { kind: "air", level: "warning", aqi: 172, category: "Unhealthy", pm25: 96.4 },
     rain: { kind: "rain", level: "warning", startsAt: inAnHour, chance: 90, heavy: true },

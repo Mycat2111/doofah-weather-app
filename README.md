@@ -17,6 +17,7 @@ horizon) can run the whole dashboard, map included, with `?data=sim`.
 - **Two models, one forecast.** WRF for the first 48 hours, ECMWF after, and every hour says which. See [Unified forecast](#unified-forecast-wrf--ecmwf).
 - **Route weather.** Pick where you are going and see the weather at each stop on the way, at the time you get there, on real roads.
 - **Spoken summary.** A floating button reads a short weather summary aloud, in Thai or English.
+- **Tropical cyclones.** Storm tracks and their cones from ECMWF's ensemble on the map, and a warning when one may pass within 500 km. See [Tropical cyclones](#tropical-cyclones).
 
 ## Quick start
 
@@ -45,6 +46,7 @@ npm run dev          # http://localhost:3000
 | `npm run verify:forecast-service` | The screens on the unified forecast: the dashboard, a favorite's chip and trip stops from one reply per place, model tags, the hourly countdown and the offline copy |
 | `npm run verify:weather-state` | The moment on the map's timeline: the forecast for it, the countdown from it, the radar frames between hours and their motion, and the labels in both languages |
 | `npm run verify:fields` | The map's live layers: the lattice and its slots, the ECMWF request and reply for a tile, `/api/fields`, the frames from tiles, the same numbers as the forecast card, and the cloud layer's motion |
+| `npm run verify:cyclones` | Tropical cyclones: the BUFR reader against ecCodes on ECMWF's own files, tracks as storms, the cone, the strength names, the storm alert, finding the newest run and `/api/cyclones` |
 | `npm run icons`       | Re-render the app icons and favicon from `scripts/icons/doofah-icon.svg` |
 
 Preview any sky mood with a query parameter:
@@ -58,6 +60,9 @@ Preview the rain countdown with `/?rain=soon` (rain in 20 minutes), `now`
 (heavy rain easing in 35 minutes), `later` (dry for 3 hours) or `dry`
 (dry for a day). The lifestyle cards follow the previewed countdown.
 
+Preview the cyclone layer and its warning with `/?cyclones=demo`: a sample
+typhoon that passes about 160 km from the place on screen 30 hours from now.
+
 Show the simulated WeatherNext 3 data instead of the live forecast with `/?data=sim`.
 The parameters combine, e.g. `/?data=sim&sky=rain`.
 
@@ -68,6 +73,7 @@ The parameters combine, e.g. `/?data=sim&sky=rain`.
 | Now, the 48-hour strip, 15 days, the rain countdown, alerts, lifestyle cards, the spoken summary, favorites' chips and the weather at each road trip stop | DooFah's [unified forecast](#unified-forecast-wrf--ecmwf) at `/api/forecast`: the Thai Meteorological Department's WRF for the first 40 to 48 hours in Thailand, then ECMWF's 9 km IFS from [Open-Meteo](https://open-meteo.com/en/docs/ecmwf-api) |
 | Air quality (US AQI, PM2.5, PM10, ozone) | [Open-Meteo air quality API](https://open-meteo.com/en/docs/air-quality-api), from Copernicus CAMS |
 | Radar map layers (rain, cloud cover, wind, temperature, pressure) | ECMWF's 9 km IFS from Open-Meteo, at points 14 to 445 km apart depending on the zoom, through `/api/fields`; see [Map layers from the model](#map-layers-from-the-model) |
+| Tropical cyclone tracks, cones and the storm alert | ECMWF's ensemble cyclone tracks from [ECMWF open data](https://www.ecmwf.int/en/forecasts/datasets/open-data) (CC BY 4.0), through `/api/cyclones`; see [Tropical cyclones](#tropical-cyclones) |
 | Road trip routes | [OSRM](https://project-osrm.org) over [OpenStreetMap](https://www.openstreetmap.org/copyright)'s roads, from FOSSGIS's public car router; see [Route weather](#route-weather) |
 | Other people's weather reports and the "Verified by N local users" badge | Only with `?data=sim` until there is a shared backend; your own reports always show |
 
@@ -344,6 +350,60 @@ are in `src/lib/alerts.ts`:
   AQI alerts are rare in September; `?alert=air` shows one. With no recent air
   quality reading there is no air alert.
 
+## Tropical cyclones
+
+A **Storms** switch at the end of the map's layer picker draws every active
+tropical cyclone near the place: its most likely path, a cone that holds 2 in
+3 of ECMWF's ensemble forecasts at each time, a dot every 12 hours (00 and
+12 UTC) and the storm itself, moving with the map's timeline. Tap a dot or the
+storm for its time, strongest wind, pressure, distance from the place and
+when it comes closest. A chip under the picker lists the storms near the
+place (tap one to fit it on the map), or says "No active tropical cyclones in
+the region".
+
+| Setting | Value | In `src/lib/cyclones.ts` |
+| ------- | ----- | ------------------------ |
+| Severe warning | The most likely path comes within 500 km in the next 48 hours | `ALERT_KM`, `SOON_HOURS` |
+| Heads-up | Within 500 km later, up to 120 hours ahead | `AHEAD_HOURS` |
+| Near the place (the switch turns on by itself, the chip lists it) | The path or the cone comes within 2,000 km in the next 120 hours | `REGION_KM` |
+| Cone | Holds 2 in 3 of the ensemble members at each time | `CONE_SHARE` |
+| Strength | Tropical depression under 34 knots (63 km/h), tropical storm under 64 knots (119 km/h), then typhoon, hurricane or cyclone by basin | `STORM_KMH`, `TYPHOON_KMH`, `basinOf()` |
+
+- **The warning.** It goes at the top of the alert banner, after any other
+  severe alert when it is only a heads-up. It names the storm, how close it
+  comes and when, its strongest wind then, and the share of ECMWF's
+  forecasts that bring it within 500 km. Tips: follow official warnings, tie
+  down loose items, charge phones, avoid boat trips and the beach. "Show on map" fits the storm and the place on the map.
+  When the place on screen is clear but a favorite isn't, the warning is for
+  the nearest such favorite; other favorites in range are listed under it.
+- **Which storms.** Only storms that a warning centre is tracking (ECMWF's
+  file gives where they were observed) are shown. Storms that the model
+  expects to form, numbered from 70 up, are left out.
+- **The path.** ECMWF's high-resolution forecast where the file has it, else
+  the ensemble's control, else the ensemble mean. Its wind is the strongest
+  10 m wind near the centre.
+- **Where it comes from.** ECMWF publishes the ensemble's cyclone tracks
+  after each run as a BUFR file on
+  [data.ecmwf.int](https://data.ecmwf.int/forecasts/) (`…/enfo/…-tf.bufr`; up
+  to 360 hours from the 00 and 12 UTC runs, 144 hours from 06 and 18 UTC).
+  `/api/cyclones` finds the newest run that has one (two runs in a row
+  without one mean there are no storms), reads it with DooFah's
+  own BUFR reader (`src/services/cyclones/bufr.ts`, no native libraries)
+  and answers with every active storm: its path to 144 hours, the cone and
+  each member's path. No key is needed. The data is
+  [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), credited under
+  the map.
+- **Caching.** Vercel keeps the answer for 30 minutes and serves the old one
+  while fetching a new one for up to 6 hours more, and the server keeps each
+  run's file in memory for 12 hours, so ECMWF sees a few requests an hour
+  however many people use DooFah. A failure is kept for a minute; the page
+  says the tracks are unavailable and tries again.
+- **Tables.** `src/services/cyclones/bufrTables.ts` holds the parts of WMO's
+  BUFR tables the tracks use, made from ecCodes by
+  `scripts/generate-bufr-tables.py` (`python3 -m pip install eccodes`, then
+  run it). If ECMWF starts using an element that isn't there, `/api/cyclones`
+  answers 502 naming it, and the tables need regenerating.
+
 ## Rain countdown and lifestyle cards
 
 The hero card opens its rain panel with a badge such as "Rain likely around
@@ -599,11 +659,12 @@ shapes), and `public/screenshots/*` for the richer install dialog.
 src/
 ├── app/
 │   ├── layout.tsx                 Fonts, language, metadata, viewport, Leaflet CSS
-│   ├── page.tsx                   Renders the dashboard (reads ?sky=, ?alert=, ?rain= and ?data=)
+│   ├── page.tsx                   Renders the dashboard (reads ?sky=, ?alert=, ?rain=, ?cyclones= and ?data=)
 │   ├── api/weather/air-quality/   Open-Meteo's air quality with the commercial key, if one is set
 │   ├── api/voice/                 One sentence of the spoken summary as MP3 (Google Cloud Text-to-Speech, if a key is set)
 │   ├── api/forecast/              The unified forecast (WRF + ECMWF) for one place, read by every card
 │   ├── api/fields/                One tile of the map's layers (ECMWF) for a 6-hour slot
+│   ├── api/cyclones/              Active tropical cyclones from ECMWF's newest track file
 │   ├── manifest.ts                Web app manifest (install name, colours, icons)
 │   ├── icon.svg, apple-icon.png, favicon.ico   App icons (from `npm run icons`)
 │   └── globals.css                Glass surfaces, sky effects, touch rules, Leaflet styling
@@ -612,7 +673,7 @@ src/
 │   ├── DooFahDashboard.tsx        Page composition, place state, loading states
 │   ├── DooFahHeader.tsx           Logo, animated search, geolocation button, language switch
 │   ├── LanguageToggle.tsx         TH / EN switch
-│   ├── WeatherAlertBanner.tsx     Storm, rain and air quality warnings with tips
+│   ├── WeatherAlertBanner.tsx     Storm, rain, air quality and tropical cyclone warnings with tips
 │   ├── favorites/
 │   │   ├── FavoritesBar.tsx       One-tap chips under the header, edit mode
 │   │   ├── FavoriteStar.tsx       Star beside the place name and the naming panel
@@ -632,7 +693,9 @@ src/
 │   ├── WeatherDetailsGrid.tsx     Wind compass, humidity, UV, pressure, visibility, sun arc
 │   ├── AtmosphereBackground.tsx   Animated sky per condition (rain, stars, lightning, …)
 │   ├── radar/
-│   │   ├── LayerSwitcher.tsx      Rain / Wind / Cloud / Temp / Pressure segmented control
+│   │   ├── LayerSwitcher.tsx      Rain / Wind / Cloud / Temp / Pressure segmented control, and the Storms switch
+│   │   ├── CycloneStatus.tsx      The storms near the place under the picker, or that there are none
+│   │   ├── cycloneStyle.ts        A colour per storm strength
 │   │   ├── TimelineScrubber.tsx   −3 h … +24 h touch scrubber in 10-minute steps, with play/pause
 │   │   ├── interpolate.ts         Radar frames between hours: the rain's and cloud's motion and the frames along it
 │   │   ├── ZoomButtons.tsx        Map zoom buttons, finger-sized on touch screens
@@ -648,11 +711,13 @@ src/
 │   │       ├── WindParticleLayer.tsx  Animated wind streamlines
 │   │       ├── ReportMarkers.tsx      People's reports as bubbles that fade over their hour
 │   │       ├── RouteLayer.tsx         The trip: rain-coloured route, stop bubbles, your car
+│   │       ├── CycloneLayer.tsx       Storm paths, cones, 12-hour dots and the storm at the map's time
 │   │       ├── weatherGlyphs.ts       Lucide weather icons as SVG strings for map markers
 │   │       └── IsobarLayer.tsx        Isobar lines, labels, H/L markers
 │   └── ui/
 │       ├── GlassCard.tsx          Translucent card with entrance animation
 │       ├── TapButton.tsx          Button that squeezes when pressed, with optional haptics
+│       ├── CycloneIcon.tsx        The storm symbol
 │       └── WeatherIcon.tsx        Condition → Lucide icon, day/night aware
 ├── i18n/
 │   ├── config.ts                  Locales, cookie name, Accept-Language matching
@@ -673,9 +738,13 @@ src/
 │   ├── useSpotWeather.ts          Weather at the favorites, from the forecast their dashboards read
 │   ├── useRouteWeather.ts         Route card state: places, leave time, route and stop weather
 │   ├── useSpeech.ts               Web Speech: voice choice, sentence by sentence, stop
-│   └── useVoiceReader.ts          The AI voice from /api/voice, the device voice as fallback
+│   ├── useVoiceReader.ts          The AI voice from /api/voice, the device voice as fallback
+│   ├── useCyclones.ts             Active storms from /api/cyclones (or the sample storm), refreshed every 30 minutes
+│   └── useWhen.ts                 "07:00 tomorrow" for a moment, in the place's time zone
 ├── lib/
 │   ├── alerts.ts                  When to warn about storms, rain and air, and what to do
+│   ├── cyclones.ts                Storm types, distances along a path, the cone, strength names and the cyclone warning
+│   ├── cycloneDemo.ts             The sample storm for ?cyclones=demo
 │   ├── colors.ts                  AQI and temperature colours
 │   ├── favorites.ts               Favorite list rules and the localStorage store
 │   ├── haptics.ts                 Short vibrations on Android and iPhone
@@ -708,6 +777,12 @@ src/
     │   ├── tmd.ts                 WRF from TMD's NWP API (TMD_API_TOKEN) in the router's units
     │   ├── http.ts                Server side of /api/forecast: checks, caching, errors
     │   └── types.ts               The reply: hours and days with model_used
+    ├── cyclones/
+    │   ├── openData.ts            Finding the newest run's track file on ECMWF's portal, kept for 12 hours
+    │   ├── bufr.ts                A BUFR edition 3 and 4 reader (compressed or not)
+    │   ├── bufrTables.ts          The WMO table entries it needs (generated)
+    │   ├── ecmwfTracks.ts         ECMWF's track messages as storms: path, cone, members
+    │   └── http.ts                Server side of /api/cyclones: checks, caching, errors
     ├── tts/
     │   └── googleTts.ts           Server side of /api/voice: Google Cloud Text-to-Speech
     ├── WeatherNext3MockService.ts The simulated API (start here)
@@ -746,6 +821,9 @@ scripts/verify-forecast.ts         Checks behind `npm run verify:forecast`
 scripts/verify-forecast-service.ts Checks behind `npm run verify:forecast-service`
 scripts/verify-weather-state.ts    Checks behind `npm run verify:weather-state`
 scripts/verify-fields.ts           Checks behind `npm run verify:fields`
+scripts/verify-cyclones.ts         Checks behind `npm run verify:cyclones`
+scripts/fixtures/ecmwf-*.bufr      ECMWF sample BUFR files for the cyclone checks (see ECMWF-SAMPLES.md)
+scripts/generate-bufr-tables.py    Writes src/services/cyclones/bufrTables.ts from ecCodes
 scripts/generate-icons.ts          `npm run icons`, from scripts/icons/doofah-icon.svg
 ```
 

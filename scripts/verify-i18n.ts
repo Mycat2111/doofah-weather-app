@@ -60,7 +60,8 @@ const AQI: AqiCategory[] = [
 ];
 
 // Latin text that legitimately stays in the Thai UI: names, symbols and units.
-const ALLOWED_LATIN = /DooFah|WeatherNext|Google Cloud|OpenStreetMap|WRF|TMD|ECMWF|IFS|PM2\.5|AQI|UV|AI|UTC|hPa|°C/g;
+const ALLOWED_LATIN =
+  /DooFah|WeatherNext|Google Cloud|OpenStreetMap|WRF|TMD|ECMWF|IFS|CC BY|PM2\.5|AQI|UV|AI|UTC|hPa|°C/g;
 const hasStrayLatin = (text: string) => /[A-Za-z]/.test(text.replace(ALLOWED_LATIN, ""));
 const hasThai = (text: string) => /[฀-๿]/.test(text);
 
@@ -75,7 +76,7 @@ function assertThai(text: string, where: string) {
 function collect(value: unknown, path: string, out: [string, string][]) {
   if (typeof value === "string") out.push([path, value]);
   else if (typeof value === "function") {
-    const result = (value as (...args: unknown[]) => unknown)("12", "34", "56");
+    const result = (value as (...args: unknown[]) => unknown)("12", "34", "56", "78");
     if (typeof result === "string") out.push([path, result]);
   } else if (value && typeof value === "object") {
     for (const [key, child] of Object.entries(value)) collect(child, `${path}.${key}`, out);

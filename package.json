@@ -21,6 +21,7 @@
     "verify:forecast-service": "tsx scripts/verify-forecast-service.ts",
     "verify:weather-state": "tsx scripts/verify-weather-state.ts",
     "verify:fields": "tsx scripts/verify-fields.ts",
+    "verify:cyclones": "tsx scripts/verify-cyclones.ts",
     "icons": "tsx scripts/generate-icons.ts"
   },
   "dependencies": {

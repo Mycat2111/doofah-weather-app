@@ -357,6 +357,24 @@ export const th: Messages = {
       noOutdoorExercise: "งดออกกำลังกายกลางแจ้ง",
       closeWindows: "ปิดหน้าต่างและเปิดเครื่องฟอกอากาศ",
       sensitiveGroups: "เด็ก ผู้สูงอายุ และผู้มีโรคหัวใจหรือโรคปอดควรอยู่ในอาคาร",
+      followWarnings: "ติดตามประกาศเตือนภัยอย่างใกล้ชิด",
+      secureItems: "เก็บหรือยึดสิ่งของที่อาจปลิวได้",
+      chargeDevices: "ชาร์จโทรศัพท์และพาวเวอร์แบงก์ให้เต็ม",
+      avoidSea: "งดลงเรือและเล่นน้ำทะเล",
+    },
+    cyclone: {
+      near: (storm, km, place) => `${storm} อาจเคลื่อนผ่านห่างจาก${place}ราว ${km}${NB}กม.`,
+      already: (storm, km, place) => `${storm} อยู่ห่างจาก${place} ${km}${NB}กม.`,
+      detail: (when, windKmh, chance, alertKm) =>
+        [
+          when && `ใกล้ที่สุด${when}`,
+          windKmh !== null && `ลมใกล้ศูนย์กลางแรงสุด ${windKmh}${NB}กม./ชม.`,
+          chance !== null && `${chance}% ของการพยากรณ์ ECMWF ผ่านในระยะ ${alertKm}${NB}กม.`,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      also: (places, alertKm) => `อยู่ในระยะ ${alertKm}${NB}กม. ด้วย: ${places}`,
+      showOnMap: "ดูบนแผนที่",
     },
   },
 
@@ -596,6 +614,34 @@ export const th: Messages = {
       temperature: (temp) => `${temp} °C ที่ระดับ 2 ม.`,
       wind: (speed) => `ลม ${speed} กม./ชม. ที่ระดับ 10 ม.`,
       pressure: (hpa) => `${hpa} hPa`,
+    },
+  },
+
+  cyclones: {
+    category: {
+      depression: "พายุดีเปรสชัน",
+      storm: "พายุโซนร้อน",
+      typhoon: "พายุไต้ฝุ่น",
+      hurricane: "พายุเฮอริเคน",
+      cyclone: "พายุไซโคลน",
+    },
+    storm: (category, name) => `${category} ${name}`,
+    when: (clock, day, weekday) => `${day === 0 ? "วันนี้" : day === 1 ? "พรุ่งนี้" : `วัน${weekday}`} ${clock}${NB}น.`,
+    toggle: { short: "พายุ", long: "เส้นทางพายุหมุนเขตร้อน" },
+    loading: "กำลังโหลดเส้นทางพายุ",
+    none: "ไม่มีพายุหมุนเขตร้อนในภูมิภาค",
+    elsewhere: (count) => `อีก ${count} ลูกในพื้นที่อื่น`,
+    unavailable: "โหลดเส้นทางพายุไม่ได้ · กำลังลองใหม่",
+    demo: "พายุตัวอย่าง",
+    credit: { before: "เส้นทางพายุ © ", after: " (CC BY 4.0) · กรวยครอบคลุม 2 ใน 3 ของการพยากรณ์" },
+    popup: {
+      point: (when, windKmh, pressureHpa) =>
+        [when, windKmh !== null && `ลม ${windKmh}${NB}กม./ชม.`, pressureHpa !== null && `${pressureHpa}${NB}hPa`]
+          .filter(Boolean)
+          .join(" · "),
+      away: (km, place) => `ห่างจาก${place} ${km}${NB}กม.`,
+      closest: (km, place, when) => `ใกล้${place}ที่สุด ${km}${NB}กม. ${when}`,
+      at: (when) => `ตำแหน่งพายุ ${when}`,
     },
   },
 

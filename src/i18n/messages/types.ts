@@ -7,6 +7,7 @@ import type {
   WeatherCondition,
 } from "@/services/weathernext3/types";
 import type { AlertTip } from "@/lib/alerts";
+import type { CycloneCategory } from "@/lib/cyclones";
 import type { Activity, Level, LifestyleReason } from "@/lib/lifestyle";
 import type { ReportKind } from "@/services/CrowdReportMockService";
 import type { RouteOutlook, StopRain } from "@/lib/routeWeather";
@@ -102,6 +103,16 @@ export interface Messages {
     /** Label for the list of tips. */
     tipsLabel: string;
     tips: Record<AlertTip, string>;
+    /** A tropical cyclone's path coming near a place; `storm` is already named ("Typhoon IN-FA"). */
+    cyclone: {
+      near: (storm: string, km: number, place: string) => string;
+      /** It is that close already. */
+      already: (storm: string, km: number, place: string) => string;
+      /** `when` from cyclones.when, or null when it is close now; the share of ECMWF's forecasts within `alertKm`. */
+      detail: (when: string | null, windKmh: number | null, chance: number | null, alertKm: number) => string;
+      also: (places: string, alertKm: number) => string;
+      showOnMap: string;
+    };
   };
 
   hero: {
@@ -319,6 +330,34 @@ export interface Messages {
       temperature: (temp: string) => string;
       wind: (speed: number) => string;
       pressure: (hpa: string) => string;
+    };
+  };
+
+  cyclones: {
+    category: Record<CycloneCategory, string>;
+    /** "Typhoon IN-FA"; a storm without a name goes by its number. */
+    storm: (category: string, name: string) => string;
+    /** A time with its day: "14:00 tomorrow" / "พรุ่งนี้ 14:00 น."; `day` is 0 for today, 1 for tomorrow. */
+    when: (clock: string, day: number, weekday: string) => string;
+    /** The map's on/off button for storm tracks. */
+    toggle: { short: string; long: string };
+    loading: string;
+    /** No storm's path or cone comes near the place. */
+    none: string;
+    /** Storms elsewhere in the world, after `none`. */
+    elsewhere: (count: number) => string;
+    unavailable: string;
+    /** Marks the made-up storm of `?cyclones=demo`. */
+    demo: string;
+    /** Text around the "ECMWF" link under the map while tracks show. */
+    credit: { before: string; after: string };
+    popup: {
+      /** One point of the path: when, wind and pressure. */
+      point: (when: string, windKmh: number | null, pressureHpa: number | null) => string;
+      away: (km: number, place: string) => string;
+      closest: (km: number, place: string, when: string) => string;
+      /** For the storm's marker at the map's time. */
+      at: (when: string) => string;
     };
   };
 
