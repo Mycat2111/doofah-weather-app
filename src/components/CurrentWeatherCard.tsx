@@ -1,34 +1,56 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { Cpu, Grid3x3, Leaf } from "lucide-react";
+import { Cpu, Grid3x3, Leaf, RotateCcw } from "lucide-react";
 import type { ReactNode } from "react";
 import { FavoriteStar } from "@/components/favorites/FavoriteStar";
 import { RainCountdownPanel } from "@/components/RainCountdownPanel";
 import { GlassCard } from "@/components/ui/GlassCard";
+import { TapButton } from "@/components/ui/TapButton";
 import { WeatherIcon } from "@/components/ui/WeatherIcon";
+import { useNow } from "@/hooks/useNow";
 import { useI18n } from "@/i18n/I18nProvider";
 import { placeLabel } from "@/i18n/places";
 import { AQI_COLOR } from "@/lib/colors";
 import type { RainCountdown } from "@/lib/rainCountdown";
+import { daysBetween, localDateKey } from "@/services/weathernext3/time";
 import type { CurrentConditions, DailyForecast } from "@/services/WeatherNext3MockService";
 
 interface CurrentWeatherCardProps {
+  /** Now, or the forecast for the moment picked on the map's timeline (`forecastFor`). */
   current: CurrentConditions;
-  /** Today first. */
+  /** The day shown first. */
   daily: DailyForecast[];
   countdown: RainCountdown;
   /** The one-tap weather report buttons, shown under the rain countdown. */
   reportBar?: ReactNode;
+  /** Shows now again, when the card shows another moment. */
+  onBackToNow?: () => void;
   className?: string;
 }
 
-export function CurrentWeatherCard({ current, daily, countdown, reportBar, className = "" }: CurrentWeatherCardProps) {
+export function CurrentWeatherCard({
+  current,
+  daily,
+  countdown,
+  reportBar,
+  onBackToNow,
+  className = "",
+}: CurrentWeatherCardProps) {
   const { locale, m, f } = useI18n();
-  const { sample, place, airQuality, cell, modelUsed } = current;
+  const { sample, place, airQuality, cell, modelUsed, forecastFor } = current;
   const tz = place.timeZone;
   const label = placeLabel(place, locale);
   const today = daily[0];
+  const tick = useNow();
+  // Another moment: its time, and its day when that is not today.
+  const when =
+    forecastFor && tick
+      ? {
+          clock: f.clock(forecastFor, tz),
+          day: daysBetween(localDateKey(tick, tz), localDateKey(Date.parse(forecastFor), tz)),
+        }
+      : null;
 
   return (
     <GlassCard
@@ -56,10 +78,34 @@ export function CurrentWeatherCard({ current, daily, countdown, reportBar, class
             </AnimatePresence>
             <FavoriteStar key={place.id} place={place} />
           </div>
-          <p className="mt-0.5 truncate text-sm text-white/60">
-            {/* Offline, the time the saved forecast was downloaded. */}
-            {label.area} · {m.hero.updated(f.clock(current.savedAt ?? current.observedAt, tz))}
-          </p>
+          <div className="mt-0.5 flex min-w-0 items-center gap-2 text-sm text-white/60">
+            <p className="min-w-0 truncate">
+              {label.area} ·{" "}
+              {when ? (
+                <span className="font-medium text-amber-100">
+                  {m.hero.forecastFor(when.clock, when.day, today ? f.dayName(today.date, 2) : "")}
+                </span>
+              ) : (
+                // Offline, the time the saved forecast was downloaded.
+                m.hero.updated(f.clock(current.savedAt ?? current.observedAt, tz))
+              )}
+            </p>
+            <AnimatePresence>
+              {when && onBackToNow && (
+                <TapButton
+                  key="now"
+                  onClick={onBackToNow}
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
+                  className="glass-chip flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-medium text-sky-100 hover:text-white th:text-xs"
+                >
+                  <RotateCcw className="size-3" aria-hidden />
+                  {m.hero.backToNow}
+                </TapButton>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
         {cell && (
           <span

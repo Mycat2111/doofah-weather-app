@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { WeatherService } from "@/services/weatherService";
 import type { ForecastBundle, Place } from "@/services/WeatherNext3MockService";
 
@@ -45,10 +45,12 @@ export function useForecast(weather: WeatherService, place: Place) {
     return () => window.clearInterval(id);
   }, []);
 
+  const refresh = useCallback(() => setTick((t) => t + 1), []);
+
   return {
     data: state.data,
     error: state.placeId === place.id ? state.error : undefined,
     loading: state.placeId !== place.id,
-    refresh: () => setTick((t) => t + 1),
+    refresh,
   };
 }

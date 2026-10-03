@@ -107,6 +107,12 @@ export interface Messages {
   hero: {
     label: string;
     updated: (clock: string) => string;
+    /**
+     * The card shows the forecast for a moment picked on the map's timeline.
+     * `day` counts days from today (0 today, 1 tomorrow); `weekday` names it.
+     */
+    forecastFor: (clock: string, day: number, weekday: string) => string;
+    backToNow: string;
     /** Text around "5×5 km" in the badge, shown from the `sm` breakpoint up. */
     precisionBefore: string;
     precisionAfter: string;
@@ -290,7 +296,8 @@ export interface Messages {
     pause: string;
     mapTime: string;
     now: string;
-    offset: (hours: number) => string;
+    /** Time from now on the map's timeline, in minutes (whole tens): "+2 h 40 min". */
+    offset: (minutes: number) => string;
     past: string;
     analysis: string;
     forecast: string;

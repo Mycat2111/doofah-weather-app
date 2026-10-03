@@ -1,19 +1,29 @@
 "use client";
 
-import { AnimatePresence, animate, motion, useMotionValue, useReducedMotion, useTransform } from "framer-motion";
+import { AnimatePresence, motion, useMotionValue, useTransform, type MotionValue } from "framer-motion";
 import { Pause, Play } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { TapButton } from "@/components/ui/TapButton";
+import { TIMELINE_STEP_MS, toStep } from "@/hooks/useRadarFrames";
 import { useI18n } from "@/i18n/I18nProvider";
 import { haptic } from "@/lib/haptics";
 
+const HOUR_MS = 3_600_000;
+
 interface TimelineScrubberProps {
-  /** ISO times of every frame, one per hour. */
-  times: string[];
-  /** Hour offsets matching `times` (e.g. -3 … 24). */
-  offsets: number[];
-  index: number;
-  onIndexChange: (index: number) => void;
+  /** The first and last frames' times, ms. */
+  start: number;
+  end: number;
+  /** The frames' hours (ms) and how many hours each is from the current hour, for the ticks and labels. */
+  hours: { time: number; offset: number }[];
+  /** Now, ms; null until the page runs in the browser. */
+  now: number | null;
+  /** The time shown, to the 10 minutes; null before the frames arrive. */
+  time: number | null;
+  /** The map's time, ms, moving smoothly while it plays. */
+  playhead: MotionValue<number>;
+  /** Go to a time (a whole step): "drag" follows a finger, "jump" glides there (a tap, a key). */
+  onSeek: (time: number, how: "drag" | "jump") => void;
   playing: boolean;
   onTogglePlay: () => void;
   timeZone: string;
@@ -23,23 +33,23 @@ interface TimelineScrubberProps {
 /** A finger has to move this far sideways before it scrubs; up and down swipes scroll the page. */
 const TOUCH_SLOP_PX = 6;
 
-/** Hour a key moves to: arrows step one hour, Page Up / Page Down six. */
-function keyTarget(key: string, index: number, last: number): number | null {
+/** Time a key moves by: arrows step 10 minutes, Page Up / Page Down an hour. */
+function keyTarget(key: string, time: number, start: number, end: number): number | null {
   switch (key) {
     case "ArrowRight":
     case "ArrowUp":
-      return index + 1;
+      return time + TIMELINE_STEP_MS;
     case "ArrowLeft":
     case "ArrowDown":
-      return index - 1;
+      return time - TIMELINE_STEP_MS;
     case "PageUp":
-      return index + 6;
+      return time + HOUR_MS;
     case "PageDown":
-      return index - 6;
+      return time - HOUR_MS;
     case "Home":
-      return 0;
+      return start;
     case "End":
-      return last;
+      return end;
     default:
       return null;
   }
@@ -50,73 +60,67 @@ interface Gesture {
   startX: number;
   /** False while a touch has not yet moved sideways far enough to scrub. */
   scrubbing: boolean;
-  /** Hour last selected during this gesture. */
-  index: number;
+  /** Time last selected during this gesture. */
+  time: number;
 }
 
 export function TimelineScrubber({
-  times,
-  offsets,
-  index,
-  onIndexChange,
+  start,
+  end,
+  hours,
+  now,
+  time,
+  playhead,
+  onSeek,
   playing,
   onTogglePlay,
   timeZone,
   disabled,
 }: TimelineScrubberProps) {
   const { m, f } = useI18n();
-  const count = times.length;
-  const last = Math.max(0, count - 1);
-  const nowIndex = Math.max(0, offsets.indexOf(0));
-  const offset = offsets[index] ?? 0;
-  const pct = (i: number) => (last > 0 ? (i / last) * 100 : 0);
-  const relative = offset === 0 ? m.radar.now : m.radar.offset(offset);
-  const kind = offset < 0 ? m.radar.past : offset === 0 ? m.radar.analysis : m.radar.forecast;
-  const clock = times[index] ? f.clock(times[index], timeZone) : "";
+  const span = Math.max(1, end - start);
+  const fraction = (ms: number) => Math.min(1, Math.max(0, (ms - start) / span));
+  const pct = (ms: number) => fraction(ms) * 100;
+  const nowStep = now === null ? null : toStep(now);
+  // Minutes from now, in whole steps.
+  const minutes = time === null || nowStep === null ? 0 : Math.round((time - nowStep) / 60_000);
+  const relative = minutes === 0 ? m.radar.now : m.radar.offset(minutes);
+  const kind = minutes < 0 ? m.radar.past : minutes === 0 ? m.radar.analysis : m.radar.forecast;
+  const clock = time === null ? "" : f.clock(time, timeZone);
+  const steps = Math.round(span / TIMELINE_STEP_MS);
 
   const railRef = useRef<HTMLDivElement>(null);
   const gesture = useRef<Gesture | null>(null);
   const [scrubbing, setScrubbing] = useState(false);
-  const reduceMotion = useReducedMotion();
-  // Thumb position along the rail, 0 to 1. It follows the finger while
-  // scrubbing, then springs onto the selected hour.
-  const progress = useMotionValue(last > 0 ? index / last : 0);
+  // The thumb's place along the rail, 0 to 1, following the map's time.
+  const progress = useMotionValue(0);
   const thumbX = useTransform(progress, (p) => `${p * 100}%`);
 
   useEffect(() => {
-    if (scrubbing) return;
-    const target = last > 0 ? index / last : 0;
-    if (reduceMotion) {
-      progress.set(target);
-      return;
-    }
-    const controls = animate(progress, target, { type: "spring", stiffness: 520, damping: 42 });
-    return () => controls.stop();
-  }, [index, last, scrubbing, reduceMotion, progress]);
+    const follow = () => progress.set(Math.min(1, Math.max(0, (playhead.get() - start) / span)));
+    follow();
+    return playhead.on("change", follow);
+  }, [playhead, progress, start, span]);
 
-  const fractionAt = (clientX: number) => {
+  /** The step under a pointer. */
+  const timeAt = (clientX: number) => {
     const rect = railRef.current?.getBoundingClientRect();
-    if (!rect || rect.width === 0) return 0;
-    return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    const p = !rect || rect.width === 0 ? 0 : Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    return Math.min(end, Math.max(start, toStep(start + p * span)));
   };
 
-  const select = (g: Gesture, i: number) => {
-    if (i === g.index) return;
-    g.index = i;
-    haptic("selection");
-    onIndexChange(i);
+  const select = (g: Gesture, t: number, how: "drag" | "jump") => {
+    if (t === g.time) return;
+    // A tick under the finger on each whole hour, not every 10 minutes.
+    if (Math.floor(t / HOUR_MS) !== Math.floor(g.time / HOUR_MS)) haptic("selection");
+    g.time = t;
+    onSeek(t, how);
   };
 
   const startScrub = (g: Gesture) => {
     g.scrubbing = true;
     setScrubbing(true);
     if (playing) onTogglePlay();
-  };
-
-  const scrubTo = (g: Gesture, clientX: number) => {
-    const p = fractionAt(clientX);
-    progress.set(p);
-    select(g, Math.round(p * last));
   };
 
   const endGesture = () => {
@@ -126,13 +130,13 @@ export function TimelineScrubber({
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     if (disabled || !e.isPrimary || (e.pointerType === "mouse" && e.button !== 0)) return;
-    const g: Gesture = { pointerId: e.pointerId, startX: e.clientX, scrubbing: false, index };
+    const g: Gesture = { pointerId: e.pointerId, startX: e.clientX, scrubbing: false, time: time ?? start };
     gesture.current = g;
     e.currentTarget.setPointerCapture(e.pointerId);
     // A mouse or pen scrubs at once; a finger waits to see which way it moves.
     if (e.pointerType !== "touch") {
       startScrub(g);
-      scrubTo(g, e.clientX);
+      select(g, timeAt(e.clientX), "drag");
     }
   };
 
@@ -143,24 +147,24 @@ export function TimelineScrubber({
       if (Math.abs(e.clientX - g.startX) < TOUCH_SLOP_PX) return;
       startScrub(g);
     }
-    scrubTo(g, e.clientX);
+    select(g, timeAt(e.clientX), "drag");
   };
 
   const onPointerUp = (e: PointerEvent<HTMLDivElement>) => {
     const g = gesture.current;
     if (!g || g.pointerId !== e.pointerId) return;
-    // A tap without sliding jumps to that hour.
-    if (!g.scrubbing) select(g, Math.round(fractionAt(e.clientX) * last));
+    // A tap without sliding glides to that time.
+    if (!g.scrubbing) select(g, timeAt(e.clientX), "jump");
     endGesture();
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (disabled) return;
-    const target = keyTarget(e.key, index, last);
+    if (disabled || time === null) return;
+    const target = keyTarget(e.key, time, start, end);
     if (target === null) return;
     e.preventDefault();
-    const next = Math.min(last, Math.max(0, target));
-    if (next !== index) onIndexChange(next);
+    const next = Math.min(end, Math.max(start, target));
+    if (next !== time) onSeek(next, "jump");
   };
 
   return (
@@ -188,13 +192,17 @@ export function TimelineScrubber({
 
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
-          <p className="truncate text-sm font-medium" aria-live="polite">
-            <span className={offset === 0 ? "text-sky-200" : ""}>{relative}</span>
+          <p className="truncate text-sm font-medium" aria-live={playing ? "off" : "polite"}>
+            <span className={minutes === 0 ? "text-sky-200" : ""}>{relative}</span>
             {clock && <span className="ml-2 tabular-nums text-white/80">{clock}</span>}
           </p>
           <span
             className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider th:text-[11.5px] th:tracking-normal ${
-              offset < 0 ? "bg-white/10 text-white/70" : offset === 0 ? "bg-sky-300/20 text-sky-100" : "bg-amber-300/15 text-amber-100"
+              minutes < 0
+                ? "bg-white/10 text-white/70"
+                : minutes === 0
+                  ? "bg-sky-300/20 text-sky-100"
+                  : "bg-amber-300/15 text-amber-100"
             }`}
           >
             {kind}
@@ -207,8 +215,8 @@ export function TimelineScrubber({
           tabIndex={disabled ? -1 : 0}
           aria-label={m.radar.mapTime}
           aria-valuemin={0}
-          aria-valuemax={last}
-          aria-valuenow={index}
+          aria-valuemax={steps}
+          aria-valuenow={time === null ? 0 : Math.round((time - start) / TIMELINE_STEP_MS)}
           aria-valuetext={clock ? `${relative}, ${clock}` : relative}
           aria-disabled={disabled || undefined}
           onPointerDown={onPointerDown}
@@ -221,24 +229,30 @@ export function TimelineScrubber({
         >
           {/* The thumb's centre travels the length of this rail. */}
           <div ref={railRef} className="pointer-events-none absolute inset-x-[10px] top-1/2 h-1 -translate-y-1/2">
-            {/* Track: past section, then progress up to the selected hour */}
+            {/* Track: the past, then progress up to the map's time */}
             <div className="absolute inset-0 overflow-hidden rounded-full bg-white/15">
-              <div className="absolute inset-y-0 left-0 bg-white/30" style={{ width: `${pct(nowIndex)}%` }} />
+              {now !== null && (
+                <div className="absolute inset-y-0 left-0 bg-white/30" style={{ width: `${pct(now)}%` }} />
+              )}
               <motion.div
                 className="absolute inset-0 origin-left bg-gradient-to-r from-sky-300 to-sky-200"
                 style={{ scaleX: progress }}
               />
             </div>
-            {/* Hour ticks */}
-            {offsets.map((o, i) => (
+            {/* Hour ticks, and now */}
+            {hours.map((h) => (
               <span
-                key={o}
-                className={`absolute top-1/2 w-px -translate-y-1/2 ${
-                  o === 0 ? "h-3.5 bg-sky-200" : o % 6 === 0 ? "h-2.5 bg-white/50" : "h-1.5 bg-white/25"
-                }`}
-                style={{ left: `${pct(i)}%` }}
+                key={h.time}
+                className={`absolute top-1/2 w-px -translate-y-1/2 ${h.offset % 6 === 0 ? "h-2.5 bg-white/50" : "h-1.5 bg-white/25"}`}
+                style={{ left: `${pct(h.time)}%` }}
               />
             ))}
+            {now !== null && (
+              <span
+                className="absolute top-1/2 h-3.5 w-px -translate-y-1/2 bg-sky-200"
+                style={{ left: `${pct(now)}%` }}
+              />
+            )}
             <motion.div className="absolute inset-0" style={{ x: thumbX }}>
               <motion.div
                 className={`absolute left-0 top-1/2 -ml-2.5 -mt-2.5 size-5 rounded-full bg-white shadow-[0_0_0_5px_rgba(255,255,255,0.18),0_4px_14px_rgba(0,0,0,0.4)] group-focus-visible:shadow-[0_0_0_6px_rgba(125,211,252,0.55),0_4px_14px_rgba(0,0,0,0.4)] ${
@@ -247,10 +261,10 @@ export function TimelineScrubber({
                 animate={{ scale: scrubbing ? 1.3 : 1 }}
                 transition={{ type: "spring", stiffness: 600, damping: 30 }}
               />
-              {/* The finger covers the thumb, so show the hour above it while scrubbing. */}
+              {/* The finger covers the thumb, so show the time above it while scrubbing. */}
               <AnimatePresence>
                 {scrubbing && clock && (
-                  <div key="hour" className="absolute bottom-5 left-0 -translate-x-1/2">
+                  <div key="time" className="absolute bottom-5 left-0 -translate-x-1/2">
                     <motion.span
                       initial={{ opacity: 0, y: 6, scale: 0.8 }}
                       animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -268,10 +282,15 @@ export function TimelineScrubber({
         </div>
 
         <div className="pointer-events-none relative mx-[10px] h-3.5 text-[10px] text-white/50">
-          {offsets.map((o, i) =>
-            o === 0 || (o % 6 === 0 && o > 0) ? (
-              <span key={o} className="absolute -translate-x-1/2 tabular-nums" style={{ left: `${pct(i)}%` }}>
-                {o === 0 ? m.radar.now : times[i] ? f.clock(times[i], timeZone) : ""}
+          {now !== null && (
+            <span className="absolute -translate-x-1/2 text-sky-200/80" style={{ left: `${pct(now)}%` }}>
+              {m.radar.now}
+            </span>
+          )}
+          {hours.map((h) =>
+            h.offset > 0 && h.offset % 6 === 0 ? (
+              <span key={h.time} className="absolute -translate-x-1/2 tabular-nums" style={{ left: `${pct(h.time)}%` }}>
+                {f.clock(h.time, timeZone)}
               </span>
             ) : null,
           )}

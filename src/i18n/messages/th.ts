@@ -363,6 +363,9 @@ export const th: Messages = {
   hero: {
     label: "สภาพอากาศปัจจุบัน",
     updated: (clock) => `อัปเดต ${clock} น.`,
+    forecastFor: (clock, day, weekday) =>
+      `พยากรณ์${day === 0 ? "เวลา" : day === 1 ? "พรุ่งนี้" : day === -1 ? "เมื่อวาน" : `วัน${weekday}`} ${clock}${NB}น.`,
+    backToNow: "กลับไปตอนนี้",
     precisionBefore: "ละเอียด",
     precisionAfter: "",
     cellTitle: (cellId) => `ช่องกริด WeatherNext 3 ${cellId}`,
@@ -569,7 +572,11 @@ export const th: Messages = {
     pause: "หยุดภาพเคลื่อนไหว",
     mapTime: "เวลาบนแผนที่",
     now: "ตอนนี้",
-    offset: (hours) => (hours > 0 ? `+${hours} ชม.` : `−${Math.abs(hours)} ชม.`),
+    offset: (minutes) => {
+      const h = Math.floor(Math.abs(minutes) / 60);
+      const min = Math.abs(minutes) % 60;
+      return `${minutes > 0 ? "+" : "−"}${[h ? `${h}${NB}ชม.` : "", min ? `${min}${NB}นาที` : ""].filter(Boolean).join(" ")}`;
+    },
     past: "เรดาร์ย้อนหลัง",
     analysis: "ข้อมูลล่าสุด",
     forecast: "พยากรณ์",

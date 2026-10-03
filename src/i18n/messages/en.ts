@@ -281,6 +281,9 @@ export const en: Messages = {
   hero: {
     label: "Current weather",
     updated: (clock) => `Updated ${clock}`,
+    forecastFor: (clock, day, weekday) =>
+      `Forecast for ${day === 0 ? "" : day === 1 ? "tomorrow " : day === -1 ? "yesterday " : `${weekday} `}${clock}`,
+    backToNow: "Back to now",
     precisionBefore: "",
     precisionAfter: " precision",
     cellTitle: (cellId) => `WeatherNext 3 grid cell ${cellId}`,
@@ -481,7 +484,11 @@ export const en: Messages = {
     pause: "Pause time-lapse",
     mapTime: "Map time",
     now: "Now",
-    offset: (hours) => (hours > 0 ? `+${hours} h` : `−${Math.abs(hours)} h`),
+    offset: (minutes) => {
+      const h = Math.floor(Math.abs(minutes) / 60);
+      const min = Math.abs(minutes) % 60;
+      return `${minutes > 0 ? "+" : "−"}${[h ? `${h} h` : "", min ? `${min} min` : ""].filter(Boolean).join(" ")}`;
+    },
     past: "Past radar",
     analysis: "Latest analysis",
     forecast: "Forecast",

@@ -19,6 +19,7 @@
     "verify:open-meteo": "tsx scripts/verify-open-meteo.ts",
     "verify:forecast": "tsx scripts/verify-forecast.ts",
     "verify:forecast-service": "tsx scripts/verify-forecast-service.ts",
+    "verify:weather-state": "tsx scripts/verify-weather-state.ts",
     "icons": "tsx scripts/generate-icons.ts"
   },
   "dependencies": {

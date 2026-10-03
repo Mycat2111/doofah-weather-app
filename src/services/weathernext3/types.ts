@@ -189,6 +189,11 @@ export interface CurrentConditions {
   cell: GridCell | null;
   observedAt: string;
   /**
+   * Set when these are the forecast for another moment than now, picked on
+   * the map's timeline: that time (ISO), which `observedAt` then also is.
+   */
+  forecastFor?: string;
+  /**
    * Set when there was no connection and this is the last forecast saved on
    * the device: when it was downloaded (ISO). The conditions are its forecast
    * for now.
@@ -294,7 +299,7 @@ export type FrameKind = "analysis" | "forecast";
 
 interface RadarFrameBase {
   time: string;
-  /** Whole hours relative to the current hour, e.g. -3 … 24. */
+  /** Hours relative to the current hour, e.g. -3 … 24: whole for the model's frames, fractional between them. */
   offsetHours: number;
   kind: FrameKind;
 }

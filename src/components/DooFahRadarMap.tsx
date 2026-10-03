@@ -1,17 +1,26 @@
 "use client";
 
-import { AnimatePresence, motion } from "framer-motion";
+import {
+  AnimatePresence,
+  animate,
+  motion,
+  useMotionValue,
+  useReducedMotion,
+  type AnimationPlaybackControls,
+} from "framer-motion";
 import type { Map as LeafletMap } from "leaflet";
 import { Hand, LoaderCircle, Radar } from "lucide-react";
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CrowdVerifiedBadge } from "@/components/radar/CrowdVerifiedBadge";
 import { LayerSwitcher } from "@/components/radar/LayerSwitcher";
 import { RadarLegend } from "@/components/radar/RadarLegend";
 import { RecenterButton } from "@/components/radar/RecenterButton";
 import { TimelineScrubber } from "@/components/radar/TimelineScrubber";
 import { ZoomButtons } from "@/components/radar/ZoomButtons";
-import { TIMELINE_FROM, TIMELINE_TO, useRadarFrames } from "@/hooks/useRadarFrames";
+import { useNow } from "@/hooks/useNow";
+import { TIMELINE_STEP_MS, toStep, useRadarFrames } from "@/hooks/useRadarFrames";
+import { useWeatherState } from "@/hooks/useWeatherState";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { RouteFocus } from "@/components/radar/leaflet/RouteLayer";
 import type { Trip } from "@/hooks/useRouteWeather";
@@ -29,13 +38,20 @@ const RadarLeafletView = dynamic(() => import("@/components/radar/leaflet/RadarL
   ),
 });
 
-const NOW_INDEX = -TIMELINE_FROM;
-const FRAME_COUNT = TIMELINE_TO - TIMELINE_FROM + 1;
-const PLAY_INTERVAL_MS = 650;
+const HOUR_MS = 3_600_000;
+/** Forecast time played per millisecond: an hour a second. */
+const PLAY_RATE = HOUR_MS / 1000;
+/** Playback rests on the last frame this long before starting over, ms. */
+const END_HOLD_MS = 800;
+/** Gliding to a time picked by a tap, a key or "Back to now". */
+const GLIDE = { duration: 0.6, ease: [0.22, 1, 0.36, 1] as const };
 
-/** Snap the view to 0.5° steps so small pans reuse already-computed frames. */
+/**
+ * Snap the view outwards so small pans reuse already-computed frames: to 0.5°
+ * close in, coarser the wider the view (16° when the map shows a whole region).
+ */
 function snapBounds([[s, w], [n, e]]: GeoBounds): GeoBounds {
-  const step = 0.5;
+  const step = Math.max(0.5, 2 ** Math.floor(Math.log2(Math.max(n - s, e - w) / 8)));
   return [
     [Math.floor(s / step) * step, Math.floor(w / step) * step],
     [Math.ceil(n / step) * step, Math.ceil(e / step) * step],
@@ -70,7 +86,9 @@ interface DooFahRadarMapProps {
 /**
  * Top-view radar: Leaflet + OpenStreetMap base, WeatherNext 3 layers
  * (rain, wind streamlines, temperature, isobars) and a time-lapse scrubber
- * from 3 hours ago to 24 hours ahead.
+ * from 3 hours ago to 24 hours ahead. The timeline plays smoothly between
+ * the hourly frames (rain moves along its track) and stops on 10-minute
+ * steps; the rest of the dashboard follows its time.
  */
 export function DooFahRadarMap({
   place,
@@ -88,47 +106,137 @@ export function DooFahRadarMap({
   const { m, f } = useI18n();
   const [layer, setLayer] = useState<RadarLayerType>("precipitation");
   const [bounds, setBounds] = useState<GeoBounds | null>(null);
-  const [frameIndex, setFrameIndex] = useState(NOW_INDEX);
-  const [playing, setPlaying] = useState(false);
   const [map, setMap] = useState<LeafletMap | null>(null);
   const [gestureHint, setGestureHint] = useState(false);
   const nextZoomRef = useRef<number | null>(null);
   const { frameSet, loading } = useRadarFrames(layer, bounds);
+  const { time, setTime, followMap, seek } = useWeatherState();
+  const now = useNow();
+  const reduceMotion = useReducedMotion();
 
-  // Time-lapse playback.
+  // The map's time, ms: it moves smoothly while playing, and every screen
+  // follows its 10-minute step (`time`, null for now).
+  const playhead = useMotionValue(0);
+  const glide = useRef<{ to: number; controls: AnimationPlaybackControls } | null>(null);
+  // Playback runs until anything else picks a time (a new seek).
+  const [playingFrom, setPlayingFrom] = useState<number | null>(null);
+  const playing = playingFrom === seek.key;
+
+  const range = useMemo(() => {
+    const frames = frameSet?.frames;
+    if (!frames?.length) return null;
+    return { start: Date.parse(frames[0].time), end: Date.parse(frames[frames.length - 1].time) };
+  }, [frameSet]);
+  const hours = useMemo(
+    () => frameSet?.frames.map((fr) => ({ time: Date.parse(fr.time), offset: fr.offsetHours })) ?? [],
+    [frameSet],
+  );
+  const rangeStart = range?.start;
+  const rangeEnd = range?.end;
+  const nowStep = now === null ? null : toStep(now);
+  const shown = time ?? nowStep;
+
+  /** Move the playhead to `to`: straight there, or gliding so the weather visibly moves. */
+  const moveTo = useCallback(
+    (to: number, how: "set" | "glide") => {
+      if (glide.current?.to === to) return;
+      glide.current?.controls.stop();
+      glide.current = null;
+      const from = playhead.get();
+      // Never glide in from nowhere (the first placement) or for less than a step.
+      if (how === "set" || reduceMotion || from === 0 || Math.abs(to - from) <= TIMELINE_STEP_MS) {
+        playhead.set(to);
+        return;
+      }
+      const controls = animate(playhead, to, {
+        ...GLIDE,
+        onComplete: () => {
+          if (glide.current?.controls === controls) glide.current = null;
+        },
+      });
+      glide.current = { to, controls };
+    },
+    [playhead, reduceMotion],
+  );
+
+  // Not playing, the playhead rests on the time every screen shows (now
+  // until another is picked), and goes there when it changes.
   useEffect(() => {
-    if (!playing) return;
-    const id = window.setInterval(() => setFrameIndex((i) => (i + 1) % FRAME_COUNT), PLAY_INTERVAL_MS);
-    return () => window.clearInterval(id);
-  }, [playing]);
+    if (playing || shown === null || rangeStart === undefined || rangeEnd === undefined) return;
+    moveTo(Math.min(rangeEnd, Math.max(rangeStart, shown)), "glide");
+  }, [playing, shown, rangeStart, rangeEnd, moveTo]);
+
+  // Playback: an hour a second, resting on the last frame before starting over.
+  useEffect(() => {
+    if (!playing || rangeStart === undefined || rangeEnd === undefined) return;
+    glide.current?.controls.stop();
+    glide.current = null;
+    if (playhead.get() >= rangeEnd - TIMELINE_STEP_MS / 2) playhead.set(rangeStart);
+    let raf = 0;
+    let last = performance.now();
+    let restUntil = 0;
+    let step: number | null = null;
+    const frame = (ts: number) => {
+      raf = requestAnimationFrame(frame);
+      // A hidden tab pauses animation frames; carry on from where it was.
+      const dt = Math.min(100, ts - last);
+      last = ts;
+      if (restUntil) {
+        if (ts < restUntil) return;
+        restUntil = 0;
+        playhead.set(rangeStart);
+      } else {
+        const next = playhead.get() + dt * PLAY_RATE;
+        if (next >= rangeEnd) restUntil = ts + END_HOLD_MS;
+        playhead.set(Math.min(rangeEnd, next));
+      }
+      const at = toStep(playhead.get());
+      if (at !== step) {
+        step = at;
+        // The rest of the dashboard draws in the background, so it never holds up the map.
+        startTransition(() => followMap(at === toStep(Date.now()) ? null : at));
+      }
+    };
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
+  }, [playing, rangeStart, rangeEnd, playhead, followMap]);
+
+  const togglePlay = () => {
+    if (!playing) {
+      setPlayingFrom(seek.key);
+      return;
+    }
+    // Stop on the step it is at, so the dashboard and the map agree at once.
+    const at = toStep(playhead.get());
+    setPlayingFrom(null);
+    followMap(at === nowStep ? null : at);
+  };
+
+  /** The scrubber picked a time: a finger drags the map straight there, a tap or key glides. */
+  const onSeek = (to: number, how: "drag" | "jump") => {
+    setPlayingFrom(null);
+    moveTo(to, how === "drag" ? "set" : "glide");
+    followMap(to === nowStep ? null : to);
+  };
 
   const onViewChange = useCallback((b: GeoBounds) => {
     const snapped = snapBounds(b);
     setBounds((prev) => (sameBounds(prev, snapped) ? prev : snapped));
   }, []);
 
-  const frames = frameSet?.frames ?? [];
-
-  // Showing the trip moves the timeline to when you set off, or to when you reach the chosen stop,
-  // so the radar shows the rain you would drive into.
-  const [seenFocus, setSeenFocus] = useState(tripFocus?.key ?? 0);
-  if (tripFocus && tripFocus.key !== seenFocus) {
-    setSeenFocus(tripFocus.key);
+  // Showing the trip moves the timeline (and every screen) to when you set off, or to when you
+  // reach the chosen stop, so the radar shows the rain you would drive into.
+  const seenFocus = useRef(tripFocus?.key ?? 0);
+  useEffect(() => {
+    if (!tripFocus || tripFocus.key === seenFocus.current) return;
+    seenFocus.current = tripFocus.key;
     const stop = trip && tripFocus.stop !== null ? trip.stops[tripFocus.stop] : null;
     const when = stop ? Date.parse(stop.eta) : trip ? Date.parse(trip.route.departure) : null;
-    if (when !== null && frames.length) {
-      let nearest = 0;
-      frames.forEach((fr, i) => {
-        if (Math.abs(Date.parse(fr.time) - when) < Math.abs(Date.parse(frames[nearest].time) - when)) nearest = i;
-      });
-      setPlaying(false);
-      setFrameIndex(nearest);
-    }
-  }
+    if (when !== null) setTime(toStep(when));
+  }, [tripFocus, trip, setTime]);
 
-  const frame = frames[Math.min(frameIndex, frames.length - 1)];
-  // Reports describe the last hour, so they show on the "now" frames only.
-  const live = !frame || (frame.offsetHours <= 0 && frame.offsetHours >= -1);
+  // Reports describe the last hour, so they show on the timeline's last hour up to now.
+  const live = shown === null || nowStep === null || (shown <= nowStep && shown > nowStep - HOUR_MS);
 
   return (
     <section
@@ -139,8 +247,9 @@ export function DooFahRadarMap({
       <div className="absolute inset-0 z-0">
         <RadarLeafletView
           center={place.point}
-          grid={frameSet?.grid}
-          frame={frame}
+          frameSet={frameSet}
+          playhead={playhead}
+          time={shown}
           onViewChange={onViewChange}
           onMap={setMap}
           onGestureHint={setGestureHint}
@@ -221,17 +330,17 @@ export function DooFahRadarMap({
         <div className="glass-dark pointer-events-auto flex flex-col gap-3 rounded-3xl p-3 sm:flex-row sm:items-center sm:gap-5 sm:p-4">
           <div className="min-w-0 flex-1">
             <TimelineScrubber
-              times={frames.map((f) => f.time)}
-              offsets={frames.length ? frames.map((f) => f.offsetHours) : [0]}
-              index={Math.min(frameIndex, Math.max(0, frames.length - 1))}
-              onIndexChange={(i) => {
-                setPlaying(false);
-                setFrameIndex(i);
-              }}
+              start={range?.start ?? 0}
+              end={range?.end ?? 1}
+              hours={hours}
+              now={now}
+              time={range ? shown : null}
+              playhead={playhead}
+              onSeek={onSeek}
               playing={playing}
-              onTogglePlay={() => setPlaying((p) => !p)}
+              onTogglePlay={togglePlay}
               timeZone={place.timeZone}
-              disabled={!frames.length}
+              disabled={!range}
             />
           </div>
           <div className="border-white/10 sm:border-l sm:pl-5">
