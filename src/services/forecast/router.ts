@@ -12,10 +12,10 @@
  * changes when the numbers do. Tropical cyclones will always be ECMWF's.
  */
 
-import { dewPoint, feelsLike, uvIndex } from "../weathernext3/fieldModel";
-import { sunElevation } from "../weathernext3/solar";
-import { HOUR_MS } from "../weathernext3/time";
-import type { GeoPoint } from "../weathernext3/types";
+import { dewPoint, feelsLike, uvIndex } from "../weather/physics";
+import { sunElevation } from "../weather/solar";
+import { HOUR_MS } from "../weather/time";
+import type { GeoPoint } from "../weather/types";
 import { conditionFrom, rainChanceFrom } from "./condition";
 import type { BorrowableValue, Model, ModelUsed, Run, UnifiedHour } from "./types";
 

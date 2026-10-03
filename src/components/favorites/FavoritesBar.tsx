@@ -12,7 +12,7 @@ import { useI18n } from "@/i18n/I18nProvider";
 import { favoriteName, placeLabel } from "@/i18n/places";
 import { haptic } from "@/lib/haptics";
 import type { WeatherService } from "@/services/weatherService";
-import type { Place } from "@/services/WeatherNext3MockService";
+import type { Place } from "@/services/weather/types";
 
 interface FavoritesBarProps {
   place: Place;

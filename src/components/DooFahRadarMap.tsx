@@ -29,8 +29,8 @@ import { inRegion, lonShift, trackAhead, type Cyclone } from "@/lib/cyclones";
 import type { RouteFocus } from "@/components/radar/leaflet/RouteLayer";
 import type { Trip } from "@/hooks/useRouteWeather";
 import type { Verification } from "@/lib/crowdVerify";
-import type { CrowdReport } from "@/services/CrowdReportMockService";
-import type { GeoBounds, GeoPoint, Place, RadarLayerType, WeatherSource } from "@/services/WeatherNext3MockService";
+import type { CrowdReport } from "@/lib/crowdReports";
+import type { GeoBounds, GeoPoint, Place, RadarLayerType, WeatherSource } from "@/services/weather/types";
 
 // Leaflet touches `window`, so the map itself only renders in the browser.
 const RadarLeafletView = dynamic(() => import("@/components/radar/leaflet/RadarLeafletView"), {
@@ -77,7 +77,7 @@ interface DooFahRadarMapProps {
   night?: boolean;
   /**
    * Where the dashboard's forecast and the map's layers come from: ECMWF
-   * (/api/fields) when live, the WeatherNext 3 simulation otherwise.
+   * (/api/fields) when live, the simulation with `?data=sim`.
    */
   source?: WeatherSource;
   /** A planned road trip to draw over the radar, and requests to show it. */
@@ -399,7 +399,7 @@ export function DooFahRadarMap({
             <span role="status">{m.radar.unavailable}</span>
           ) : (
             <span>
-              {source === "simulated" ? "WeatherNext 3" : "ECMWF"}
+              {source === "simulated" ? m.radar.simulation : "ECMWF"}
               {frameSet && ` · ${m.radar.grid(frameSet.grid.cellSizeKm)}`}
               {frameSet?.model.runInitTime && (
                 <span className="hidden text-white/50 sm:inline">

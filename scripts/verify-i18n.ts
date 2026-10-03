@@ -9,16 +9,16 @@ import { MESSAGES } from "../src/i18n/messages";
 import { placeLabel } from "../src/i18n/places";
 import type { RouteOutlook } from "../src/lib/routeWeather";
 import type { SummaryFact } from "../src/lib/voiceSummary";
-import {
-  PLACES,
-  WeatherNext3MockService,
-  type AqiCategory,
-  type DayOutlookKind,
-  type DayPeriod,
-  type NowcastOutlook,
-  type RainIntensity,
-  type WeatherCondition,
-} from "../src/services/WeatherNext3MockService";
+import { SimulatedWeatherService } from "../src/services/simulation/SimulatedWeatherService";
+import { placeForPoint, PLACES, searchPlaces } from "../src/services/weather/places";
+import type {
+  AqiCategory,
+  DayOutlookKind,
+  DayPeriod,
+  NowcastOutlook,
+  RainIntensity,
+  WeatherCondition,
+} from "../src/services/weather/types";
 
 const NOW = Date.UTC(2026, 8, 30, 7, 20); // 30 Sep 2026, 14:20 in Bangkok
 const { en, th } = MESSAGES;
@@ -61,7 +61,7 @@ const AQI: AqiCategory[] = [
 
 // Latin text that legitimately stays in the Thai UI: names, symbols and units.
 const ALLOWED_LATIN =
-  /DooFah|WeatherNext|Google Cloud|OpenStreetMap|WRF|TMD|ECMWF|IFS|CC BY|PM2\.5|AQI|UV|AI|UTC|hPa|°C/g;
+  /DooFah|Google Cloud|OpenStreetMap|WRF|TMD|ECMWF|IFS|CC BY|PM2\.5|AQI|UV|AI|UTC|hPa|°C/g;
 const hasStrayLatin = (text: string) => /[A-Za-z]/.test(text.replace(ALLOWED_LATIN, ""));
 const hasThai = (text: string) => /[฀-๿]/.test(text);
 
@@ -232,7 +232,7 @@ async function main() {
   console.log(`✓ ${strings.length} Thai UI strings, none left in English`);
 
   // 4. Real forecasts phrased in Thai match the English summaries -----------
-  const svc = new WeatherNext3MockService({ latencyMs: 0, now: () => NOW });
+  const svc = new SimulatedWeatherService({ latencyMs: 0, now: () => NOW });
   let days = 0;
   for (const place of PLACES) {
     const bundle = await svc.getForecastBundle(place);
@@ -256,15 +256,15 @@ async function main() {
     assertThai(label.name, `${place.id} name`);
     assertThai(label.area, `${place.id} area`);
   }
-  const first = async (q: string) => (await svc.searchPlaces(q))[0]?.id;
-  assert.equal(await first("โคราช"), "korat");
-  assert.equal(await first("กทม"), "bangkok");
-  assert.equal(await first("กรุงเทพ"), "bangkok");
-  assert.equal(await first("โตเกียว"), "tokyo");
-  assert.equal(await first("ลอนดอน"), "london");
-  assert.equal(await first("tokyo"), "tokyo");
-  assert.equal(await first("สมุย"), "koh-samui");
-  const here = svc.placeForPoint({ lat: 10.5, lon: 101.5 }, "Asia/Bangkok");
+  const first = (q: string) => searchPlaces(q)[0]?.id;
+  assert.equal(first("โคราช"), "korat");
+  assert.equal(first("กทม"), "bangkok");
+  assert.equal(first("กรุงเทพ"), "bangkok");
+  assert.equal(first("โตเกียว"), "tokyo");
+  assert.equal(first("ลอนดอน"), "london");
+  assert.equal(first("tokyo"), "tokyo");
+  assert.equal(first("สมุย"), "koh-samui");
+  const here = placeForPoint({ lat: 10.5, lon: 101.5 }, "Asia/Bangkok");
   assert.equal(placeLabel(here, "th").name, "ตำแหน่งของคุณ");
   assert.equal(placeLabel(here, "en").name, "Your location");
   console.log(`✓ ${PLACES.length} places have Thai names; Thai search finds โคราช, กทม, โตเกียว, สมุย`);

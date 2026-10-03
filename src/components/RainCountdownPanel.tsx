@@ -23,8 +23,8 @@ import {
   WET_RATE,
   type RainCountdown,
 } from "@/lib/rainCountdown";
-import { daysBetween, localDateKey } from "@/services/weathernext3/time";
-import type { CurrentConditions, DailyForecast, RainIntensity } from "@/services/WeatherNext3MockService";
+import { daysBetween, localDateKey } from "@/services/weather/time";
+import type { CurrentConditions, DailyForecast, RainIntensity } from "@/services/weather/types";
 
 const RAIN_ICON: Record<RainIntensity, LucideIcon> = {
   drizzle: CloudDrizzle,

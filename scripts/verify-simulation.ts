@@ -1,18 +1,16 @@
 /**
- * Sanity and calibration checks for WeatherNext3MockService.
- * Run with: npm run verify:mock
+ * Sanity and calibration checks for the simulation (SimulatedWeatherService),
+ * the test and demo data behind `?data=sim`.
+ * Run with: npm run verify:simulation
  */
 import assert from "node:assert/strict";
-import {
-  PLACES,
-  WeatherNext3MockService,
-  sampleGrid,
-  type RadarLayerType,
-  type WeatherCondition,
-} from "../src/services/WeatherNext3MockService";
+import { SimulatedWeatherService } from "../src/services/simulation/SimulatedWeatherService";
+import { sampleGrid } from "../src/services/weather/grid";
+import { PLACES } from "../src/services/weather/places";
+import type { RadarLayerType, WeatherCondition } from "../src/services/weather/types";
 
 const NOW = Date.UTC(2026, 8, 30, 7, 20); // 30 Sep 2026, 14:20 in Bangkok
-const svc = new WeatherNext3MockService({ latencyMs: 0, now: () => NOW });
+const svc = new SimulatedWeatherService({ latencyMs: 0, now: () => NOW });
 
 function quantiles(values: number[]) {
   const s = [...values].sort((a, b) => a - b);
@@ -46,7 +44,7 @@ async function main() {
   console.log(`✓ shapes: 48 hourly, 15 daily, cell ${bundle.current.cell.id} is ${cellKmNS.toFixed(2)}×${cellKmEW.toFixed(2)} km`);
 
   // 2. Determinism ----------------------------------------------------------
-  const again = new WeatherNext3MockService({ latencyMs: 0, now: () => NOW });
+  const again = new SimulatedWeatherService({ latencyMs: 0, now: () => NOW });
   assert.deepEqual((await again.getForecastBundle(bkk)).hourly, bundle.hourly);
   console.log("✓ deterministic for a fixed seed and clock");
 
@@ -109,7 +107,7 @@ async function main() {
   for (let day = 0; day < 365; day += 5) {
     for (let hour = 0; hour < 24; hour += 3) {
       const ms = Date.UTC(2026, 0, 1) + day * 86_400_000 + hour * 3_600_000;
-      const clock = new WeatherNext3MockService({ latencyMs: 0, now: () => ms });
+      const clock = new SimulatedWeatherService({ latencyMs: 0, now: () => ms });
       for (const place of PLACES) {
         const sample = clock.sampleAt(place.point, ms);
         (temps[place.id] ??= []).push(sample.temperatureC);

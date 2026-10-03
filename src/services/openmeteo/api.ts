@@ -9,7 +9,7 @@
  * proxy.ts).
  */
 
-import type { Place } from "../weathernext3/types";
+import type { Place } from "../weather/types";
 
 export type Endpoint = "forecast" | "air-quality";
 

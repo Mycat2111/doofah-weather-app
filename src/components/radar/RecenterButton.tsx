@@ -6,7 +6,7 @@ import { useCallback, type RefObject } from "react";
 import { TapButton } from "@/components/ui/TapButton";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import { useI18n } from "@/i18n/I18nProvider";
-import type { GeoPoint } from "@/services/WeatherNext3MockService";
+import type { GeoPoint } from "@/services/weather/types";
 
 /** Street-level view: close enough to see which side of town the rain is on. */
 export const RECENTER_ZOOM = 13;

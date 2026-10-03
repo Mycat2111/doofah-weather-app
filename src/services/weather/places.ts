@@ -91,11 +91,14 @@ export function distanceKm(a: GeoPoint, b: GeoPoint): number {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
+/** The device's time zone, for a place away from the known cities. */
+const deviceTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
+
 /**
  * Turn raw coordinates into a Place: the nearest known city when within
- * 40 km, otherwise a coordinate label in the caller's time zone.
+ * 40 km, otherwise a coordinate label in the caller's (or the device's) time zone.
  */
-export function placeForPoint(point: GeoPoint, fallbackTimeZone: string): Place {
+export function placeForPoint(point: GeoPoint, fallbackTimeZone: string = deviceTimeZone()): Place {
   let best: Place | null = null;
   let bestKm = Infinity;
   for (const place of PLACES) {

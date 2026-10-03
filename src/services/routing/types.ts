@@ -1,4 +1,4 @@
-import type { GeoPoint } from "../weathernext3/types";
+import type { GeoPoint } from "../weather/types";
 
 /** One point of a route's line, with how far and how long it is from the start. */
 export interface RoutePoint extends GeoPoint {

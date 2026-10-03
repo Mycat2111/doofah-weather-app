@@ -5,17 +5,13 @@
 import assert from "node:assert/strict";
 import { MESSAGES } from "../src/i18n/messages";
 import { alertTips, weatherAlerts, type WeatherAlert } from "../src/lib/alerts";
-import {
-  PLACES,
-  WeatherNext3MockService,
-  type ForecastBundle,
-  type HourlyForecast,
-  type WeatherCondition,
-} from "../src/services/WeatherNext3MockService";
+import { SimulatedWeatherService } from "../src/services/simulation/SimulatedWeatherService";
+import { PLACES } from "../src/services/weather/places";
+import type { ForecastBundle, HourlyForecast, WeatherCondition } from "../src/services/weather/types";
 
 const HOUR = 3_600_000;
 const NOW = Date.UTC(2026, 8, 30, 7, 20); // 30 Sep 2026, 14:20 in Bangkok
-const service = new WeatherNext3MockService({ latencyMs: 0, now: () => NOW });
+const service = new SimulatedWeatherService({ latencyMs: 0, now: () => NOW });
 
 async function main() {
   const base = await service.getForecastBundle(PLACES.find((p) => p.id === "bangkok")!, 12);
@@ -111,7 +107,7 @@ async function main() {
   const seen: Record<string, number> = {};
   for (let h = 0; h < 7 * 24; h += 6) {
     const now = NOW + h * HOUR;
-    const week = new WeatherNext3MockService({ latencyMs: 0, now: () => now });
+    const week = new SimulatedWeatherService({ latencyMs: 0, now: () => now });
     for (const place of PLACES) {
       const bundle = await week.getForecastBundle(place, 6);
       for (const alert of weatherAlerts(bundle.current, bundle.hourly)) {

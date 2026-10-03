@@ -9,7 +9,8 @@ import { useFavorites } from "@/hooks/useFavorites";
 import type { GeolocationStatus } from "@/hooks/useGeolocation";
 import { useI18n } from "@/i18n/I18nProvider";
 import { placeLabel } from "@/i18n/places";
-import { weatherNext3, type Place } from "@/services/WeatherNext3MockService";
+import { searchPlaces } from "@/services/weather/places";
+import type { Place } from "@/services/weather/types";
 
 interface DooFahHeaderProps {
   place: Place;
@@ -33,24 +34,16 @@ export function DooFahHeader({ place, onSelectPlace, onLocate, geoStatus }: DooF
   }, [open]);
 
   useEffect(() => {
-    let cancelled = false;
     const q = query.trim();
     const timer = window.setTimeout(() => {
       if (!q) {
         setResults([]);
         return;
       }
-      weatherNext3.searchPlaces(q).then((found) => {
-        if (!cancelled) {
-          setResults(found);
-          setActive(0);
-        }
-      });
+      setResults(searchPlaces(q));
+      setActive(0);
     }, 120);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
+    return () => window.clearTimeout(timer);
   }, [query]);
 
   const close = () => {

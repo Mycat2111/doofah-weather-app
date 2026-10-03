@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
-import type { RadarGridSpec } from "@/services/WeatherNext3MockService";
+import type { RadarGridSpec } from "@/services/weather/types";
 import { computeIsobars } from "../isobars";
 import { useCanvasLayer } from "./useCanvasLayer";
 

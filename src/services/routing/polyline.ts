@@ -1,4 +1,4 @@
-import type { GeoPoint } from "../weathernext3/types";
+import type { GeoPoint } from "../weather/types";
 
 /**
  * Decodes an encoded polyline (https://developers.google.com/maps/documentation/utilities/polylinealgorithm).

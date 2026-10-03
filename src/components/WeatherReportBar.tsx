@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Check, Cloud, CloudDrizzle, CloudRainWind, Moon, Sun, Users, type LucideIcon } from "lucide-react";
 import { TapButton } from "@/components/ui/TapButton";
 import { useI18n } from "@/i18n/I18nProvider";
-import { REPORT_KINDS, type CrowdReport, type ReportKind } from "@/services/CrowdReportMockService";
+import { REPORT_KINDS, type CrowdReport, type ReportKind } from "@/lib/crowdReports";
 
 export const REPORT_STYLE: Record<ReportKind, { icon: LucideIcon; night?: LucideIcon; color: string }> = {
   sunny: { icon: Sun, night: Moon, color: "text-amber-200" },

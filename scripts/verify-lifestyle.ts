@@ -7,19 +7,15 @@ import { createFormatters } from "../src/i18n/format";
 import { MESSAGES } from "../src/i18n/messages";
 import { lifestyleIndex, type Activity, type LifestyleReason, type LifestyleStatus } from "../src/lib/lifestyle";
 import { dryHoursUntil, minutesUntil, rainCountdown, type RainCountdown } from "../src/lib/rainCountdown";
-import {
-  PLACES,
-  WeatherNext3MockService,
-  type AtmosphericSample,
-  type ForecastBundle,
-  type HourlyForecast,
-} from "../src/services/WeatherNext3MockService";
+import { SimulatedWeatherService } from "../src/services/simulation/SimulatedWeatherService";
+import { PLACES } from "../src/services/weather/places";
+import type { AtmosphericSample, ForecastBundle, HourlyForecast } from "../src/services/weather/types";
 
 const HOUR = 3_600_000;
 const MIN = 60_000;
 const NOW = Date.UTC(2026, 8, 30, 7, 20); // 30 Sep 2026, 14:20 in Bangkok
 const TZ = "Asia/Bangkok";
-const service = new WeatherNext3MockService({ latencyMs: 0, now: () => NOW });
+const service = new SimulatedWeatherService({ latencyMs: 0, now: () => NOW });
 const { en, th } = MESSAGES;
 const fen = createFormatters("en");
 const clockEn = (t: string) => fen.clock(t, TZ);
@@ -252,7 +248,7 @@ async function main() {
   const kinds: Record<string, number> = {};
   for (let h = 0; h < 7 * 24; h += 5) {
     const now = NOW + h * HOUR;
-    const week = new WeatherNext3MockService({ latencyMs: 0, now: () => now });
+    const week = new SimulatedWeatherService({ latencyMs: 0, now: () => now });
     for (const place of PLACES) {
       const b = await week.getForecastBundle(place);
       const c: RainCountdown = rainCountdown(b.current, b.hourly, b.daily);

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { WeatherService } from "@/services/weatherService";
-import type { ForecastBundle, Place } from "@/services/WeatherNext3MockService";
+import type { ForecastBundle, Place } from "@/services/weather/types";
 
 const REFRESH_MS = 10 * 60_000;
 

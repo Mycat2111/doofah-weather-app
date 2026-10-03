@@ -13,8 +13,8 @@ import { useI18n } from "@/i18n/I18nProvider";
 import { placeLabel } from "@/i18n/places";
 import { AQI_COLOR } from "@/lib/colors";
 import type { RainCountdown } from "@/lib/rainCountdown";
-import { daysBetween, localDateKey } from "@/services/weathernext3/time";
-import type { CurrentConditions, DailyForecast } from "@/services/WeatherNext3MockService";
+import { daysBetween, localDateKey } from "@/services/weather/time";
+import type { CurrentConditions, DailyForecast } from "@/services/weather/types";
 
 interface CurrentWeatherCardProps {
   /** Now, or the forecast for the moment picked on the map's timeline (`forecastFor`). */

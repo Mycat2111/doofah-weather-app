@@ -15,15 +15,15 @@ import { windParts, type ModelHour, type ModelSeries } from "../src/services/for
 import type { Model } from "../src/services/forecast/types";
 import { getUnifiedForecast } from "../src/services/forecast/unified";
 import type { AirQualityResponse } from "../src/services/openmeteo/api";
-import { HOUR_MS, localDateKey } from "../src/services/weathernext3/time";
-import {
-  PLACES,
-  WeatherNext3MockService,
-  type PrecipitationFrame,
-  type RadarFrameSet,
-  type RadarLayerType,
-  type TemperatureFrame,
-} from "../src/services/WeatherNext3MockService";
+import { SimulatedWeatherService } from "../src/services/simulation/SimulatedWeatherService";
+import { PLACES } from "../src/services/weather/places";
+import { HOUR_MS, localDateKey } from "../src/services/weather/time";
+import type {
+  PrecipitationFrame,
+  RadarFrameSet,
+  RadarLayerType,
+  TemperatureFrame,
+} from "../src/services/weather/types";
 
 const NOW = Date.UTC(2026, 9, 3, 7, 20); // 3 Oct 2026, 14:20 in Bangkok
 const MIDNIGHT = Date.UTC(2026, 9, 2, 17); // 3 Oct, 00:00 in Bangkok
@@ -140,7 +140,7 @@ async function main() {
   console.log("✓ tomorrow's moment reads tomorrow's day and sun; times outside the forecast give none");
 
   // The simulation answers from the model behind its radar.
-  const sim = new WeatherNext3MockService({ latencyMs: 0, now: () => NOW });
+  const sim = new SimulatedWeatherService({ latencyMs: 0, now: () => NOW });
   const simBundle = await sim.getForecastBundle(bangkok);
   const simAt = bundleAt(simBundle, at, {
     sample: sim.sampleAt(bangkok.point, at),

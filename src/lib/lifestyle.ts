@@ -1,5 +1,5 @@
 import { hoursBetween, isWetHour, RAIN_LIKELY, rainCountdown, type RainCountdown } from "@/lib/rainCountdown";
-import type { CurrentConditions, DailyForecast, HourlyForecast } from "@/services/WeatherNext3MockService";
+import type { CurrentConditions, DailyForecast, HourlyForecast } from "@/services/weather/types";
 
 export type Activity = "laundry" | "carWash" | "run" | "commute" | "sunscreen" | "stargazing";
 export const ACTIVITIES: readonly Activity[] = ["laundry", "carWash", "run", "commute", "sunscreen", "stargazing"];

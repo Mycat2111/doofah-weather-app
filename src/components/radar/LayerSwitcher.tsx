@@ -6,7 +6,7 @@ import { CycloneIcon } from "@/components/ui/CycloneIcon";
 import { PRESSED_LABEL } from "@/components/ui/TapButton";
 import { useI18n } from "@/i18n/I18nProvider";
 import { haptic } from "@/lib/haptics";
-import type { RadarLayerType } from "@/services/WeatherNext3MockService";
+import type { RadarLayerType } from "@/services/weather/types";
 
 export const LAYER_OPTIONS: { id: RadarLayerType; icon: LucideIcon }[] = [
   { id: "precipitation", icon: CloudRain },

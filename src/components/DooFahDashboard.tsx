@@ -34,12 +34,8 @@ import { lifestyleIndex } from "@/lib/lifestyle";
 import { previewCountdown, previewNowcast, rainCountdown, type CountdownPreview } from "@/lib/rainCountdown";
 import { weatherSummary } from "@/lib/voiceSummary";
 import { weatherService, type WeatherService, type WeatherSetup } from "@/services/weatherService";
-import {
-  weatherNext3,
-  type AtmosphereTheme,
-  type ForecastBundle,
-  type GeoPoint,
-} from "@/services/WeatherNext3MockService";
+import { placeForPoint } from "@/services/weather/places";
+import type { AtmosphereTheme, ForecastBundle, GeoPoint } from "@/services/weather/types";
 
 interface DooFahDashboardProps {
   /** Force a sky theme, e.g. from `?sky=thunderstorm`, to preview every mood. */
@@ -91,7 +87,7 @@ function Dashboard({
   const { favorites } = useFavorites();
   const now = useNow();
 
-  const onLocated = useCallback((point: GeoPoint) => setPlace(weatherNext3.placeForPoint(point)), [setPlace]);
+  const onLocated = useCallback((point: GeoPoint) => setPlace(placeForPoint(point)), [setPlace]);
   const geo = useGeolocation(onLocated);
 
   // The sky, the weather card, its rain countdown, the lifestyle cards and the

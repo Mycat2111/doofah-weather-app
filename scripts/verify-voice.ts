@@ -8,7 +8,8 @@ import { rainCountdown, type RainCountdown } from "../src/lib/rainCountdown";
 import { pickVoice, type VoiceInfo } from "../src/lib/speech";
 import { summaryFacts, weatherSummary, type SummaryInput } from "../src/lib/voiceSummary";
 import { MAX_TEXT, pickGoogleVoice, RATE_LIMIT, voiceServer } from "../src/services/tts/googleTts";
-import { PLACES, WeatherNext3MockService } from "../src/services/WeatherNext3MockService";
+import { SimulatedWeatherService } from "../src/services/simulation/SimulatedWeatherService";
+import { placeForPoint, PLACES } from "../src/services/weather/places";
 
 const HOUR = 3_600_000;
 const NOW = Date.UTC(2026, 8, 30, 7, 20); // 30 Sep 2026, 14:20 in Bangkok
@@ -71,10 +72,10 @@ async function main() {
   console.log(`✓ Thai speech picks a Thai voice (${pickVoice(voices, "th-TH")?.name}); none installed means none`);
 
   // 3. The summary for every place, in both languages -------------------------
-  const svc = new WeatherNext3MockService({ latencyMs: 0, now: () => NOW });
+  const svc = new SimulatedWeatherService({ latencyMs: 0, now: () => NOW });
   const kinds = new Set<string>();
   const inputFor = async (id: string, now = NOW): Promise<SummaryInput> => {
-    const at = new WeatherNext3MockService({ latencyMs: 0, now: () => now });
+    const at = new SimulatedWeatherService({ latencyMs: 0, now: () => now });
     const bundle = await at.getForecastBundle(PLACES.find((p) => p.id === id)!);
     return { ...bundle, countdown: rainCountdown(bundle.current, bundle.hourly, bundle.daily, now), now };
   };
@@ -138,7 +139,7 @@ async function main() {
   assert.ok(morning.includes("today") && !morning.includes("tomorrow"), morning.join());
   assert.ok(evening.includes("tonight") && evening.includes("tomorrow") && !evening.includes("today"), evening.join());
   // A GPS spot away from any town is "where you are".
-  const spot = svc.placeForPoint({ lat: 10.5, lon: 101.5 }, "Asia/Bangkok");
+  const spot = placeForPoint({ lat: 10.5, lon: 101.5 }, "Asia/Bangkok");
   const out = await svc.getForecastBundle(spot);
   const spotInput = { ...out, countdown: rainCountdown(out.current, out.hourly, out.daily, NOW) };
   assert.match(weatherSummary(spotInput, "en").sentences[1], /^Right now where you are /);

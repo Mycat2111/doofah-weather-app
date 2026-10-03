@@ -26,7 +26,7 @@ import type { RouteWeatherState, Trip } from "@/hooks/useRouteWeather";
 import { useI18n } from "@/i18n/I18nProvider";
 import { haptic } from "@/lib/haptics";
 import { DEPARTURE_OFFSETS_H, stopRain, worseRain, type RouteOutlook } from "@/lib/routeWeather";
-import type { Place } from "@/services/WeatherNext3MockService";
+import type { Place } from "@/services/weather/types";
 import { PlaceField } from "./PlaceField";
 import { RAIN_COLOR } from "./rainStyle";
 

@@ -16,7 +16,7 @@ import {
 } from "../src/lib/favorites";
 import { favoriteName } from "../src/i18n/places";
 import { MESSAGES } from "../src/i18n/messages";
-import { PLACES, placeForPoint } from "../src/services/weathernext3/places";
+import { placeForPoint, PLACES } from "../src/services/weather/places";
 
 const place = (id: string) => PLACES.find((p) => p.id === id)!;
 const bangkok = place("bangkok");

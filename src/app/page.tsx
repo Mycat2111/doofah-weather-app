@@ -3,7 +3,7 @@ import type { AlertKind } from "@/lib/alerts";
 import { COUNTDOWN_PREVIEWS } from "@/lib/rainCountdown";
 import { FOSSGIS_OSRM_URL } from "@/services/routing/osrm";
 import type { WeatherSetup } from "@/services/weatherService";
-import { ATMOSPHERE_THEMES, type AtmosphereTheme } from "@/services/WeatherNext3MockService";
+import { ATMOSPHERE_THEMES, type AtmosphereTheme } from "@/services/weather/types";
 
 const ALERT_KINDS: AlertKind[] = ["storm", "rain", "air"];
 
@@ -16,7 +16,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
   const alertPreview = requested.includes("all") ? ALERT_KINDS : ALERT_KINDS.filter((k) => requested.includes(k));
   // `?rain=soon`, `now`, `later` or `dry` previews the rain countdown.
   const rainPreview = COUNTDOWN_PREVIEWS.find((k) => k === rain);
-  // The live forecast from /api/forecast (WRF and ECMWF); `?data=sim` shows the WeatherNext 3 simulation instead.
+  // The live forecast from /api/forecast (WRF and ECMWF); `?data=sim` shows the simulation (demo data) instead.
   // With Open-Meteo's commercial key set, air quality is asked through /api/weather so the key stays on the server.
   const weather: WeatherSetup =
     data === "sim"
