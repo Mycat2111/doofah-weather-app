@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { routeOutlook, routeStops, type RouteOutlook, type RouteStopWeather } from "@/lib/routeWeather";
 import { getRoute, RouteError, type Route, type RouteErrorCode } from "@/services/routing/routeService";
 import type { WeatherService } from "@/services/weatherService";
@@ -79,21 +79,30 @@ export function useRouteWeather(weather: WeatherService, place: Place, osrmUrl: 
     setLeaveInHours(0);
   }, []);
 
+  const retry = useCallback(() => setAttempt((a) => a + 1), []);
+
   const current = destination && state.key === key ? state : undefined;
-  return {
-    origin,
-    destination,
-    leaveInHours,
-    setOrigin,
-    setDestination,
-    setLeaveInHours,
-    swap,
-    clear,
-    retry: () => setAttempt((a) => a + 1),
-    loading: !!destination && state.key !== key,
-    trip: current?.trip ?? null,
-    error: current?.error ?? null,
-  };
+  const loading = !!destination && state.key !== key;
+  const trip = current?.trip ?? null;
+  const error = current?.error ?? null;
+  // The same object until something changes, so the route card need not draw again with the rest of the page.
+  return useMemo(
+    () => ({
+      origin,
+      destination,
+      leaveInHours,
+      setOrigin,
+      setDestination,
+      setLeaveInHours,
+      swap,
+      clear,
+      retry,
+      loading,
+      trip,
+      error,
+    }),
+    [origin, destination, leaveInHours, swap, clear, retry, loading, trip, error],
+  );
 }
 
 export type RouteWeatherState = ReturnType<typeof useRouteWeather>;

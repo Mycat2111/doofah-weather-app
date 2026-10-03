@@ -129,6 +129,11 @@ export class WeatherNext3MockService implements WeatherService {
     return this.toSample(center, ms, lead, this.model.sample(center.lat, center.lon, ms, lead));
   }
 
+  /** The 10-minute rain nowcast from `time` at the 5 km cell containing `point`, as the radar shows it. */
+  nowcastAt(point: GeoPoint, time: number): Nowcast {
+    return this.buildNowcast(snapToGrid(point).center, time);
+  }
+
   async getCurrentConditions(place: Place): Promise<CurrentConditions> {
     await this.delay(1);
     return this.buildCurrent(place);
@@ -351,7 +356,8 @@ export class WeatherNext3MockService implements WeatherService {
     };
   }
 
-  private buildNowcast(center: GeoPoint, now: number, rateNow: number): Nowcast {
+  /** `rateNow` is the rain now, when already worked out with the rest of the conditions. */
+  private buildNowcast(center: GeoPoint, now: number, rateNow?: number): Nowcast {
     const steps = Array.from({ length: 13 }, (_, i) => {
       const ms = now + i * 10 * 60_000;
       const th = ms / HOUR_MS;
@@ -359,7 +365,7 @@ export class WeatherNext3MockService implements WeatherService {
       const pressure = m.pressure(center.lat, center.lon, th);
       const moisture = m.moisture(center.lat, center.lon, th, pressure);
       const precip = m.precipitation(center.lat, center.lon, th, moisture, pressure);
-      const rate = i === 0 ? rateNow : precip.convective + precip.stratiform;
+      const rate = i === 0 && rateNow !== undefined ? rateNow : precip.convective + precip.stratiform;
       return { time: new Date(ms).toISOString(), precipitationMm: round1(rate) };
     });
     return nowcastFromSteps(steps);

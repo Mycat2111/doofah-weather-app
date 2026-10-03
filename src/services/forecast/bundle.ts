@@ -22,6 +22,7 @@ import type {
   ForecastBundle,
   GeoPoint,
   HourlyForecast,
+  Nowcast,
   NowcastStep,
   Place,
   SpotWeather,
@@ -33,6 +34,8 @@ const STEP_MS = 10 * 60_000;
 const NOWCAST_STEPS = 13;
 /** Hours shown in the hourly strip. */
 const HOURLY_HOURS = 48;
+/** Air quality is a reading for now: the card keeps showing it this close to now. */
+const AIR_QUALITY_MS = HOUR_MS;
 /** The sun is up from this elevation, degrees (upper limb, with refraction). */
 const SUNRISE_ELEVATION = -0.83;
 /** Without a visibility forecast, a clear 10 km. */
@@ -210,5 +213,50 @@ export function spotFrom(forecast: UnifiedForecast, point: GeoPoint, time: numbe
     precipitationProbability: s.precipitationProbability,
     condition: s.condition,
     isDay: s.isDay,
+  };
+}
+
+/** Every hour a bundle has, in order: the days' hours from local midnight today, and the hourly strip's. */
+function hoursOf(bundle: ForecastBundle): HourlyForecast[] {
+  const byTime = new Map<string, HourlyForecast>();
+  for (const h of [...bundle.daily.flatMap((d) => d.hours), ...bundle.hourly]) byTime.set(h.time, h);
+  return [...byTime.values()].sort((a, b) => Date.parse(a.time) - Date.parse(b.time));
+}
+
+/**
+ * The dashboard's data as at another moment than now, `at`, picked on the
+ * map's timeline: the conditions forecast for then (marked `forecastFor`),
+ * the hours and days from then on, and the rain countdown's bars from then.
+ * Air quality stays only within an hour of now. The simulation passes its
+ * own conditions and 10-minute nowcast for `at`, from the model behind its
+ * radar. Null when the forecast doesn't cover `at`.
+ */
+export function bundleAt(
+  bundle: ForecastBundle,
+  at: number,
+  own: { sample?: AtmosphericSample; nowcast?: Nowcast } = {},
+): ForecastBundle | null {
+  const { current } = bundle;
+  const hours = hoursOf(bundle);
+  const i = hourIndex(hours, at);
+  const date = localDateKey(at, current.place.timeZone);
+  const daily = bundle.daily.filter((d) => d.date >= date);
+  if (i === -1 || !daily.length) return null;
+  const sample = own.sample ?? sampleAt(hours, at, current.place.point);
+  return {
+    current: {
+      ...current,
+      observedAt: iso(at),
+      forecastFor: iso(at),
+      sample,
+      airQuality: Math.abs(at - Date.parse(current.observedAt)) <= AIR_QUALITY_MS ? current.airQuality : null,
+      atmosphere: atmosphereFor(sample),
+      sunrise: daily[0].sunrise,
+      sunset: daily[0].sunset,
+      nowcast: own.nowcast ?? nowcastFromSteps(hourlySteps(hours, at)),
+      modelUsed: hours[i].modelUsed,
+    },
+    hourly: hours.slice(i, i + HOURLY_HOURS),
+    daily,
   };
 }

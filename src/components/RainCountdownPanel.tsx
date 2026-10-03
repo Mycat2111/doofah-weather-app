@@ -12,6 +12,7 @@ import {
   Sun,
   type LucideIcon,
 } from "lucide-react";
+import { useState } from "react";
 import { useNow } from "@/hooks/useNow";
 import { useI18n } from "@/i18n/I18nProvider";
 import {
@@ -22,6 +23,7 @@ import {
   WET_RATE,
   type RainCountdown,
 } from "@/lib/rainCountdown";
+import { daysBetween, localDateKey } from "@/services/weathernext3/time";
 import type { CurrentConditions, DailyForecast, RainIntensity } from "@/services/WeatherNext3MockService";
 
 const RAIN_ICON: Record<RainIntensity, LucideIcon> = {
@@ -63,14 +65,19 @@ interface RainCountdownPanelProps {
 /**
  * Time to the next rain (or to the end of this rain) as a badge that counts
  * down live, over rain bars for the next 2 hours: every 10 minutes from the
- * simulation's radar, or each hour's rain for the live forecast.
+ * simulation's radar, or each hour's rain for the live forecast. For a moment
+ * picked on the map's timeline it counts from that moment and stands still.
  */
 export function RainCountdownPanel({ current, countdown, daily }: RainCountdownPanelProps) {
   const { m, f } = useI18n();
   const tz = current.place.timeZone;
   const observed = Date.parse(current.observedAt);
   const tick = useNow();
-  const now = Math.max(tick ?? observed, observed);
+  const now = current.forecastFor ? observed : Math.max(tick ?? observed, observed);
+  // `daily` starts on the moment's day; days are named from today.
+  const firstDay = current.forecastFor && tick && daily[0] ? daysBetween(localDateKey(tick, tz), daily[0].date) : 0;
+  // The bars grow in once; after that they follow the moment straight away.
+  const [grown, setGrown] = useState(false);
   const clock = (time: string) => f.clock(time, tz);
   const { steps } = current.nowcast;
   const maxStep = Math.max(2, ...steps.map((s) => s.precipitationMm));
@@ -148,11 +155,12 @@ export function RainCountdownPanel({ current, countdown, daily }: RainCountdownP
       } else {
         const index = countdown.nextRainDay;
         const day = index === null ? undefined : daily[index];
+        const fromToday = index === null ? 0 : index + firstDay;
         detail = !day
           ? m.countdown.noRainAhead
-          : index === 1
+          : fromToday === 1
             ? m.countdown.nextRainTomorrow
-            : m.countdown.nextRain(f.dayName(day.date, index!), f.shortDate(day.date));
+            : m.countdown.nextRain(f.dayName(day.date, fromToday), f.shortDate(day.date));
       }
       break;
     }
@@ -214,11 +222,12 @@ export function RainCountdownPanel({ current, countdown, daily }: RainCountdownP
         <div className="flex h-8 items-end gap-1" aria-hidden>
           {steps.map((s, i) => (
             <motion.span
-              key={s.time}
+              key={i}
               className="flex-1 rounded-sm bg-sky-300/80"
               initial={{ height: 2 }}
               animate={{ height: Math.max(2, (s.precipitationMm / maxStep) * 32) }}
-              transition={{ delay: 0.3 + i * 0.03, type: "spring", stiffness: 200, damping: 20 }}
+              transition={{ delay: grown ? 0 : 0.3 + i * 0.03, type: "spring", stiffness: 200, damping: 20 }}
+              onAnimationComplete={i === steps.length - 1 && !grown ? () => setGrown(true) : undefined}
               style={{ opacity: s.precipitationMm >= WET_RATE ? 1 : 0.25 }}
             />
           ))}
@@ -230,7 +239,7 @@ export function RainCountdownPanel({ current, countdown, daily }: RainCountdownP
             style={{ left: `${markerLeft}%` }}
             initial={{ scaleY: 0, opacity: 0 }}
             animate={{ scaleY: 1, opacity: 1 }}
-            transition={{ delay: 0.7, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+            transition={{ delay: grown ? 0 : 0.7, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
             aria-hidden
           >
             <span className="absolute -left-[3px] -top-[3px] size-[7px] rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.9)]" />
@@ -238,7 +247,7 @@ export function RainCountdownPanel({ current, countdown, daily }: RainCountdownP
         )}
       </div>
       <div className="mt-1 flex justify-between text-[10px] text-white/45 th:text-[11px]">
-        <span>{m.hero.now}</span>
+        <span>{current.forecastFor ? f.clock(current.forecastFor, tz) : m.hero.now}</span>
         <span>{m.hero.hoursAhead(1)}</span>
         <span>{m.hero.hoursAhead(2)}</span>
       </div>

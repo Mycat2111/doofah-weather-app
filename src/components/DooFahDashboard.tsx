@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { AlertTriangle, RotateCw, WifiOff } from "lucide-react";
-import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { AtmosphereBackground } from "@/components/AtmosphereBackground";
 import { CurrentWeatherCard } from "@/components/CurrentWeatherCard";
 import { DailyForecastList } from "@/components/DailyForecastList";
@@ -19,23 +19,22 @@ import { WeatherDetailsGrid } from "@/components/WeatherDetailsGrid";
 import { VoiceSummaryButton } from "@/components/VoiceSummaryButton";
 import { WeatherReportBar } from "@/components/WeatherReportBar";
 import { useCrowdReports } from "@/hooks/useCrowdReports";
-import { useForecast } from "@/hooks/useForecast";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import { useRouteWeather } from "@/hooks/useRouteWeather";
+import { useWeatherState, WeatherStateProvider } from "@/hooks/useWeatherState";
+import type { Locale } from "@/i18n/config";
 import { useI18n } from "@/i18n/I18nProvider";
 import { placeLabel } from "@/i18n/places";
 import { previewAlerts, weatherAlerts, type AlertKind } from "@/lib/alerts";
-import { readOpeningPlace, saveLastPlace } from "@/lib/favorites";
 import { lifestyleIndex } from "@/lib/lifestyle";
 import { previewCountdown, previewNowcast, rainCountdown, type CountdownPreview } from "@/lib/rainCountdown";
 import { weatherSummary } from "@/lib/voiceSummary";
-import { weatherService, type WeatherSetup } from "@/services/weatherService";
+import { weatherService, type WeatherService, type WeatherSetup } from "@/services/weatherService";
 import {
-  DEFAULT_PLACE,
   weatherNext3,
   type AtmosphereTheme,
+  type ForecastBundle,
   type GeoPoint,
-  type Place,
 } from "@/services/WeatherNext3MockService";
 
 interface DooFahDashboardProps {
@@ -55,102 +54,133 @@ interface DooFahDashboardProps {
   aiVoice?: boolean;
 }
 
-const noSubscription = () => () => {};
+export function DooFahDashboard({ weather: setup, ...props }: DooFahDashboardProps) {
+  const weather = weatherService(setup);
+  return (
+    <WeatherStateProvider weather={weather}>
+      <Dashboard weather={weather} {...props} />
+    </WeatherStateProvider>
+  );
+}
 
-export function DooFahDashboard({
+function Dashboard({
   atmosphereOverride,
   alertPreview,
   rainPreview,
-  weather: setup,
+  weather,
   osrmUrl,
   contactEmail,
   aiVoice,
-}: DooFahDashboardProps) {
+}: Omit<DooFahDashboardProps, "weather"> & { weather: WeatherService }) {
   const { locale, m, f } = useI18n();
-  const weather = weatherService(setup);
   const simulated = weather.source === "simulated";
-  // False on the server and while hydrating, true in the browser after that.
-  const inBrowser = useSyncExternalStore(
-    noSubscription,
-    () => true,
-    () => false,
-  );
-  const [chosen, setPlace] = useState<Place | null>(null);
-  // Until a place is picked, open on a saved favorite (the server, which
-  // cannot see localStorage, renders the default place first).
-  const place = chosen ?? (inBrowser ? readOpeningPlace() : undefined) ?? DEFAULT_PLACE;
-  const { data, loading, error, refresh } = useForecast(weather, place);
+  const { place, setPlace, forecast: data, here, status, setTime } = useWeatherState();
+  const { loading, error, refresh } = status;
   const crowd = useCrowdReports(place, simulated);
   const route = useRouteWeather(weather, place, osrmUrl);
   const [routeFocus, setRouteFocus] = useState<RouteFocus>({ key: 0, stop: null });
 
-  // Remember what is on screen, so the app reopens on it if it is a favorite.
-  useEffect(() => {
-    if (inBrowser) saveLastPlace(place);
-  }, [inBrowser, place]);
-
-  const onLocated = useCallback((point: GeoPoint) => setPlace(weatherNext3.placeForPoint(point)), []);
+  const onLocated = useCallback((point: GeoPoint) => setPlace(weatherNext3.placeForPoint(point)), [setPlace]);
   const geo = useGeolocation(onLocated);
 
-  const atmosphere = atmosphereOverride ?? data?.current.atmosphere ?? "clear-night";
+  // The sky, the weather card, its rain countdown, the lifestyle cards and the
+  // details show the moment picked on the map's timeline (`here`). Alerts and
+  // the spoken summary are about what is coming from now, so they stay on now.
+  const atmosphere = atmosphereOverride ?? here?.current.atmosphere ?? "clear-night";
   // Only show data that belongs to the selected place (the previous place's
   // data stays visible, dimmed, while the next one loads).
   const tz = data?.current.place.timeZone ?? place.timeZone;
 
-  const alerts = !data
-    ? []
-    : alertPreview
-      ? previewAlerts(alertPreview, Date.parse(data.current.observedAt))
-      : weatherAlerts(data.current, data.hourly);
+  const alerts = useMemo(() => alertsFor(data, alertPreview), [data, alertPreview]);
 
-  const countdown = !data
-    ? undefined
-    : rainPreview
-      ? previewCountdown(rainPreview, Date.parse(data.current.observedAt))
-      : rainCountdown(data.current, data.hourly, data.daily);
+  const countdownOf = (bundle: typeof data) =>
+    !bundle
+      ? undefined
+      : rainPreview
+        ? previewCountdown(rainPreview, Date.parse(bundle.current.observedAt))
+        : rainCountdown(bundle.current, bundle.hourly, bundle.daily);
+  const countdown = countdownOf(here);
   // A preview also redraws the radar bars under the badge to match it.
   const current =
-    data && rainPreview
+    here && rainPreview
       ? {
-          ...data.current,
-          nowcast: { ...data.current.nowcast, steps: previewNowcast(rainPreview, data.current.nowcast.steps) },
+          ...here.current,
+          nowcast: { ...here.current.nowcast, steps: previewNowcast(rainPreview, here.current.nowcast.steps) },
         }
-      : data?.current;
+      : here?.current;
   // The cards read the same countdown, so they never disagree with the badge.
   const lifestyle =
-    data && countdown ? lifestyleIndex(data.current, data.hourly, data.daily, undefined, countdown) : [];
-  // Read aloud by the floating button; follows the same countdown as the badge.
-  const summary =
-    data && countdown
-      ? weatherSummary({ current: data.current, hourly: data.hourly, daily: data.daily, countdown }, locale)
-      : null;
+    here && countdown ? lifestyleIndex(here.current, here.hourly, here.daily, undefined, countdown) : [];
+  // Read aloud by the floating button; the countdown from now, as the badge shows it at now.
+  const summary = useMemo(() => summaryFor(data, rainPreview, locale), [data, rainPreview, locale]);
 
-  const { trip } = route;
+  const { trip, origin, destination } = route;
   // The trip's stops: the start and end by their places, the rest by the nearest town, else the distance.
-  const stopName = (i: number) => {
-    if (!trip) return "";
-    if (i === 0) return placeLabel(route.origin, locale).name;
-    if (i === trip.stops.length - 1 && route.destination) return placeLabel(route.destination, locale).name;
-    const { town, km } = trip.stops[i];
-    return town ? (locale === "th" ? town.th : town.name) : m.route.km(km);
-  };
-  const showTripOnMap = (stop: number | null) => {
+  const stopName = useCallback(
+    (i: number) => {
+      if (!trip) return "";
+      if (i === 0) return placeLabel(origin, locale).name;
+      if (i === trip.stops.length - 1 && destination) return placeLabel(destination, locale).name;
+      const { town, km } = trip.stops[i];
+      return town ? (locale === "th" ? town.th : town.name) : m.route.km(km);
+    },
+    [trip, origin, destination, locale, m],
+  );
+  const showTripOnMap = useCallback((stop: number | null) => {
     setRouteFocus((f) => ({ key: f.key + 1, stop }));
     document.getElementById("doofah-radar")?.scrollIntoView({ behavior: "smooth", block: "center" });
-  };
+  }, []);
+
+  // While the map's timeline plays, only what shows its moment draws again; these stay as they are.
+  const sampleTime = data ? Date.parse(data.current.observedAt) : undefined;
+  const placeId = data?.current.place.id ?? place.id;
+  const top = useMemo(
+    () => (
+      <>
+        <DooFahHeader place={place} onSelectPlace={setPlace} onLocate={geo.locate} geoStatus={geo.status} />
+        <FavoritesBar place={place} onSelectPlace={setPlace} weather={weather} sampleTime={sampleTime} />
+        <WeatherAlertBanner alerts={alerts} placeId={placeId} timeZone={tz} />
+      </>
+    ),
+    [place, setPlace, geo.locate, geo.status, weather, sampleTime, alerts, placeId, tz],
+  );
+  const hourly = useMemo(
+    () =>
+      data ? (
+        <HourlyForecastSlider hours={data.hourly} days={data.daily.slice(0, 3)} timeZone={tz} />
+      ) : (
+        <Skeleton className="h-[168px]" />
+      ),
+    [data, tz],
+  );
+  const days = useMemo(
+    () =>
+      data ? (
+        <DailyForecastList days={data.daily} timeZone={tz} currentTempC={data.current.sample.temperatureC} />
+      ) : (
+        <Skeleton className="h-[720px]" />
+      ),
+    [data, tz],
+  );
+  const routeCard = useMemo(
+    () => (
+      <RouteWeatherCard
+        state={route}
+        place={place}
+        timeZone={place.timeZone}
+        stopName={stopName}
+        onShowOnMap={showTripOnMap}
+        className="lg:col-span-2 lg:row-start-3"
+      />
+    ),
+    [route, place, stopName, showTripOnMap],
+  );
 
   return (
     <>
       <AtmosphereBackground theme={atmosphere} />
       <main className="relative mx-auto w-full min-w-0 max-w-[1400px] px-4 pb-24 pt-5 sm:px-6 lg:px-8">
-        <DooFahHeader place={place} onSelectPlace={setPlace} onLocate={geo.locate} geoStatus={geo.status} />
-        <FavoritesBar
-          place={place}
-          onSelectPlace={setPlace}
-          weather={weather}
-          sampleTime={data ? Date.parse(data.current.observedAt) : undefined}
-        />
-        <WeatherAlertBanner alerts={alerts} placeId={data?.current.place.id ?? place.id} timeZone={tz} />
+        {top}
 
         {error && (
           <div role="alert" className="glass mt-3 flex items-center gap-3 rounded-2xl px-4 py-3 text-sm">
@@ -176,11 +206,12 @@ export function DooFahDashboard({
         {/* Phones: weather, lifestyle, map. Wide screens: weather beside the map, lifestyle below both. */}
         <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(340px,420px)_1fr]">
           <div className={`transition-opacity duration-300 ${loading && data ? "opacity-60" : ""}`}>
-            {data && current && countdown ? (
+            {here && current && countdown ? (
               <CurrentWeatherCard
                 current={current}
-                daily={data.daily}
+                daily={here.daily}
                 countdown={countdown}
+                onBackToNow={() => setTime(null)}
                 reportBar={
                   <WeatherReportBar
                     reports={crowd.reports}
@@ -199,7 +230,7 @@ export function DooFahDashboard({
           <div
             className={`transition-opacity duration-300 lg:col-span-2 lg:row-start-2 ${loading && data ? "opacity-60" : ""}`}
           >
-            {data ? (
+            {here ? (
               <LifestyleIndex statuses={lifestyle} timeZone={tz} />
             ) : (
               <Skeleton className="h-[330px] lg:h-[210px]" />
@@ -218,40 +249,18 @@ export function DooFahDashboard({
             tripStopName={stopName}
             className="h-[600px] lg:col-start-2 lg:row-start-1 lg:h-auto lg:min-h-[580px]"
           />
-          <RouteWeatherCard
-            state={route}
-            place={place}
-            timeZone={place.timeZone}
-            stopName={stopName}
-            onShowOnMap={showTripOnMap}
-            className="lg:col-span-2 lg:row-start-3"
-          />
+          {routeCard}
         </div>
 
-        <div className={`mt-4 transition-opacity duration-300 ${loading && data ? "opacity-60" : ""}`}>
-          {data ? (
-            <HourlyForecastSlider hours={data.hourly} days={data.daily.slice(0, 3)} timeZone={tz} />
-          ) : (
-            <Skeleton className="h-[168px]" />
-          )}
-        </div>
+        <div className={`mt-4 transition-opacity duration-300 ${loading && data ? "opacity-60" : ""}`}>{hourly}</div>
 
         <div
           className={`mt-4 grid grid-cols-1 items-start gap-4 lg:grid-cols-[1fr_minmax(340px,420px)] ${
             loading && data ? "opacity-60" : ""
           } transition-opacity duration-300`}
         >
-          {data ? (
-            <>
-              <DailyForecastList days={data.daily} timeZone={tz} currentTempC={data.current.sample.temperatureC} />
-              <WeatherDetailsGrid current={data.current} />
-            </>
-          ) : (
-            <>
-              <Skeleton className="h-[720px]" />
-              <Skeleton className="h-[480px]" />
-            </>
-          )}
+          {days}
+          {here ? <WeatherDetailsGrid current={here.current} /> : <Skeleton className="h-[480px]" />}
         </div>
 
         {/* Floats over the bottom right; the page's bottom padding keeps the last card clear of it. */}
@@ -298,6 +307,23 @@ export function DooFahDashboard({
       </main>
     </>
   );
+}
+
+/** The alert banner's alerts, from now (or the sample ones asked for in the address). */
+function alertsFor(data: ForecastBundle | undefined, preview: AlertKind[] | undefined) {
+  if (!data) return [];
+  return preview
+    ? previewAlerts(preview, Date.parse(data.current.observedAt))
+    : weatherAlerts(data.current, data.hourly);
+}
+
+/** The spoken summary, from now, with the same countdown the badge shows at now. */
+function summaryFor(data: ForecastBundle | undefined, preview: CountdownPreview | undefined, locale: Locale) {
+  if (!data) return null;
+  const countdown = preview
+    ? previewCountdown(preview, Date.parse(data.current.observedAt))
+    : rainCountdown(data.current, data.hourly, data.daily);
+  return weatherSummary({ current: data.current, hourly: data.hourly, daily: data.daily, countdown }, locale);
 }
 
 function FooterLink({ href, children }: { href: string; children: ReactNode }) {

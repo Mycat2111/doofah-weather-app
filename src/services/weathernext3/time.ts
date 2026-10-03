@@ -64,4 +64,10 @@ export function localDateKey(ms: number, timeZone: string): string {
   return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
 }
 
+/** Days from one local date key (YYYY-MM-DD) to another: 1 for the next day. */
+export function daysBetween(from: string, to: string): number {
+  const utc = (key: string) => Date.UTC(+key.slice(0, 4), +key.slice(5, 7) - 1, +key.slice(8, 10));
+  return Math.round((utc(to) - utc(from)) / DAY_MS);
+}
+
 export const floorToHour = (ms: number) => Math.floor(ms / HOUR_MS) * HOUR_MS;

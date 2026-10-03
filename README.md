@@ -42,6 +42,7 @@ npm run dev          # http://localhost:3000
 | `npm run verify:open-meteo` | Open-Meteo's air quality: the request, the AQI and the key proxy |
 | `npm run verify:forecast` | The unified forecast: the ECMWF and TMD requests, which model each hour takes, the 48-hour blend, the condition rule, the days and `/api/forecast` |
 | `npm run verify:forecast-service` | The screens on the unified forecast: the dashboard, a favorite's chip and trip stops from one reply per place, model tags, the hourly countdown and the offline copy |
+| `npm run verify:weather-state` | The moment on the map's timeline: the forecast for it, the countdown from it, the radar frames between hours and their motion, and the labels in both languages |
 | `npm run icons`       | Re-render the app icons and favicon from `scripts/icons/doofah-icon.svg` |
 
 Preview any sky mood with a query parameter:
@@ -111,8 +112,9 @@ The parameters combine, e.g. `/?data=sim&sky=rain`.
 
 DooFah reads exactly two weather models: WRF for the first 48 hours, ECMWF
 after that, from `/api/forecast?lat=…&lon=…`. The dashboard, favorites'
-chips and road trip stops read it; a shared `useWeatherState` and the radar
-map move onto it in the next steps.
+chips and road trip stops read it, the dashboard through a shared
+`useWeatherState` that also follows the map's timeline (below); the radar
+map moves onto it in the next step.
 
 | Hours from now | Model |
 | -------------- | ----- |
@@ -177,6 +179,40 @@ map move onto it in the next steps.
 - **Not tested here against the real Open-Meteo or TMD**, which the sandbox
   can't reach; `npm run verify:forecast` and `npm run verify:forecast-service`
   use replies in their formats.
+
+## The map's timeline and the shared moment
+
+Every screen reads one place, one forecast and one moment from
+`useWeatherState()` (`src/hooks/useWeatherState.tsx`):
+`{ place, forecast, time, setTime, here, status }`. `time` is the moment
+picked on the map's timeline, or `null` for now, and `here` is the
+forecast as seen from that moment (`bundleAt` in
+`src/services/forecast/bundle.ts`).
+
+- **What follows the timeline.** The hero card says "Forecast for 18:00"
+  (or "tomorrow 09:00") with a Back to now button, and its temperature,
+  sky, rain countdown and 2-hour bars, the lifestyle cards, the details
+  grid and the animated sky are for that moment. The air quality shows only
+  within an hour of now, since it is a reading, not a forecast. Weather
+  alerts, the spoken summary, favorites' chips, the hourly strip and the
+  15 days stay on now. "Show on map" for a trip stop moves the whole
+  dashboard to when you get there.
+- **10-minute steps.** The timeline runs from 3 hours ago to 24 hours
+  ahead in 10-minute steps: a drag or tap lands on one, arrows move 10
+  minutes, Page Up / Page Down an hour, Home and End to the ends. Playback
+  runs an hour a second, smoothly, and the cards follow it.
+- **Rain moves between hours.** The model gives a frame each hour. Between
+  two, the rain is moved along its own track rather than faded from one
+  hour into the next (`src/components/radar/interpolate.ts`): the motion
+  is found by matching the two hours' rain from coarse to fine, and each
+  in-between frame carries the first hour forward and the second back to
+  meet. Where the two hours don't match well (rain forming or dying out)
+  it fades instead. Wind, temperature and pressure fade between hours.
+  While the timeline moves the rain is painted a little coarser, then
+  finely once it stops.
+- **Zoom.** The map zooms out to level 3, wide enough for a monsoon trough
+  or a typhoon across the region, and in to 20. Zoomed out, the weather
+  grid widens (up to about 130 km cells) so it stays quick.
 
 ## Setting it up from scratch
 
@@ -454,8 +490,8 @@ shapes), and `public/screenshots/*` for the richer install dialog.
   The navigation-arrow button under the zoom buttons finds you by GPS, makes
   that the dashboard's place and flies the map there at zoom 13; without a fix
   it flies back to the marker and turns amber with the reason.
-  The map zooms from level 5 to 20 (street level; OpenStreetMap tiles are
-  enlarged past 19). The zoom buttons are 44 px on touch screens.
+  The map zooms from level 3 (the whole region) to 20 (street level;
+  OpenStreetMap tiles are enlarged past 19). The zoom buttons are 44 px on touch screens.
 - **Vertical scrolling only.** `html` and `body` clip sideways overflow
   (`overflow-x: clip`, `hidden` as a fallback) with no sideways overscroll, the
   dashboard grids use `minmax(0, 1fr)` columns so no card can widen the page,
@@ -469,9 +505,11 @@ shapes), and `public/screenshots/*` for the richer install dialog.
   before. To let one finger drag the map, remove `TouchGestures` from
   `RadarLeafletView.tsx`.
 - **Timeline.** The thumb follows the finger smoothly and springs onto the
-  nearest hour when released, with the hour shown above the finger. Sideways
-  drags scrub; up and down swipes still scroll the page. Tapping the track
-  jumps to that hour. Keyboard: arrows, Page Up / Page Down (6 h), Home, End.
+  nearest 10 minutes when released, with the time shown above the finger.
+  Sideways drags scrub; up and down swipes still scroll the page. Tapping
+  the track jumps to that time; dragging gives a light vibration on each
+  whole hour. Keyboard: arrows (10 min), Page Up / Page Down (1 h), Home,
+  End.
 - **Feedback.** Buttons squeeze slightly when pressed (`TapButton`), picked
   layers pop, and choices give a short vibration (`src/lib/haptics.ts`): the
   Vibration API on Android and the system switch tick in Safari on iOS 18 and
@@ -542,7 +580,8 @@ src/
 │   ├── AtmosphereBackground.tsx   Animated sky per condition (rain, stars, lightning, …)
 │   ├── radar/
 │   │   ├── LayerSwitcher.tsx      Rain / Wind / Temp / Pressure segmented control
-│   │   ├── TimelineScrubber.tsx   −3 h … +24 h touch scrubber with play/pause
+│   │   ├── TimelineScrubber.tsx   −3 h … +24 h touch scrubber in 10-minute steps, with play/pause
+│   │   ├── interpolate.ts         Radar frames between hours: the rain's motion and the frames along it
 │   │   ├── ZoomButtons.tsx        Map zoom buttons, finger-sized on touch screens
 │   │   ├── RecenterButton.tsx     Go to my location: GPS fix, then fly the map there
 │   │   ├── CrowdVerifiedBadge.tsx "Verified by N local users" badge under the layer switcher
@@ -572,7 +611,8 @@ src/
 │   └── messages/                  en.ts, th.ts and the Messages type
 ├── hooks/
 │   ├── useForecast.ts             Loads + refreshes the forecast bundle
-│   ├── useRadarFrames.ts          Loads frames for the visible map area
+│   ├── useWeatherState.tsx        The place, its forecast and the moment on the map's timeline, for every screen
+│   ├── useRadarFrames.ts          Loads frames for the visible map area; the frame at any moment
 │   ├── useFavorites.ts            Favorite places from localStorage, synced across tabs
 │   ├── useGeolocation.ts          Browser location with status
 │   ├── useNow.ts                  A shared clock that ticks every 15 s, for countdowns
@@ -646,6 +686,7 @@ scripts/verify-voice.ts            Checks behind `npm run verify:voice`
 scripts/verify-open-meteo.ts       Checks behind `npm run verify:open-meteo`
 scripts/verify-forecast.ts         Checks behind `npm run verify:forecast`
 scripts/verify-forecast-service.ts Checks behind `npm run verify:forecast-service`
+scripts/verify-weather-state.ts    Checks behind `npm run verify:weather-state`
 scripts/generate-icons.ts          `npm run icons`, from scripts/icons/doofah-icon.svg
 ```
 

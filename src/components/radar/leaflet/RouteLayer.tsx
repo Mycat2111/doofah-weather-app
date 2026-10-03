@@ -45,7 +45,7 @@ function stopIcon(stop: RouteStopWeather): L.DivIcon {
   });
 }
 
-const CAR_SLACK_MIN = 60;
+const CAR_SLACK_MIN = 10;
 
 const carIcon = L.divIcon({
   className: "doofah-route-car",
@@ -106,8 +106,8 @@ export function RouteLayer({ trip, frameTime, focus, timeZone, stopName }: Route
 
   const start = Date.parse(route.departure);
   const minutesIn = frameTime === null ? null : (frameTime - start) / 60_000;
-  // The radar steps an hour at a time, so the car also waits at the start in
-  // the hour before you leave and at the end in the hour after you arrive.
+  // The timeline steps 10 minutes at a time, so the car also waits at the start
+  // in the 10 minutes before you leave and at the end in the 10 after you arrive.
   const car =
     minutesIn !== null && minutesIn >= -CAR_SLACK_MIN && minutesIn <= route.durationMin + CAR_SLACK_MIN
       ? positionAt(route.path, minutesIn)

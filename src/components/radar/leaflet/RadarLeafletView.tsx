@@ -1,11 +1,13 @@
 "use client";
 
+import type { MotionValue } from "framer-motion";
 import L from "leaflet";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { Messages } from "@/i18n/messages";
 import { haptic } from "@/lib/haptics";
+import { useFrameAt } from "@/hooks/useRadarFrames";
 import type { Trip } from "@/hooks/useRouteWeather";
 import type { CrowdReport } from "@/services/CrowdReportMockService";
 import {
@@ -13,6 +15,7 @@ import {
   type GeoBounds,
   type GeoPoint,
   type RadarFrame,
+  type RadarFrameSet,
   type RadarGridSpec,
 } from "@/services/WeatherNext3MockService";
 import { PRECIP_SCALE, PRESSURE_SCALE, TEMPERATURE_SCALE, WIND_SCALE } from "../colorScales";
@@ -24,8 +27,12 @@ import { WindParticleLayer } from "./WindParticleLayer";
 
 export interface RadarLeafletViewProps {
   center: GeoPoint;
-  grid?: RadarGridSpec;
-  frame?: RadarFrame;
+  /** The layer's hourly frames over the area in view. */
+  frameSet?: RadarFrameSet;
+  /** The timeline's time (ms), moving smoothly while it plays; the layers show the weather then. */
+  playhead: MotionValue<number>;
+  /** The timeline's time to the 10 minutes, for what moves in steps (the car on a trip). */
+  time: number | null;
   onViewChange: (bounds: GeoBounds, zoom: number) => void;
   /** Receives the Leaflet map once it exists, for controls drawn outside it. */
   onMap?: (map: L.Map | null) => void;
@@ -47,6 +54,13 @@ export interface RadarLeafletViewProps {
 
 /** Closest zoom level (street level). */
 const MAX_ZOOM = 20;
+/**
+ * Furthest zoom level: about 70° of longitude across a phone, 150° across a
+ * laptop, so whole regional systems fit (the monsoon trough from the Bay of
+ * Bengal to the South China Sea, a typhoon coming in from the Philippines).
+ * One level further and the world would be narrower than a wide map.
+ */
+const MIN_ZOOM = 3;
 
 /**
  * "You are here": a deep blue bullseye with a thick white rim and drop shadow,
@@ -193,25 +207,33 @@ function TouchGestures({ onHint }: { onHint?: (show: boolean) => void }) {
 
 const temperatureLabel = (v: number) => `${Math.round(v)}°`;
 
-function FrameLayers({ grid, frame }: { grid: RadarGridSpec; frame: RadarFrame }) {
+function FrameLayers({ grid, frame, draft }: { grid: RadarGridSpec; frame: RadarFrame; draft: boolean }) {
   switch (frame.layer) {
     case "precipitation":
-      return <FieldRasterLayer grid={grid} values={frame.rate} cloud={frame.cloud} scale={PRECIP_SCALE} />;
+      return (
+        <FieldRasterLayer grid={grid} values={frame.rate} cloud={frame.cloud} scale={PRECIP_SCALE} draft={draft} />
+      );
     case "temperature":
       return (
-        <FieldRasterLayer grid={grid} values={frame.temperature} scale={TEMPERATURE_SCALE} label={temperatureLabel} />
+        <FieldRasterLayer
+          grid={grid}
+          values={frame.temperature}
+          scale={TEMPERATURE_SCALE}
+          label={temperatureLabel}
+          draft={draft}
+        />
       );
     case "wind":
       return (
         <>
-          <FieldRasterLayer grid={grid} values={frame.speed} scale={WIND_SCALE} />
+          <FieldRasterLayer grid={grid} values={frame.speed} scale={WIND_SCALE} draft={draft} />
           <WindParticleLayer grid={grid} u={frame.u} v={frame.v} />
         </>
       );
     case "pressure":
       return (
         <>
-          <FieldRasterLayer grid={grid} values={frame.pressure} scale={PRESSURE_SCALE} />
+          <FieldRasterLayer grid={grid} values={frame.pressure} scale={PRESSURE_SCALE} draft={draft} />
           <IsobarLayer grid={grid} pressure={frame.pressure} />
         </>
       );
@@ -242,6 +264,17 @@ function describe(grid: RadarGridSpec, frame: RadarFrame, p: GeoPoint, m: Messag
   }
 }
 
+/** The layers and their tap-to-read popup at the playhead's time, between hours too. */
+function TimelineLayers({ frameSet, playhead }: { frameSet?: RadarFrameSet; playhead: MotionValue<number> }) {
+  const shown = useFrameAt(frameSet, playhead);
+  return (
+    <>
+      {shown && <FrameLayers grid={shown.grid} frame={shown.frame} draft={shown.moving} />}
+      <Probe grid={shown?.grid} frame={shown?.frame} />
+    </>
+  );
+}
+
 /** Tap anywhere to read the active layer's value at that spot. */
 function Probe({ grid, frame }: { grid?: RadarGridSpec; frame?: RadarFrame }) {
   const { m } = useI18n();
@@ -269,8 +302,9 @@ function Probe({ grid, frame }: { grid?: RadarGridSpec; frame?: RadarFrame }) {
 
 export default function RadarLeafletView({
   center,
-  grid,
-  frame,
+  frameSet,
+  playhead,
+  time,
   onViewChange,
   onMap,
   onGestureHint,
@@ -291,7 +325,7 @@ export default function RadarLeafletView({
       ref={onMap}
       center={position}
       zoom={9}
-      minZoom={5}
+      minZoom={MIN_ZOOM}
       // Street level. The weather is a 5 km grid, smoothed, so this is for
       // seeing exactly where rain sits relative to your street.
       maxZoom={MAX_ZOOM}
@@ -322,19 +356,12 @@ export default function RadarLeafletView({
       <DoubleClickZoom />
       <Recenter center={center} nextZoomRef={nextZoomRef} />
       <ViewReporter onViewChange={onViewChange} />
-      {grid && frame && <FrameLayers grid={grid} frame={frame} />}
+      <TimelineLayers frameSet={frameSet} playhead={playhead} />
       {trip && (
-        <RouteLayer
-          trip={trip}
-          frameTime={frame ? Date.parse(frame.time) : null}
-          focus={tripFocus}
-          timeZone={timeZone}
-          stopName={tripStopName}
-        />
+        <RouteLayer trip={trip} frameTime={time} focus={tripFocus} timeZone={timeZone} stopName={tripStopName} />
       )}
       <Marker position={position} icon={userIcon} keyboard={false} interactive={false} />
       <ReportMarkers reports={reports} now={reportsNow} night={night} />
-      <Probe grid={grid} frame={frame} />
     </MapContainer>
   );
 }

@@ -14,6 +14,8 @@ interface FieldRasterLayerProps {
   opacity?: number;
   /** When set, value labels are drawn on a map-anchored lattice (e.g. "29°"). */
   label?: (value: number) => string;
+  /** Paint quickly and a little softer, while the timeline moves; the full painting follows when it rests. */
+  draft?: boolean;
 }
 
 /**
@@ -22,6 +24,8 @@ interface FieldRasterLayerProps {
  * same at every zoom level and edges never show the 5 km cells as blocks.
  */
 const PIXEL_STEP = 2;
+/** CSS pixels per painted pixel while the timeline moves: a quarter of the work. */
+const DRAFT_STEP = 4;
 
 /**
  * Cubic B-spline weights for the four grid points around a sample. Unlike an
@@ -77,17 +81,18 @@ interface Paint {
   image?: ImageData;
 }
 
-/** Colour the visible part of the field into `paint`, one pixel per PIXEL_STEP CSS pixels. */
+/** Colour the visible part of the field into `paint`, one pixel per `step` CSS pixels. */
 function paintField(
   h: CanvasHandle,
   paint: Paint,
+  step: number,
   grid: RadarGridSpec,
   values: Float32Array,
   scale: ColorScale,
   cloud?: Float32Array,
 ) {
-  const W = Math.ceil(h.width / PIXEL_STEP);
-  const H = Math.ceil(h.height / PIXEL_STEP);
+  const W = Math.ceil(h.width / step);
+  const H = Math.ceil(h.height / step);
   if (paint.canvas.width !== W || paint.canvas.height !== H || !paint.image) {
     paint.canvas.width = W;
     paint.canvas.height = H;
@@ -101,8 +106,8 @@ function paintField(
   const [[, west], [north]] = grid.bounds;
   const colPos = new Float64Array(W);
   const rowPos = new Float64Array(H);
-  for (let x = 0; x < W; x++) colPos[x] = (h.unproject((x + 0.5) * PIXEL_STEP, 0).lon - west) / grid.lonStep - 0.5;
-  for (let y = 0; y < H; y++) rowPos[y] = (north - h.unproject(0, (y + 0.5) * PIXEL_STEP).lat) / grid.latStep - 0.5;
+  for (let x = 0; x < W; x++) colPos[x] = (h.unproject((x + 0.5) * step, 0).lon - west) / grid.lonStep - 0.5;
+  for (let y = 0; y < H; y++) rowPos[y] = (north - h.unproject(0, (y + 0.5) * step).lat) / grid.latStep - 0.5;
   const xs = axisTaps(colPos, grid.cols);
   const ys = axisTaps(rowPos, grid.rows);
 
@@ -172,7 +177,7 @@ function drawLabels(h: CanvasHandle, grid: RadarGridSpec, values: Float32Array, 
 }
 
 /** Smooth colour field (rain radar, temperature heatmap, wind speed tint). */
-export function FieldRasterLayer({ grid, values, scale, cloud, opacity = 1, label }: FieldRasterLayerProps) {
+export function FieldRasterLayer({ grid, values, scale, cloud, opacity = 1, label, draft }: FieldRasterLayerProps) {
   const paintRef = useRef<Paint | null>(null);
   const handle = useCanvasLayer("doofah-field", 350, (h: CanvasHandle) => {
     const { ctx } = h;
@@ -186,19 +191,22 @@ export function FieldRasterLayer({ grid, values, scale, cloud, opacity = 1, labe
       paintRef.current = { canvas, ctx: paintCtx };
     }
     const paint = paintRef.current;
-    paintField(h, paint, grid, values, scale, cloud);
+    const step = draft ? DRAFT_STEP : PIXEL_STEP;
+    paintField(h, paint, step, grid, values, scale, cloud);
     ctx.save();
     ctx.globalAlpha = opacity;
     ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(paint.canvas, 0, 0, paint.canvas.width * PIXEL_STEP, paint.canvas.height * PIXEL_STEP);
+    // Smoothing a whole high-density screen finely costs ~100 ms on a laptop's
+    // processor alone; while the timeline moves the simple kind does.
+    ctx.imageSmoothingQuality = draft ? "low" : "high";
+    ctx.drawImage(paint.canvas, 0, 0, paint.canvas.width * step, paint.canvas.height * step);
     ctx.restore();
     if (label) drawLabels(h, grid, values, label);
   });
 
   useEffect(() => {
     handle.current?.redraw();
-  }, [handle, grid, values, scale, cloud, opacity, label]);
+  }, [handle, grid, values, scale, cloud, opacity, label, draft]);
 
   return null;
 }
