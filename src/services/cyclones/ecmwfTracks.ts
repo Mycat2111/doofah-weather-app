@@ -28,9 +28,10 @@ const HOUR_MS = 3_600_000;
 /** Hours after the run kept: the map and the alert look 5 days ahead of a run that may be half a day old. */
 export const MAX_HOURS = 144;
 
-/** Code table 008005. */
+/** Code table 008005: where the storm is in the analysis, perturbed (each ensemble member) or not (high-resolution). */
 const STORM_CENTRE = 1;
-const ANALYSIS_CENTRE = 4;
+const PERTURBED_ANALYSIS_CENTRE = 4;
+const ANALYSIS_CENTRE = 5;
 /** Code table 001092. */
 const HIGH_RESOLUTION = 0;
 const CONTROL = 1;
@@ -115,7 +116,8 @@ function readMember(values: BufrValue[]): { member: Member; id: string; name: st
         const lon = num(value);
         if (lat !== null && lon !== null) {
           if (significance === STORM_CENTRE && period === undefined) member.observed = { lat, lon };
-          else if (significance === ANALYSIS_CENTRE) Object.assign(point(0), { lat, lon });
+          else if (significance === PERTURBED_ANALYSIS_CENTRE || significance === ANALYSIS_CENTRE)
+            Object.assign(point(0), { lat, lon });
           else if (significance === STORM_CENTRE && typeof period === "number")
             Object.assign(point(period), { lat, lon });
         }
