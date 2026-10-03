@@ -49,6 +49,8 @@ export interface WeatherState {
   seek: { time: number | null; key: number };
   /** For the map's timeline: it moved by itself (playing, scrubbing), so the rest follows without moving it back. */
   followMap: (time: number | null) => void;
+  /** Where the map's layers come from: the same source as the forecast. */
+  fields: Pick<WeatherService, "source" | "getRadarFrames">;
 }
 
 const WeatherStateContext = createContext<WeatherState | null>(null);
@@ -102,8 +104,9 @@ export function WeatherStateProvider({ weather, children }: { weather: WeatherSe
       here,
       seek,
       followMap: setShown,
+      fields: weather,
     }),
-    [place, forecast, loading, error, refresh, time, setTime, here, seek],
+    [place, forecast, loading, error, refresh, time, setTime, here, seek, weather],
   );
   return <WeatherStateContext.Provider value={value}>{children}</WeatherStateContext.Provider>;
 }

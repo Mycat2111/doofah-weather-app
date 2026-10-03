@@ -1,17 +1,17 @@
 "use client";
 
 import type { MotionValue } from "framer-motion";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNow } from "@/hooks/useNow";
+import { useWeatherState } from "@/hooks/useWeatherState";
 import { frameBetween, frameFlow, frameSpan, type Flow } from "@/components/radar/interpolate";
 import { floorToHour } from "@/services/weathernext3/time";
-import {
-  weatherNext3,
-  type GeoBounds,
-  type RadarFrame,
-  type RadarFrameSet,
-  type RadarGridSpec,
-  type RadarLayerType,
+import type {
+  GeoBounds,
+  RadarFrame,
+  RadarFrameSet,
+  RadarGridSpec,
+  RadarLayerType,
 } from "@/services/WeatherNext3MockService";
 
 export const TIMELINE_FROM = -3;
@@ -20,6 +20,16 @@ export const TIMELINE_TO = 24;
 export const TIMELINE_STEP_MS = 10 * 60_000;
 /** The nearest step to `ms`. */
 export const toStep = (ms: number) => Math.round(ms / TIMELINE_STEP_MS) * TIMELINE_STEP_MS;
+
+/** After the layers could not be loaded, they are asked for again after this long, ms. */
+const RETRY_MS = 60_000;
+/**
+ * A new area is asked for once the map has rested this long, ms, so zooming
+ * through several levels asks only for the last (each level of the live
+ * layers is its own set of points, and every point counts against
+ * Open-Meteo's daily limit). The last frames stay on the map meanwhile.
+ */
+const SETTLE_MS = 500;
 
 interface RadarState {
   key: string;
@@ -32,41 +42,54 @@ const keyOf = (layer: RadarLayerType, bounds: GeoBounds | null, hour: number) =>
 
 /**
  * Hourly frames for one layer over the given area, past 3 h to +24 h, again
- * when the hour turns. Keeps showing the last frame set while a new one is
- * computed.
+ * when the hour turns: from the same source as the forecast (ECMWF when live,
+ * the simulation otherwise). Keeps showing the last frame set while a new one
+ * comes, waits for the map to rest before asking for a new area, and tries
+ * again a minute after a failure.
  */
 export function useRadarFrames(layer: RadarLayerType, bounds: GeoBounds | null) {
+  const { fields } = useWeatherState();
   const [state, setState] = useState<RadarState>({ key: "" });
+  const [attempt, setAttempt] = useState(0);
   const now = useNow();
   const hour = now === null ? 0 : floorToHour(now);
   const key = keyOf(layer, bounds, hour);
+  const lastBounds = useRef<GeoBounds | null>(null);
 
   useEffect(() => {
     if (!bounds || !hour) return;
     let cancelled = false;
+    let retry = 0;
+    const moved = lastBounds.current !== null && lastBounds.current !== bounds;
+    lastBounds.current = bounds;
     const requestKey = keyOf(layer, bounds, hour);
-    weatherNext3
-      .getRadarFrames({
-        layer,
-        bounds,
-        fromOffsetHours: TIMELINE_FROM,
-        toOffsetHours: TIMELINE_TO,
-        maxCellsPerSide: 110,
-      })
-      .then((data) => !cancelled && setState({ key: requestKey, data }))
-      .catch((error: unknown) => {
-        if (!cancelled) {
+    const load = () =>
+      fields
+        .getRadarFrames({
+          layer,
+          bounds,
+          fromOffsetHours: TIMELINE_FROM,
+          toOffsetHours: TIMELINE_TO,
+          maxCellsPerSide: 110,
+        })
+        .then((data) => !cancelled && setState({ key: requestKey, data }))
+        .catch((error: unknown) => {
+          if (cancelled) return;
           setState((prev) => ({
             ...prev,
             key: requestKey,
             error: error instanceof Error ? error.message : String(error),
           }));
-        }
-      });
+          retry = window.setTimeout(() => setAttempt((n) => n + 1), RETRY_MS);
+        });
+    // A new layer, hour or retry loads at once; a new area once the map rests.
+    const settle = window.setTimeout(load, moved ? SETTLE_MS : 0);
     return () => {
       cancelled = true;
+      window.clearTimeout(settle);
+      window.clearTimeout(retry);
     };
-  }, [layer, bounds, hour]);
+  }, [fields, layer, bounds, hour, attempt]);
 
   return {
     frameSet: state.data,
@@ -126,9 +149,9 @@ export interface ShownFrame {
 
 /**
  * The frame at the playhead's time (ms), following it while it moves
- * (playback, scrubbing) up to about 30 times a second. The rain's motion
- * between hours is worked out in the background, from the playhead's hour
- * on, so playback doesn't stall when it reaches a new hour.
+ * (playback, scrubbing) up to about 30 times a second. The motion of rain and
+ * clouds between hours is worked out in the background, from the playhead's
+ * hour on, so playback doesn't stall when it reaches a new hour.
  */
 export function useFrameAt(set: RadarFrameSet | undefined, playhead: MotionValue<number>): ShownFrame | undefined {
   const [shown, setShown] = useState<ShownFrame>();
@@ -180,7 +203,8 @@ export function useFrameAt(set: RadarFrameSet | undefined, playhead: MotionValue
       flowOf(set, (first + done++) % pairs);
       warmer = window.setTimeout(warm, WARM_PAUSE_MS);
     };
-    if (set.layer === "precipitation" && pairs > 0) warmer = window.setTimeout(warm, WARM_PAUSE_MS);
+    if ((set.layer === "precipitation" || set.layer === "clouds") && pairs > 0)
+      warmer = window.setTimeout(warm, WARM_PAUSE_MS);
 
     return () => {
       unsubscribe();

@@ -4,9 +4,10 @@ A hyper-local weather app with a glassmorphism UI, a sky that changes with the
 weather, and an interactive top-view radar map. Forecasts are real: the Thai
 Meteorological Department's WRF for the first two days in Thailand, then
 ECMWF's IFS, through DooFah's own `/api/forecast`; air quality comes from
-[Open-Meteo](https://open-meteo.com/). The radar map's layers still come from a
-simulated **WeatherNext 3** style model (5 km grid, hourly steps, 15-day
-horizon), which can also run the whole dashboard with `?data=sim`.
+[Open-Meteo](https://open-meteo.com/). The radar map's layers (rain, cloud
+cover, wind, temperature and pressure) are ECMWF's too, through `/api/fields`.
+A simulated **WeatherNext 3** style model (5 km grid, hourly steps, 15-day
+horizon) can run the whole dashboard, map included, with `?data=sim`.
 
 - **Stack:** Next.js 16 (App Router, TypeScript), Tailwind CSS 4, Framer Motion, Lucide icons, Leaflet + react-leaflet with OpenStreetMap tiles.
 - **No API keys needed to start.** ECMWF and air quality come from Open-Meteo's free API, and place search runs on the device; WRF needs TMD's token. See [Weather data](#weather-data) and [Route weather](#route-weather).
@@ -43,6 +44,7 @@ npm run dev          # http://localhost:3000
 | `npm run verify:forecast` | The unified forecast: the ECMWF and TMD requests, which model each hour takes, the 48-hour blend, the condition rule, the days and `/api/forecast` |
 | `npm run verify:forecast-service` | The screens on the unified forecast: the dashboard, a favorite's chip and trip stops from one reply per place, model tags, the hourly countdown and the offline copy |
 | `npm run verify:weather-state` | The moment on the map's timeline: the forecast for it, the countdown from it, the radar frames between hours and their motion, and the labels in both languages |
+| `npm run verify:fields` | The map's live layers: the lattice and its slots, the ECMWF request and reply for a tile, `/api/fields`, the frames from tiles, the same numbers as the forecast card, and the cloud layer's motion |
 | `npm run icons`       | Re-render the app icons and favicon from `scripts/icons/doofah-icon.svg` |
 
 Preview any sky mood with a query parameter:
@@ -65,7 +67,7 @@ The parameters combine, e.g. `/?data=sim&sky=rain`.
 | ---- | ------------------- |
 | Now, the 48-hour strip, 15 days, the rain countdown, alerts, lifestyle cards, the spoken summary, favorites' chips and the weather at each road trip stop | DooFah's [unified forecast](#unified-forecast-wrf--ecmwf) at `/api/forecast`: the Thai Meteorological Department's WRF for the first 40 to 48 hours in Thailand, then ECMWF's 9 km IFS from [Open-Meteo](https://open-meteo.com/en/docs/ecmwf-api) |
 | Air quality (US AQI, PM2.5, PM10, ozone) | [Open-Meteo air quality API](https://open-meteo.com/en/docs/air-quality-api), from Copernicus CAMS |
-| Radar map layers (rain, wind, temperature, pressure) | The WeatherNext 3 simulation, tagged "Simulated radar" on the map, until the map moves onto the unified forecast |
+| Radar map layers (rain, cloud cover, wind, temperature, pressure) | ECMWF's 9 km IFS from Open-Meteo, at points 14 to 445 km apart depending on the zoom, through `/api/fields`; see [Map layers from the model](#map-layers-from-the-model) |
 | Road trip routes | [OSRM](https://project-osrm.org) over [OpenStreetMap](https://www.openstreetmap.org/copyright)'s roads, from FOSSGIS's public car router; see [Route weather](#route-weather) |
 | Other people's weather reports and the "Verified by N local users" badge | Only with `?data=sim` until there is a shared backend; your own reports always show |
 
@@ -81,6 +83,9 @@ The parameters combine, e.g. `/?data=sim&sky=rain`.
   5,000 an hour and 600 a minute. ECMWF is asked by DooFah's server, so
   everyone using DooFah shares those calls: about 2 per place (rounded to
   about 1 km) per hour, since Vercel keeps each answer until the hour ends.
+  The map's layers cost 36 calls per tile of points, once per 6 hours for
+  everyone; a new area takes 4 to 16 tiles (see
+  [Map layers from the model](#map-layers-from-the-model)).
   Air quality is asked by each visitor's browser, 1 call per place opened,
   reused for 5 minutes. The data is licensed
   [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), so the footer
@@ -113,8 +118,8 @@ The parameters combine, e.g. `/?data=sim&sky=rain`.
 DooFah reads exactly two weather models: WRF for the first 48 hours, ECMWF
 after that, from `/api/forecast?lat=…&lon=…`. The dashboard, favorites'
 chips and road trip stops read it, the dashboard through a shared
-`useWeatherState` that also follows the map's timeline (below); the radar
-map moves onto it in the next step.
+`useWeatherState` that also follows the map's timeline (below). The map's
+layers read ECMWF from `/api/fields` ([Map layers from the model](#map-layers-from-the-model)).
 
 | Hours from now | Model |
 | -------------- | ----- |
@@ -202,18 +207,63 @@ forecast as seen from that moment (`bundleAt` in
   ahead in 10-minute steps: a drag or tap lands on one, arrows move 10
   minutes, Page Up / Page Down an hour, Home and End to the ends. Playback
   runs an hour a second, smoothly, and the cards follow it.
-- **Rain moves between hours.** The model gives a frame each hour. Between
-  two, the rain is moved along its own track rather than faded from one
-  hour into the next (`src/components/radar/interpolate.ts`): the motion
-  is found by matching the two hours' rain from coarse to fine, and each
-  in-between frame carries the first hour forward and the second back to
-  meet. Where the two hours don't match well (rain forming or dying out)
-  it fades instead. Wind, temperature and pressure fade between hours.
+- **Rain and cloud move between hours.** The model gives a frame each hour.
+  Between two, the rain (or the cloud cover) is moved along its own track
+  rather than faded from one hour into the next
+  (`src/components/radar/interpolate.ts`): the motion is found by matching
+  the two hours from coarse to fine, and each in-between frame carries the
+  first hour forward and the second back to meet. Where the two hours don't
+  match well (rain forming or dying out) it fades instead. Wind,
+  temperature and pressure fade between hours.
   While the timeline moves the rain is painted a little coarser, then
   finely once it stops.
 - **Zoom.** The map zooms out to level 3, wide enough for a monsoon trough
   or a typhoon across the region, and in to 20. Zoomed out, the weather
-  grid widens (up to about 130 km cells) so it stays quick.
+  grid widens so it stays quick: ECMWF's points spread to 445 km apart over
+  the middle 50° × 40° of the view, and the simulation's cells to about
+  130 km.
+
+## Map layers from the model
+
+The map's five layers (rain, cloud cover, wind, temperature and sea-level
+pressure) are ECMWF's IFS, the same model and the same hours as the
+forecast cards after WRF's first two days. The layer switcher changes
+layers at once, since every download carries all five, and every layer
+follows the timeline, its 10-minute steps and playback.
+
+- **Points on a lattice.** The map asks for ECMWF at points every 0.125°
+  (14 km) close in, widening to 0.25°, 0.5°, 1°, 2° and 4° (445 km) as you
+  zoom out, so there are about a dozen across the view
+  (`src/services/fields/lattice.ts`). The points are counted from 0° N 0° E,
+  so every view reuses the same ones, and they come in tiles of 6 × 6. The
+  page draws them smoothly between points and fades them out at the edges.
+  Zoomed out past 50° × 40°, the middle of the view gets layers.
+- **Six-hour slots.** The day is cut into slots starting at 02, 08, 14 and
+  20 UTC, about when each ECMWF run is out. `/api/fields?spacing=…&tile=row,col&slot=…`
+  answers one tile with every hour from 3 hours before its slot to a day
+  after it ends (`src/services/fields/http.ts`), so any moment in the slot
+  finds the timeline's 3 hours back to a day ahead in it. Vercel keeps each
+  tile until its slot is over, so Open-Meteo is asked for a tile once per
+  slot, whoever looks. Only the current slot (or the one either side, for
+  clocks that are a little off) is answered, and only for DooFah's own
+  pages.
+- **The same numbers as the cards.** A tile's hours follow the forecast's
+  rules (`src/services/fields/ecmwfFields.ts`): rain is the amount in the
+  hour from each time, and cloud, temperature, pressure and wind are at the
+  time. `npm run verify:fields` checks that a point on the map reads what
+  the ECMWF forecast for that spot reads. The map is ECMWF at 14 km and
+  more between points, so at your exact spot it can differ from the card,
+  which reads WRF's 3 km grid in Thailand for the first two days.
+- **Quota.** Each point is one call of Open-Meteo's free daily 10,000, so a
+  tile costs 36 calls once a slot. A view takes 4 to 16 tiles; zooming out
+  step by step through every level takes about 24. The map waits until it
+  rests before asking for a new area, so zooming through several levels
+  asks only for the last. If Open-Meteo is busy, `/api/fields` answers 503
+  and the map says "Map layers unavailable · retrying" and asks again a
+  minute later. A busy site needs `OPEN_METEO_API_KEY`.
+- **WRF on the map.** TMD's API answers for places, not grids, and TMD
+  reserves all rights to its WRF grid files, so WRF joins the map only with
+  TMD's permission.
 
 ## Setting it up from scratch
 
@@ -346,14 +396,14 @@ sends a report.
   instead of adding a second one.
 - **Mock backend.** `src/services/CrowdReportMockService.ts` plays the backend.
   Other people's reports and the badge below only show with `?data=sim`, since
-  real ones need a shared backend and the radar they check is simulated.
+  real ones need a shared backend.
   - Your reports are kept in localStorage, so they survive a reload.
   - Other people's reports are simulated from the same weather model as the
     radar. There are about six an hour within 30 km, more when it rains, and
     about one in eight picks the "wrong" button.
   - The same place and time always give the same reports.
-- **"Verified by 5 local users".** This badge sits under the Rain / Wind /
-  Temp / Pressure switcher while the rain layer is showing. The rule is in
+- **"Verified by 5 local users".** This badge sits under the layer
+  switcher while the rain layer is showing. The rule is in
   `src/lib/crowdVerify.ts`.
   - A report agrees with the radar when both say rain, or both say dry, at the
     report's spot and time.
@@ -496,7 +546,7 @@ shapes), and `public/screenshots/*` for the richer install dialog.
 - **Vertical scrolling only.** `html` and `body` clip sideways overflow
   (`overflow-x: clip`, `hidden` as a fallback) with no sideways overscroll, the
   dashboard grids use `minmax(0, 1fr)` columns so no card can widen the page,
-  and on phones under 380 px the map's layer switcher names only the picked
+  and on phones under 448 px the map's layer switcher names only the picked
   layer. Sideways strips such as the hourly forecast still swipe.
 - **Page zoom.** Like a native app, the page itself never zooms: the viewport
   sets `maximum-scale=1, user-scalable=no`, `html` has `touch-action: pan-x
@@ -552,6 +602,7 @@ src/
 │   ├── api/weather/air-quality/   Open-Meteo's air quality with the commercial key, if one is set
 │   ├── api/voice/                 One sentence of the spoken summary as MP3 (Google Cloud Text-to-Speech, if a key is set)
 │   ├── api/forecast/              The unified forecast (WRF + ECMWF) for one place, read by every card
+│   ├── api/fields/                One tile of the map's layers (ECMWF) for a 6-hour slot
 │   ├── manifest.ts                Web app manifest (install name, colours, icons)
 │   ├── icon.svg, apple-icon.png, favicon.ico   App icons (from `npm run icons`)
 │   └── globals.css                Glass surfaces, sky effects, touch rules, Leaflet styling
@@ -580,19 +631,19 @@ src/
 │   ├── WeatherDetailsGrid.tsx     Wind compass, humidity, UV, pressure, visibility, sun arc
 │   ├── AtmosphereBackground.tsx   Animated sky per condition (rain, stars, lightning, …)
 │   ├── radar/
-│   │   ├── LayerSwitcher.tsx      Rain / Wind / Temp / Pressure segmented control
+│   │   ├── LayerSwitcher.tsx      Rain / Wind / Cloud / Temp / Pressure segmented control
 │   │   ├── TimelineScrubber.tsx   −3 h … +24 h touch scrubber in 10-minute steps, with play/pause
-│   │   ├── interpolate.ts         Radar frames between hours: the rain's motion and the frames along it
+│   │   ├── interpolate.ts         Radar frames between hours: the rain's and cloud's motion and the frames along it
 │   │   ├── ZoomButtons.tsx        Map zoom buttons, finger-sized on touch screens
 │   │   ├── RecenterButton.tsx     Go to my location: GPS fix, then fly the map there
 │   │   ├── CrowdVerifiedBadge.tsx "Verified by N local users" badge under the layer switcher
 │   │   ├── RadarLegend.tsx        Colour legend per layer
-│   │   ├── colorScales.ts         Radar, temperature, wind and pressure colour ramps
+│   │   ├── colorScales.ts         Radar, cloud, temperature, wind and pressure colour ramps
 │   │   ├── isobars.ts             Marching-squares isobars + H/L centres
 │   │   └── leaflet/
 │   │       ├── RadarLeafletView.tsx   MapContainer, touch gestures, GPS marker, tap-to-probe
 │   │       ├── useCanvasLayer.ts      Full-viewport canvas pane that follows pans, pinches and zooms
-│   │       ├── FieldRasterLayer.tsx   Smooth colour field painted at screen resolution (rain, temperature, wind)
+│   │       ├── FieldRasterLayer.tsx   Smooth colour field painted at screen resolution (rain, cloud, temperature, wind)
 │   │       ├── WindParticleLayer.tsx  Animated wind streamlines
 │   │       ├── ReportMarkers.tsx      People's reports as bubbles that fade over their hour
 │   │       ├── RouteLayer.tsx         The trip: rain-coloured route, stop bubbles, your car
@@ -613,7 +664,7 @@ src/
 ├── hooks/
 │   ├── useForecast.ts             Loads + refreshes the forecast bundle
 │   ├── useWeatherState.tsx        The place, its forecast and the moment on the map's timeline, for every screen
-│   ├── useRadarFrames.ts          Loads frames for the visible map area; the frame at any moment
+│   ├── useRadarFrames.ts          Loads frames for the visible map area from the forecast's source; the frame at any moment
 │   ├── useFavorites.ts            Favorite places from localStorage, synced across tabs
 │   ├── useGeolocation.ts          Browser location with status
 │   ├── useNow.ts                  A shared clock that ticks every 15 s, for countdowns
@@ -640,8 +691,13 @@ src/
     │   ├── api.ts                 Endpoints, the values asked for and the reply types
     │   ├── air.ts                 Open-Meteo's air quality in DooFah's shape
     │   └── proxy.ts               Server side of /api/weather/air-quality: adds OPEN_METEO_API_KEY
+    ├── fields/
+    │   ├── lattice.ts             The map's points and 6-hour slots, shared by the page and the server
+    │   ├── ecmwfFields.ts         ECMWF for one tile from Open-Meteo, by the forecast's hour rules
+    │   ├── http.ts                Server side of /api/fields: checks, caching for the slot, errors
+    │   └── FieldService.ts        The page's side: the tiles over the view as hourly frames
     ├── forecast/
-    │   ├── ForecastService.ts     The live forecast for the page: /api/forecast per place, reuse, the offline copy
+    │   ├── ForecastService.ts     The live forecast for the page: /api/forecast per place, the map's layers, reuse, the offline copy
     │   ├── bundle.ts              /api/forecast's reply as the dashboard, a chip or a trip stop
     │   ├── point.ts               Places rounded to 0.01°, and the query for one
     │   ├── unified.ts             getUnifiedForecast(): asks both models, routes the hours, sums the days
@@ -688,6 +744,7 @@ scripts/verify-open-meteo.ts       Checks behind `npm run verify:open-meteo`
 scripts/verify-forecast.ts         Checks behind `npm run verify:forecast`
 scripts/verify-forecast-service.ts Checks behind `npm run verify:forecast-service`
 scripts/verify-weather-state.ts    Checks behind `npm run verify:weather-state`
+scripts/verify-fields.ts           Checks behind `npm run verify:fields`
 scripts/generate-icons.ts          `npm run icons`, from scripts/icons/doofah-icon.svg
 ```
 
@@ -705,7 +762,7 @@ hourly.length;                 // 48 (up to 360)
 daily.length;                  // 15
 
 const rain = await weatherNext3.getRadarFrames({
-  layer: "precipitation",      // or "wind" | "temperature" | "pressure"
+  layer: "precipitation",      // or "clouds" | "wind" | "temperature" | "pressure"
   bounds: [[12.5, 99.5], [15, 102]],
 });
 rain.frames.length;            // 28 hourly frames, −3 h … +24 h
@@ -739,7 +796,7 @@ Options: `new WeatherNext3MockService({ seed, latencyMs, now })`. A fixed
 
 **Real data.** Components only depend on the types in
 `services/weathernext3/types.ts` and the `WeatherService` interface in
-`services/weatherService.ts` (`getForecastBundle` and `getWeatherAlong`).
-`ForecastService` implements it for the live forecast, and `weatherService()`
-picks it or `weatherNext3` from the page's `?data=` setting. Another source only
-needs the same two methods. The radar map still reads `weatherNext3` directly.
+`services/weatherService.ts` (`getForecastBundle`, `getWeatherAlong` and
+`getRadarFrames`). `ForecastService` implements it for the live forecast and
+the map's ECMWF layers, and `weatherService()` picks it or `weatherNext3` from
+the page's `?data=` setting. Another source only needs the same three methods.

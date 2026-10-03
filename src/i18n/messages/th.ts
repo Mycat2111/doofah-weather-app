@@ -561,6 +561,7 @@ export const th: Messages = {
     layerGroup: "ชั้นข้อมูลแผนที่",
     layers: {
       precipitation: { short: "ฝน", long: "เรดาร์น้ำฝน", legend: "ปริมาณฝน" },
+      clouds: { short: "เมฆ", long: "ปริมาณเมฆ", legend: "เมฆปกคลุม" },
       wind: { short: "ลม", long: "กระแสลม", legend: "ลมที่ระดับ 10 ม." },
       temperature: { short: "อุณหภูมิ", long: "แผนที่อุณหภูมิ", legend: "อุณหภูมิที่ระดับ 2 ม." },
       pressure: { short: "ความกดอากาศ", long: "เส้นความกดอากาศเท่า", legend: "ความกดอากาศระดับน้ำทะเล" },
@@ -587,10 +588,11 @@ export const th: Messages = {
     twoFingers: "ใช้สองนิ้วเพื่อเลื่อนแผนที่",
     // The wording openstreetmap.org itself uses in Thai.
     attribution: { before: "แผนที่ © ผู้ร่วมให้ข้อมูล ", after: "" },
-    simulated: "เรดาร์จำลอง",
+    unavailable: "โหลดชั้นข้อมูลแผนที่ไม่ได้ · กำลังลองใหม่",
     probe: {
       noRain: (cloudPercent) => `ไม่มีฝน · เมฆ ${cloudPercent}%`,
       rain: (rate) => `ฝน ${rate} มม./ชม.`,
+      clouds: (percent) => `เมฆปกคลุม ${percent}%`,
       temperature: (temp) => `${temp} °C ที่ระดับ 2 ม.`,
       wind: (speed) => `ลม ${speed} กม./ชม. ที่ระดับ 10 ม.`,
       pressure: (hpa) => `${hpa} hPa`,

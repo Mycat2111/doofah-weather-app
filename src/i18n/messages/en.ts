@@ -473,6 +473,7 @@ export const en: Messages = {
     layerGroup: "Map layer",
     layers: {
       precipitation: { short: "Rain", long: "Rain radar", legend: "Precipitation" },
+      clouds: { short: "Cloud", long: "Cloud cover", legend: "Cloud cover" },
       wind: { short: "Wind", long: "Wind stream", legend: "10 m wind" },
       temperature: { short: "Temp", long: "Temperature heatmap", legend: "2 m temperature" },
       pressure: { short: "Pressure", long: "Pressure isobars", legend: "Sea-level pressure" },
@@ -498,10 +499,11 @@ export const en: Messages = {
     recenter: "Go to my location",
     twoFingers: "Use two fingers to move the map",
     attribution: { before: "Map © ", after: " contributors" },
-    simulated: "Simulated radar",
+    unavailable: "Map layers unavailable · retrying",
     probe: {
       noRain: (cloudPercent) => `No rain · cloud ${cloudPercent}%`,
       rain: (rate) => `Rain ${rate} mm/h`,
+      clouds: (percent) => `Cloud cover ${percent}%`,
       temperature: (temp) => `${temp} °C at 2 m`,
       wind: (speed) => `Wind ${speed} km/h at 10 m`,
       pressure: (hpa) => `${hpa} hPa`,

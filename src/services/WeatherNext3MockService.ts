@@ -301,6 +301,7 @@ export class WeatherNext3MockService implements WeatherService {
       }
 
       case "precipitation":
+      case "clouds":
       case "temperature": {
         const rate = new Float32Array(n);
         const cloud = new Float32Array(n);
@@ -319,9 +320,9 @@ export class WeatherNext3MockService implements WeatherService {
             if (temperature) temperature[i] = m.temperature(p.lat, p.lon, th, moisture, cl, rr);
           }
         }
-        return temperature
-          ? { ...base, layer: "temperature", temperature }
-          : { ...base, layer: "precipitation", rate, cloud };
+        if (temperature) return { ...base, layer: "temperature", temperature };
+        if (layer === "clouds") return { ...base, layer, cover: cloud.map((c) => c * 100) };
+        return { ...base, layer: "precipitation", rate, cloud };
       }
     }
   }
@@ -465,6 +466,8 @@ function primaryValues(frame: RadarFrame): Float32Array {
   switch (frame.layer) {
     case "precipitation":
       return frame.rate;
+    case "clouds":
+      return frame.cover;
     case "wind":
       return frame.speed;
     case "temperature":

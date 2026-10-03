@@ -282,7 +282,7 @@ export interface ForecastBundle {
 /* Radar / map layers                                                  */
 /* ------------------------------------------------------------------ */
 
-export type RadarLayerType = "precipitation" | "wind" | "temperature" | "pressure";
+export type RadarLayerType = "precipitation" | "clouds" | "wind" | "temperature" | "pressure";
 
 /** Regular lat/lon grid. Row 0 is the northern edge, column 0 the western edge. */
 export interface RadarGridSpec {
@@ -312,6 +312,12 @@ export interface PrecipitationFrame extends RadarFrameBase {
   cloud: Float32Array;
 }
 
+export interface CloudFrame extends RadarFrameBase {
+  layer: "clouds";
+  /** Cloud cover, percent per cell. */
+  cover: Float32Array;
+}
+
 export interface WindFrame extends RadarFrameBase {
   layer: "wind";
   /** Eastward component, km/h. */
@@ -331,7 +337,7 @@ export interface PressureFrame extends RadarFrameBase {
   pressure: Float32Array;
 }
 
-export type RadarFrame = PrecipitationFrame | WindFrame | TemperatureFrame | PressureFrame;
+export type RadarFrame = PrecipitationFrame | CloudFrame | WindFrame | TemperatureFrame | PressureFrame;
 
 export type RadarFrameOf<L extends RadarLayerType> = Extract<RadarFrame, { layer: L }>;
 
@@ -341,7 +347,16 @@ export interface RadarFrameSet<L extends RadarLayerType = RadarLayerType> {
   frames: RadarFrameOf<L>[];
   /** Value range across all frames, for stable colour scales and legends. */
   range: { min: number; max: number };
-  model: ModelInfo;
+  model: FieldModel;
+}
+
+/** The model behind a map layer: the simulation's (ModelInfo), or a real one's. */
+export interface FieldModel {
+  model: string;
+  /** ISO time of the run, when known. */
+  runInitTime: string | null;
+  spatialResolutionKm: number;
+  simulated: boolean;
 }
 
 export interface RadarRequest<L extends RadarLayerType = RadarLayerType> {
