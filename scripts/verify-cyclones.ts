@@ -3,8 +3,9 @@
  * values ecCodes reads from the same ECMWF files, ECMWF's tracks as storms,
  * the cone and its drawing, how close a path comes to a place, the strength
  * names, the storm alert for the place and favorites, finding the newest run
- * on ECMWF's portal, /api/cyclones, and the sample storm. Uses ECMWF sample
- * files and made-up portal replies, so it needs no network.
+ * on ECMWF's portal and its Google Cloud copy, /api/cyclones, and the sample
+ * storm. Uses ECMWF sample files and made-up portal replies, so it needs no
+ * network.
  * Run with: npm run verify:cyclones
  */
 import assert from "node:assert/strict";
@@ -40,6 +41,10 @@ import {
   CycloneSourceError,
   fetchCyclones,
   findTrackFile,
+  MIRROR,
+  MIRROR_URL,
+  mirrorFolder,
+  OPEN_DATA_URL,
   runFolder,
   trackFileIn,
 } from "../src/services/cyclones/openData";
@@ -373,6 +378,81 @@ async function main() {
   );
   await fetchCyclones(at + 60_000, withFile.fetcher);
   assert.equal(withFile.asked.filter((u) => u.endsWith(".bufr")).length, 1, "a run's file is read once and kept");
+
+  /* ---------------- ECMWF's copy on Google Cloud ---------------- */
+  assert.equal(mirrorFolder(r06), "https://storage.googleapis.com/ecmwf-open-data/20261003/06z/ifs/0p25/enfo/");
+  /** A made-up bucket listing, as Google Cloud answers ?prefix=…&delimiter=/ (no <Contents> for a missing folder). */
+  const bucket = (run: number, names: string[]) =>
+    `<?xml version='1.0' encoding='UTF-8'?><ListBucketResult><Prefix>${mirrorFolder(run).slice(MIRROR_URL.length + 1)}</Prefix>` +
+    names
+      .map(
+        (name) =>
+          `<Contents><Key>${mirrorFolder(run).slice(MIRROR_URL.length + 1)}${name}</Key><Size>1</Size></Contents>`,
+      )
+      .join("") +
+    "</ListBucketResult>";
+  /** The portal refusing every request, and Google Cloud's bucket with these folders and files. */
+  const mirrored = (
+    portalStatus: number,
+    folders: Record<number, string[] | number>,
+    files: Record<string, Uint8Array>,
+  ) => {
+    const asked: string[] = [];
+    const fetcher = (async (input: string | URL | Request) => {
+      const url = String(input);
+      asked.push(url);
+      if (url.startsWith(OPEN_DATA_URL)) return new Response("slow down", { status: portalStatus });
+      const file = Object.entries(files).find(([name]) => url.endsWith(name));
+      if (file && url.startsWith(MIRROR_URL + "/")) return new Response(new Blob([new Uint8Array(file[1])]));
+      const prefix = new URL(url).searchParams.get("prefix");
+      const run = Object.keys(folders)
+        .map(Number)
+        .find((r) => mirrorFolder(r) === `${MIRROR_URL}/${prefix}`);
+      const body = run === undefined ? [] : folders[run];
+      return typeof body === "number" ? new Response("busy", { status: body }) : new Response(bucket(run!, body));
+    }) as typeof fetch;
+    return { fetcher, asked };
+  };
+  const names = (run: number, step?: number) => {
+    const stamp = new Date(run).toISOString().replace(/\D/g, "").slice(0, 10) + "0000";
+    return [`${stamp}-0h-enfo-ef.grib2`, ...(step ? [`${stamp}-${step}h-enfo-tf.bufr`] : [])];
+  };
+  assert.equal(await MIRROR.list(r12, mirrored(429, {}, {}).fetcher), null, "a folder with no files isn't there");
+  const viaMirror = mirrored(
+    429,
+    { [r06]: names(r06), [r00]: names(r00, 360) },
+    {
+      "20261003000000-360h-enfo-tf.bufr": TRACKS,
+    },
+  );
+  assert.deepEqual(await findTrackFile(at, viaMirror.fetcher, MIRROR), {
+    run: r00,
+    url: `${mirrorFolder(r00)}20261003000000-360h-enfo-tf.bufr`,
+  });
+  const before = viaMirror.asked.length;
+  const fromMirror = await fetchCyclones(at + 2 * HOUR, viaMirror.fetcher);
+  const asked = viaMirror.asked.slice(before);
+  assert.deepEqual(
+    fromMirror.storms.map((s) => s.name),
+    ["IN-FA"],
+    "the portal says 429, so the same file comes from Google Cloud",
+  );
+  assert.ok(asked[0].startsWith(OPEN_DATA_URL), "the portal is asked first");
+  assert.equal(asked.filter((u) => u.startsWith(OPEN_DATA_URL)).length, 1, "and given up on at once");
+  assert.equal(asked.at(-1), `${mirrorFolder(r00)}20261003000000-360h-enfo-tf.bufr`);
+  assert.deepEqual(
+    await fetchCyclones(at, mirrored(403, { [r12]: names(r12), [r06]: names(r06) }, {}).fetcher),
+    { run: null, storms: [] },
+    "no tracks on Google Cloud either: no storms",
+  );
+  await assert.rejects(
+    fetchCyclones(at, mirrored(403, { [r12]: 503 }, {}).fetcher),
+    (error: Error) =>
+      error instanceof CycloneSourceError &&
+      /ECMWF answered 403/.test(error.message) &&
+      /Google Cloud answered 503/.test(error.message),
+    "both fail: the error names both",
+  );
 
   /* ---------------- /api/cyclones ---------------- */
   const request = (headers: Record<string, string> = {}) =>
