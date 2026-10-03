@@ -64,7 +64,8 @@ function localDay(ms: number, timeZone: string): { midnight: number; hours: numb
  * Local days from today, up to 15, each summarised from its hours the way
  * the dashboard does today (summarise.ts). A day is only there when every one
  * of its hours is, so a day cut short at the end of the forecast never shows
- * a low or a total of half a day.
+ * a low or a total of half a day. A day's model is that of its hours from
+ * `start` on, so today says WRF when the rest of it is WRF's.
  */
 export function daysFrom(hours: UnifiedHour[], point: GeoPoint, timeZone: string, start: number): UnifiedDay[] {
   const today = localDateKey(start, timeZone);
@@ -84,7 +85,9 @@ export function daysFrom(hours: UnifiedHour[], point: GeoPoint, timeZone: string
       sun,
       timeZone,
     );
-    const models = new Set(dayHours.map((h) => h.model_used));
+    // Today's model is the one ahead of you: hours already past are ECMWF's (WRF is asked from now), so they don't count.
+    const ahead = dayHours.filter((h) => Date.parse(h.time) >= start);
+    const models = new Set((ahead.length ? ahead : dayHours).map((h) => h.model_used));
     const model: ModelUsed = models.size === 1 ? [...models][0] : "WRF+ECMWF";
     const { kind, period, wind } = summary.outlook;
     return [

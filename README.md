@@ -170,7 +170,8 @@ layers read ECMWF from `/api/fields` ([Map layers from the model](#map-layers-fr
 - **On the screens.** A chip on the hero card names this hour's model (WRF,
   ECMWF or WRF+ECMWF, with its resolution on hover), the hourly strip tags
   the hour where each model's hours start, and a day's details in the
-  15-day list name its model. The footer credits the WRF model to the Thai
+  15-day list name its model (for today, the model of the hours still
+  ahead, since hours already past are ECMWF's). The footer credits the WRF model to the Thai
   Meteorological Department (TMD), with a link to TMD, whenever the
   forecast has WRF hours, alongside ECMWF via Open-Meteo. The rain countdown steps an hour at a time, since neither
   model has real 15-minute steps over Thailand: its bars carry each hour's
