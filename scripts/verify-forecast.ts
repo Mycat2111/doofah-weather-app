@@ -656,6 +656,12 @@ async function main() {
   assert.equal(byLead(viaTmd, 2).rain_chance, 90, "and from its 5.2 mm storm");
   assert.equal(byLead(viaTmd, 43).model_used, "WRF+ECMWF");
   assert.equal(byLead(viaTmd, 46).model_used, "ECMWF");
+  // Today's label goes by the hours still ahead: the rest of today is WRF, so it says WRF.
+  assert.deepEqual(
+    viaTmd.days.slice(0, 4).map((d) => d.model_used),
+    ["WRF", "WRF", "WRF+ECMWF", "ECMWF"],
+    "today, tomorrow, the day WRF eases into ECMWF, then ECMWF",
+  );
 
   const refused = servers(401, { message: "Unauthenticated." });
   const withoutWrf = await quiet(() =>
