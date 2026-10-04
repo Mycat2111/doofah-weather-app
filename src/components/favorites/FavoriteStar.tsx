@@ -1,11 +1,12 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { Star } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { BellRing, Star } from "lucide-react";
+import { useContext, useEffect, useId, useRef, useState } from "react";
 import { FavoriteIcon } from "@/components/favorites/FavoriteIcon";
 import { TapButton } from "@/components/ui/TapButton";
 import { useFavorites } from "@/hooks/useFavorites";
+import { StormAlertsContext } from "@/hooks/useStormAlerts";
 import { useI18n } from "@/i18n/I18nProvider";
 import { placeLabel } from "@/i18n/places";
 import { FAVORITE_KINDS } from "@/lib/favorites";
@@ -14,7 +15,8 @@ import type { Place } from "@/services/weather/types";
 
 /**
  * Star beside the place name. One tap saves the place; the panel that opens
- * lets the reader name it ("Home", "Office" or their own) or remove it.
+ * lets the reader name it ("Home", "Office" or their own) or remove it, and
+ * offers storm alerts for saved places while they are off.
  *
  * The panel is positioned against the nearest `relative` ancestor, so the
  * parent decides how wide it is. Key this component by place id so the panel
@@ -23,6 +25,7 @@ import type { Place } from "@/services/weather/types";
 export function FavoriteStar({ place }: { place: Place }) {
   const { locale, m } = useI18n();
   const { find, add, remove, rename } = useFavorites();
+  const stormAlerts = useContext(StormAlertsContext);
   const favorite = find(place);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -136,6 +139,19 @@ export function FavoriteStar({ place }: { place: Place }) {
                 );
               })}
             </div>
+
+            {stormAlerts?.canPrompt && (
+              <TapButton
+                onClick={() => {
+                  setOpen(false);
+                  stormAlerts.show();
+                }}
+                className="mt-3 flex w-full items-center gap-2 rounded-xl border border-amber-200/25 bg-amber-200/10 px-3 py-2.5 text-left text-sm text-amber-50 hover:bg-amber-200/15"
+              >
+                <BellRing className="size-4 shrink-0 text-amber-200" aria-hidden />
+                {m.push.chip}
+              </TapButton>
+            )}
 
             <div className="mt-4 flex items-center justify-between gap-3">
               <TapButton

@@ -13,7 +13,7 @@ export function LanguageToggle({ className = "" }: { className?: string }) {
     <div
       role="radiogroup"
       aria-label={m.header.language}
-      className={`glass-chip h-11 items-center gap-0.5 rounded-full p-1 ${className}`}
+      className={`glass-chip h-11 items-center gap-0.5 rounded-full p-1 max-[379px]:h-10 ${className}`}
     >
       {LOCALES.map((option) => {
         const selected = option === locale;
@@ -32,7 +32,7 @@ export function LanguageToggle({ className = "" }: { className?: string }) {
               haptic("selection");
               setLocale(option);
             }}
-            className={`relative h-full min-w-9 rounded-full px-2.5 text-xs font-semibold tracking-wide transition-colors ${
+            className={`relative h-full min-w-9 rounded-full px-2.5 text-xs font-semibold tracking-wide transition-colors max-[379px]:min-w-8 max-[379px]:px-2 ${
               selected ? "text-slate-900" : "text-white/70 hover:text-white"
             }`}
           >

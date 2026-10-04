@@ -365,6 +365,39 @@ export interface Messages {
     };
   };
 
+  /** Storm alerts by push notification: the bell in the header, its card, the banner's link and the test push. */
+  push: {
+    /** The bell's label and the card's title. */
+    title: string;
+    /** The bell's label while alerts are on. */
+    bellOn: string;
+    /** What alerts do, before turning them on. */
+    why: (alertKm: number) => string;
+    /** What is kept, where, who delivers it and for how long. */
+    detailsLabel: string;
+    details: string;
+    turnOn: string;
+    notNow: string;
+    /** iPhone or iPad in a Safari tab: push needs DooFah on the Home Screen. */
+    install: string;
+    /** The browser's permission was refused. */
+    blocked: string;
+    on: (places: number) => string;
+    turnOff: string;
+    sendTest: string;
+    testSent: string;
+    /** A test was sent less than a minute ago. */
+    testWait: string;
+    failed: string;
+    /** The storm banner's link to the card. */
+    chip: string;
+    /** The test notification itself. */
+    testTitle: string;
+    testBody: string;
+    /** The card's close button. */
+    close: string;
+  };
+
   errors: {
     forecast: string;
     /** No connection: the forecast shown is the one saved at `clock`. */
@@ -387,5 +420,7 @@ export interface Messages {
     airBy: string;
     /** Before the operator's email address. */
     contact: string;
+    /** What storm alerts keep on the server, shown once push is set up. */
+    pushPrivacy: string;
   };
 }

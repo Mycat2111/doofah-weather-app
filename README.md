@@ -49,7 +49,7 @@ npm run dev          # http://localhost:3000
 | `npm run verify:fields` | The map's live layers: the lattice and its slots, the ECMWF request and reply for a tile, `/api/fields`, the frames from tiles, the same numbers as the forecast card, and the cloud layer's motion |
 | `npm run verify:cyclones` | Tropical cyclones: the BUFR reader against ecCodes on ECMWF's own files, tracks as storms, the cone, the strength names, the storm alert, finding the newest run and `/api/cyclones` |
 | `npm run verify:ops` | Monitoring: which failures are asked again and how often, the Discord and LINE alerts (what they say, at most one of a kind in 15 minutes) and `/api/health` |
-| `npm run verify:push` | Storm alerts by push: the VAPID settings, which subscriptions are kept, the link a notification opens, the Upstash store and the service worker's push, tap and renewal handlers |
+| `npm run verify:push` | Storm alerts by push: the VAPID settings, which subscriptions are kept, the link a notification opens, the Upstash store, the service worker's push, tap and renewal handlers, the subscribe and test routes, and what the phone sends |
 | `npm run icons`       | Re-render the app icons, favicon and notification badge from `scripts/icons/` |
 
 Preview any sky mood with a query parameter:
@@ -657,8 +657,48 @@ shapes), and `public/screenshots/*` for the richer install dialog.
 Being built in three parts (post-launch step 3). With all three, anyone who
 turns storm alerts on gets a notification when a tropical cyclone may pass
 within 500 km of one of their saved places, even with DooFah closed, using
-the same rule as the storm banner. This first part is the groundwork: it
-changes nothing on screen yet.
+the same rule as the storm banner. The first two parts are in: the
+service worker and the store, and turning alerts on and off. The third, the
+job that sends them, is next; until then only test notifications are sent.
+
+### Turning alerts on
+
+- **The bell** in the header (beside TH / EN) opens the Storm alerts card.
+  Nothing is asked on page load: the browser's permission prompt appears
+  only after **Turn on** in the card, inside that tap, because a refused
+  prompt can't be shown again and iPhones only show it from a tap.
+- **The card** says what alerts do and, under *What DooFah keeps*, what is
+  kept, where, who delivers it and for how long. By state:
+  - *Not on yet*: Turn on / Not now.
+  - *iPhone or iPad in a Safari tab*: how to add DooFah to the Home Screen
+    (push works there from iOS 16.4).
+  - *Blocked*: where to allow notifications again.
+  - *On*: how many places are watched, **Send a test** (once a minute) and
+    **Turn off**, which deletes the record on the server first.
+  - No bell at all where push can't work (no VAPID key, a development
+    build, an older browser).
+- **The offer, at the right moments**: a *Get storm alerts on this phone*
+  link on a tropical cyclone warning and in the panel the star opens.
+  Closing the card while alerts are off (or Not now) hides both for 30 days.
+- **Which places**: the saved places (at most 10), or the place on screen
+  when none are saved, named as the reader sees them. They are rounded to
+  0.1° and their ids hashed before they leave the phone. While alerts are
+  on, the page sends them again when the places, language or time zone
+  change, and at least once a day, which keeps the record from expiring.
+- **The routes** (`src/services/push/http.ts`) answer only DooFah's own
+  pages (the browser's `Sec-Fetch-Site: same-origin`), 30 writes an hour
+  per visitor, bodies under 8 KB, `no-store`, and 503 until VAPID and Redis
+  are set up. Store errors are logged without the command Upstash quotes,
+  so no push address or place reaches Vercel's logs or Discord.
+
+| Route | What it does |
+| --- | --- |
+| `POST /api/push/subscribe` | Turn on, or send the places, language and time zone again: 204 |
+| `PUT /api/push/subscribe` | The worker's renewed subscription: the record moves to the new address |
+| `DELETE /api/push/subscribe` | Turn off: the record is deleted |
+| `POST /api/push/test` | One test notification in the phone's language: 204, 404 (no record), 429 (wait a minute), 410 (the push service dropped it; the record is deleted) or 502 |
+
+### The groundwork
 
 - **Service worker.** `public/sw.js` shows each push as a DooFah
   notification (one per storm, replaced by newer ones; severe ones stay on
@@ -687,10 +727,13 @@ changes nothing on screen yet.
 | `VAPID_SUBJECT` | A contact for the push services: `https://doofah-weather-app.vercel.app` or a `mailto:`. Apple refuses anything else. |
 | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Added by Vercel when Upstash for Redis is connected from the Marketplace (`UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` work too). |
 
-Push needs Node, not the Edge runtime (`web-push`). To try the worker:
+Push needs Node, not the Edge runtime (`web-push`). The bell only appears in
+a production build with `NEXT_PUBLIC_VAPID_PUBLIC_KEY` set when it is
+built; on a Vercel preview the variables and the Upstash connection must
+also be enabled for the Preview environment. To try the worker:
 `npm run build && npm start`, then in Chrome DevTools → Application →
 Service Workers press **Push**; `/?cyclones=demo&storm=99` opens the sample
-storm the way a tapped alert would.
+storm the way a tapped alert would. Chrome has no push in incognito windows.
 
 ## Thai and English
 
@@ -808,6 +851,8 @@ src/
 │   ├── api/fields/                One tile of the map's layers (ECMWF) for a 6-hour slot
 │   ├── api/cyclones/              Active tropical cyclones from ECMWF's newest track file
 │   ├── api/health/                DooFah's sources checked for the 15-minute health check (CRON_SECRET)
+│   ├── api/push/subscribe/        Storm alerts on (POST), renewed (PUT) or off (DELETE) for this device
+│   ├── api/push/test/             One test notification to this device, at most once a minute
 │   ├── manifest.ts                Web app manifest (install name, colours, icons)
 │   ├── icon.svg, apple-icon.png, favicon.ico   App icons (from `npm run icons`)
 │   └── globals.css                Glass surfaces, sky effects, touch rules, Leaflet styling
@@ -815,12 +860,13 @@ src/
 │   ├── AppProviders.tsx           Language, reduced-motion setting, service worker registration
 │   ├── DooFahDashboard.tsx        Page composition, place state, loading states
 │   ├── SwrProvider.tsx            SWR's cache for the page: the 12 most recently used answers
-│   ├── DooFahHeader.tsx           Logo, animated search, geolocation button, language switch
+│   ├── DooFahHeader.tsx           Logo, animated search, geolocation button, storm alerts bell, language switch
+│   ├── StormAlertsButton.tsx      The bell and its card: turn storm alerts on or off, test, or why they can't be on
 │   ├── LanguageToggle.tsx         TH / EN switch
 │   ├── WeatherAlertBanner.tsx     Storm, rain, air quality and tropical cyclone warnings with tips
 │   ├── favorites/
 │   │   ├── FavoritesBar.tsx       One-tap chips under the header, edit mode
-│   │   ├── FavoriteStar.tsx       Star beside the place name and the naming panel
+│   │   ├── FavoriteStar.tsx       Star beside the place name and the naming panel (with the storm alerts offer)
 │   │   └── FavoriteIcon.tsx       House / briefcase / pin per favorite
 │   ├── CurrentWeatherCard.tsx     Hero: temperature, feels-like, rain countdown, AQI, this hour's model (5×5 km badge with the simulation)
 │   ├── RainCountdownPanel.tsx     Live time-to-rain badge over the 2-hour rain bars
@@ -884,6 +930,7 @@ src/
 │   ├── useSpeech.ts               Web Speech: voice choice, sentence by sentence, stop
 │   ├── useVoiceReader.ts          The AI voice from /api/voice, the device voice as fallback
 │   ├── useCyclones.ts             Active storms from /api/cyclones (or the sample storm), refreshed every 30 minutes
+│   ├── useStormAlerts.ts          Storm alerts on this device: state, the card, on / off / test, keeping the places in step
 │   └── useWhen.ts                 "07:00 tomorrow" for a moment, in the place's time zone
 ├── lib/
 │   ├── alerts.ts                  When to warn about storms, rain and air, and what to do
@@ -892,6 +939,7 @@ src/
 │   ├── colors.ts                  AQI and temperature colours
 │   ├── favorites.ts               Favorite list rules and the localStorage store
 │   ├── pushLink.ts                The link a storm notification opens, with the place's id hashed
+│   ├── push.ts                    The browser's side of storm alerts: can push work here, permission, subscribe, sync
 │   ├── haptics.ts                 Short vibrations on Android and iPhone
 │   ├── lifestyle.ts               Lifestyle card rules: good, take care or not now, and why
 │   ├── rainCountdown.ts           Time to the next rain: by the hour for live forecasts, the radar nowcast with the simulation
@@ -939,7 +987,9 @@ src/
     ├── push/
     │   ├── vapid.ts               The VAPID keys from Vercel, or none
     │   ├── subscription.ts        What is kept for a phone with storm alerts on, and the checks before it is
-    │   └── store.ts               Upstash Redis: records, storms already sent, the send job's last run
+    │   ├── store.ts               Upstash Redis: records, storms already sent, the send job's last run, test pushes
+    │   ├── send.ts                One push with web-push, and what a refusal means
+    │   └── http.ts                Server side of /api/push/subscribe and /api/push/test
     ├── tts/
     │   └── googleTts.ts           Server side of /api/voice: Google Cloud Text-to-Speech
     ├── routing/

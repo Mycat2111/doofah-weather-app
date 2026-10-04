@@ -1,10 +1,11 @@
 /**
- * Checks for storm alerts by Web Push (post-launch step 3, part A): the VAPID
- * settings, what a subscription must look like before it is kept, the link a
- * notification opens, the Upstash Redis store (against a stand-in for
- * Upstash's REST API) and the service worker's push, tap and renewal
- * handlers (run in a stand-in worker). Needs no network and sends nothing.
- * Run with: npm run verify:push
+ * Checks for storm alerts by Web Push (post-launch step 3, parts A and B): the
+ * VAPID settings, what a subscription must look like before it is kept, the
+ * link a notification opens, the Upstash Redis store (against a stand-in for
+ * Upstash's REST API), the service worker's push, tap and renewal handlers
+ * (run in a stand-in worker), the subscribe and test routes (with an
+ * in-memory store and a stand-in push service), and what the phone sends.
+ * Needs no network and sends nothing. Run with: npm run verify:push
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -13,16 +14,25 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { runInNewContext } from "node:vm";
 import { Redis } from "@upstash/redis";
+import webpush, { WebPushError, type RequestOptions } from "web-push";
+import { MESSAGES } from "../src/i18n/messages";
+import * as phone from "../src/lib/push";
 import { placeRef, readStormLink, stormLink } from "../src/lib/pushLink";
-import { RECORD_TTL_S, SENT_TTL_S, redisStore, storeOn } from "../src/services/push/store";
+import type { Alert } from "../src/services/ops/alert";
+import { pushServer, storeProblem, type PushDeps } from "../src/services/push/http";
+import type { Sender } from "../src/services/push/send";
+import { RECORD_TTL_S, SENT_TTL_S, TEST_GAP_S, redisStore, storeOn, type PushStore } from "../src/services/push/store";
 import {
+  MAX_NAME_LENGTH,
+  MAX_PLACES,
   isPushServiceUrl,
   readRecord,
   readSubscription,
   subscriptionId,
   type PushRecord,
+  type SavedSubscription,
 } from "../src/services/push/subscription";
-import { vapidFrom } from "../src/services/push/vapid";
+import { vapidFrom, type Vapid } from "../src/services/push/vapid";
 
 const NOW = Date.UTC(2026, 9, 4, 15, 0);
 
@@ -64,6 +74,7 @@ async function fakeUpstash() {
     commands.push([name, ...args]);
     switch (name.toLowerCase()) {
       case "set": {
+        if (args.some((a) => a.toLowerCase() === "nx") && data.has(args[0])) return null;
         data.set(args[0], args[1]);
         const ex = args.findIndex((a) => a.toLowerCase() === "ex");
         if (ex >= 0) ttl.set(args[0], Number(args[ex + 1]));
@@ -219,6 +230,118 @@ const pushData = (value: unknown) => ({
 /* ------------------------------------------------------------------ */
 /* Checks                                                              */
 /* ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ */
+/* The routes, with an in-memory store and a stand-in push service     */
+/* ------------------------------------------------------------------ */
+
+const VAPID: Vapid = { subject: "https://doofah.example", ...webpush.generateVAPIDKeys() };
+
+function memoryStore(): PushStore & { records: Map<string, PushRecord> } {
+  const records = new Map<string, PushRecord>();
+  const tests = new Set<string>();
+  return {
+    records,
+    async save(id, record) {
+      records.set(id, plain(record));
+    },
+    async get(id) {
+      return records.get(id) ?? null;
+    },
+    async remove(id) {
+      records.delete(id);
+    },
+    async all() {
+      return [...records];
+    },
+    async sent() {
+      return {};
+    },
+    async markSent() {},
+    async lastRun() {
+      return null;
+    },
+    async setLastRun() {},
+    async claimTest(id) {
+      if (tests.has(id)) return false;
+      tests.add(id);
+      return true;
+    },
+  };
+}
+
+interface Sent {
+  subscription: SavedSubscription;
+  payload: Record<string, unknown>;
+  options: RequestOptions;
+}
+
+/** A push server on a memory store; `sent` collects pushes, `failWith` makes the push service refuse them. */
+function routes(change: Partial<PushDeps> = {}) {
+  const store = memoryStore();
+  const sent: Sent[] = [];
+  const alerts: Alert[] = [];
+  const clock = { now: NOW };
+  const push = { failWith: null as Error | null };
+  const send: Sender = async (subscription, payload, options) => {
+    if (push.failWith) throw push.failWith;
+    sent.push({ subscription, payload: JSON.parse(payload), options });
+  };
+  const server = pushServer({
+    store,
+    vapid: VAPID,
+    now: () => clock.now,
+    report: (alert) => alerts.push(alert),
+    send,
+    ...change,
+  });
+  return { server, store, sent, alerts, clock, push };
+}
+
+/** A request as DooFah's own page sends it; `headers` can take the same-site header away. */
+function call(method: string, path: string, json: unknown, headers: Record<string, string> = {}) {
+  return new Request(`${ORIGIN}${path}`, {
+    method,
+    headers: {
+      "content-type": "application/json",
+      "sec-fetch-site": "same-origin",
+      "x-forwarded-for": "203.0.113.7",
+      ...headers,
+    },
+    body: typeof json === "string" ? json : JSON.stringify(json),
+  });
+}
+
+const subscribe = (method: string, json: unknown, headers?: Record<string, string>) =>
+  call(method, "/api/push/subscribe", json, headers);
+const test = (endpoint: string, headers?: Record<string, string>) =>
+  call("POST", "/api/push/test", { endpoint }, headers);
+
+async function answer(response: Response) {
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  const text = await response.text();
+  return { status: response.status, body: text ? JSON.parse(text) : null };
+}
+
+const NEW_ENDPOINT = "https://updates.push.services.mozilla.com/wpush/v2/gAAAAABnew";
+
+/** A fake localStorage for the phone side's "Not now". */
+function withStorage<T>(fn: () => T): T {
+  const items = new Map<string, string>();
+  const g = globalThis as { window?: unknown };
+  g.window = {
+    localStorage: {
+      getItem: (k: string) => items.get(k) ?? null,
+      setItem: (k: string, v: string) => void items.set(k, v),
+      removeItem: (k: string) => void items.delete(k),
+    },
+  };
+  try {
+    return fn();
+  } finally {
+    delete g.window;
+  }
+}
 
 const CHECKS = [
   check("VAPID: all three settings are needed, and the subject must be https: or mailto:", () => {
@@ -472,6 +595,259 @@ const CHECKS = [
     const nothing = await worker();
     await nothing.dispatch("pushsubscriptionchange", { oldSubscription: null, newSubscription: null });
     assert.deepEqual(nothing.posted, []);
+  }),
+  check("Store: one test push a minute per phone", async () => {
+    const upstash = await fakeUpstash();
+    try {
+      const store = storeOn(new Redis({ url: upstash.url, token: "test-token", enableTelemetry: false }));
+      assert.equal(await store.claimTest("a"), true);
+      assert.equal(await store.claimTest("a"), false);
+      assert.equal(await store.claimTest("b"), true);
+      assert.equal(upstash.ttl.get("push:test:a"), TEST_GAP_S);
+      upstash.data.delete("push:test:a");
+      assert.equal(await store.claimTest("a"), true);
+    } finally {
+      await upstash.close();
+    }
+  }),
+
+  check("Routes: 503 until set up; only DooFah's own pages; size, JSON and method checked", async () => {
+    assert.equal((await routes({ store: null }).server.subscribe(subscribe("POST", body()))).status, 503);
+    assert.equal((await routes({ vapid: null }).server.test(test(ENDPOINT))).status, 503);
+
+    const { server, store } = routes();
+    for (const site of ["cross-site", "same-site", "none"]) {
+      const refused = await answer(await server.subscribe(subscribe("POST", body(), { "sec-fetch-site": site })));
+      assert.equal(refused.status, 403);
+    }
+    // No header at all: an old browser or a script, not DooFah's page.
+    const bare = new Request(`${ORIGIN}/api/push/subscribe`, { method: "POST", body: JSON.stringify(body()) });
+    assert.equal((await server.subscribe(bare)).status, 403);
+    assert.equal((await server.test(test(ENDPOINT, { "sec-fetch-site": "cross-site" }))).status, 403);
+
+    const big = { ...body(), padding: "x".repeat(9000) };
+    assert.equal((await server.subscribe(subscribe("POST", big))).status, 413);
+    const notJson = await answer(await server.subscribe(subscribe("POST", "{nope")));
+    assert.equal(notJson.status, 400);
+    const french = await answer(await server.subscribe(subscribe("POST", body({ lang: "fr" }))));
+    assert.deepEqual(french, { status: 400, body: { error: true, reason: "Unknown language" } });
+    const exact = await answer(
+      await server.subscribe(
+        subscribe("POST", body({ places: [{ ref: "0a1b2c3d", name: "Home", lat: 13.756, lon: 100.5 }] })),
+      ),
+    );
+    assert.equal(exact.status, 400);
+    assert.equal((await server.subscribe(subscribe("PATCH", body()))).status, 405);
+    assert.equal(store.records.size, 0);
+  }),
+
+  check(
+    "Routes: turning on keeps the record under its push address's id; syncing updates it; off deletes it",
+    async () => {
+      const { server, store, clock } = routes();
+      const id = subscriptionId(ENDPOINT);
+      const on = await answer(await server.subscribe(subscribe("POST", body())));
+      assert.deepEqual(on, { status: 204, body: null });
+      assert.deepEqual(store.records.get(id), readRecord(body(), NOW));
+
+      clock.now = NOW + 86_400_000;
+      assert.equal((await server.subscribe(subscribe("POST", body({ lang: "en" })))).status, 204);
+      assert.equal(store.records.size, 1);
+      assert.equal(store.records.get(id)?.lang, "en");
+      assert.equal(store.records.get(id)?.savedAt, new Date(clock.now).toISOString());
+
+      assert.equal((await server.subscribe(subscribe("DELETE", {}))).status, 400);
+      assert.equal((await server.subscribe(subscribe("DELETE", { endpoint: ENDPOINT }))).status, 204);
+      assert.equal(store.records.size, 0);
+      // Already gone (turned off twice, or expired): still fine.
+      assert.equal((await server.subscribe(subscribe("DELETE", { endpoint: ENDPOINT }))).status, 204);
+    },
+  ),
+
+  check("Routes: a renewed subscription moves the record to the new address, places and language kept", async () => {
+    const { server, store, clock } = routes();
+    await server.subscribe(subscribe("POST", body()));
+    clock.now = NOW + 3_600_000;
+    const renewed = { endpoint: NEW_ENDPOINT, keys: KEYS };
+    const moved = await server.subscribe(subscribe("PUT", { oldEndpoint: ENDPOINT, subscription: renewed }));
+    assert.equal(moved.status, 204);
+    assert.equal(store.records.get(subscriptionId(ENDPOINT)), undefined);
+    const record = store.records.get(subscriptionId(NEW_ENDPOINT));
+    assert.deepEqual(record?.subscription, renewed);
+    assert.deepEqual(record?.places, body().places);
+    assert.equal(record?.lang, "th");
+    assert.equal(record?.savedAt, new Date(clock.now).toISOString());
+
+    // Nothing to move: the page sends everything again when it next opens.
+    const unknown = { oldEndpoint: "https://fcm.googleapis.com/fcm/send/unknown", subscription: renewed };
+    assert.equal((await server.subscribe(subscribe("PUT", unknown))).status, 204);
+    assert.equal((await server.subscribe(subscribe("PUT", { subscription: renewed }))).status, 204);
+    assert.equal(store.records.size, 1);
+    const fake = { oldEndpoint: NEW_ENDPOINT, subscription: { endpoint: "https://evil.example/push", keys: KEYS } };
+    assert.equal((await server.subscribe(subscribe("PUT", fake))).status, 400);
+    assert.ok(store.records.has(subscriptionId(NEW_ENDPOINT)));
+  }),
+
+  check("Routes: each visitor may write 30 times an hour", async () => {
+    const { server, clock } = routes();
+    for (let i = 0; i < 30; i++) assert.equal((await server.subscribe(subscribe("POST", body()))).status, 204);
+    assert.equal((await server.subscribe(subscribe("POST", body()))).status, 429);
+    assert.equal((await server.test(test(ENDPOINT))).status, 429);
+    const other = { "x-forwarded-for": "198.51.100.2, 10.0.0.1" };
+    assert.equal((await server.subscribe(subscribe("POST", body(), other))).status, 204);
+    clock.now = NOW + 3_600_001;
+    assert.equal((await server.subscribe(subscribe("POST", body()))).status, 204);
+  }),
+
+  check("Test push: in the phone's language, urgent, kept a minute, once a minute", async () => {
+    const { server, sent } = routes();
+    assert.equal((await server.test(test(ENDPOINT))).status, 404);
+    assert.equal(sent.length, 0);
+
+    await server.subscribe(subscribe("POST", body()));
+    assert.equal((await server.test(test(ENDPOINT))).status, 204);
+    assert.equal(sent.length, 1);
+    const [{ subscription, payload, options }] = sent;
+    assert.deepEqual(subscription, { endpoint: ENDPOINT, keys: KEYS });
+    assert.deepEqual(payload, {
+      title: MESSAGES.th.push.testTitle,
+      body: MESSAGES.th.push.testBody,
+      tag: "doofah-test",
+      level: "warning",
+      lang: "th",
+      url: "/",
+    });
+    assert.equal(options.TTL, 60);
+    assert.equal(options.urgency, "high");
+    assert.equal(options.timeout, 10_000);
+    assert.deepEqual(options.vapidDetails, VAPID);
+
+    const again = await answer(await server.test(test(ENDPOINT)));
+    assert.equal(again.status, 429);
+    assert.equal(sent.length, 1);
+    assert.equal(
+      (
+        await server.test(
+          new Request(`${ORIGIN}/api/push/test`, {
+            method: "POST",
+            headers: { "sec-fetch-site": "same-origin" },
+            body: "{}",
+          }),
+        )
+      ).status,
+      400,
+    );
+  }),
+
+  check("Test push: a subscription the push service has dropped is deleted; other failures are 502", async () => {
+    const gone = routes();
+    await gone.server.subscribe(subscribe("POST", body()));
+    gone.push.failWith = new WebPushError("Gone", 410, {}, "", ENDPOINT);
+    assert.equal((await gone.server.test(test(ENDPOINT))).status, 410);
+    assert.equal(gone.store.records.size, 0);
+    assert.deepEqual(gone.alerts, []);
+
+    const down = routes();
+    await down.server.subscribe(subscribe("POST", body()));
+    down.push.failWith = new WebPushError("Server error", 500, {}, "", ENDPOINT);
+    assert.equal((await down.server.test(test(ENDPOINT))).status, 502);
+    assert.equal(down.store.records.size, 1);
+    assert.deepEqual(down.alerts, [
+      { kind: "error", api: "/api/push/test", message: "502: the push service answered 500" },
+    ]);
+
+    const timeout = routes();
+    await timeout.server.subscribe(subscribe("POST", body()));
+    timeout.push.failWith = new Error("socket hang up");
+    assert.equal((await timeout.server.test(test(ENDPOINT))).status, 502);
+    assert.equal(timeout.alerts[0].message, "502: the push service answered nothing");
+  }),
+
+  check("Store failures: 500, reported without the command (no push address or places in logs)", async () => {
+    const upstashError = new Error(
+      `WRONGPASS invalid password, command was: [["set","push:sub:abc",${JSON.stringify(JSON.stringify(body()))}]]`,
+    );
+    assert.equal(storeProblem(upstashError), "WRONGPASS invalid password");
+    assert.equal(storeProblem("x".repeat(500)).length, 200);
+
+    const broken: PushStore = {
+      ...memoryStore(),
+      async save() {
+        throw upstashError;
+      },
+      async get() {
+        throw upstashError;
+      },
+    };
+    const { server, alerts } = routes({ store: broken });
+    const saved = await answer(await server.subscribe(subscribe("POST", body())));
+    assert.deepEqual(saved, {
+      status: 500,
+      body: { error: true, reason: "Storm alerts are unavailable, try again later" },
+    });
+    assert.equal((await server.test(test(ENDPOINT))).status, 500);
+    assert.equal(alerts.length, 2);
+    for (const alert of alerts) {
+      assert.equal(alert.message, "500: WRONGPASS invalid password");
+      assert.ok(!JSON.stringify(alert).includes("fcm.googleapis.com"));
+    }
+  }),
+
+  check(
+    "Phone: places rounded to 0.1°, named by a hash of their id, at most 10, and accepted by the server",
+    async () => {
+      assert.equal(phone.MAX_PLACES, MAX_PLACES);
+      assert.equal(phone.MAX_NAME_LENGTH, MAX_NAME_LENGTH);
+      const gps = { id: "pt@13.756,100.502", name: "  Home  ", point: { lat: 13.756, lon: 100.502 } };
+      const [home] = await phone.pushPlaces([gps]);
+      assert.deepEqual(home, { ref: await placeRef(gps.id), name: "Home", lat: 13.8, lon: 100.5 });
+      assert.ok(!JSON.stringify(home).includes("13.756"));
+
+      const many = Array.from({ length: 12 }, (_, i) => ({
+        id: `place-${i}`,
+        name: `Place ${i}`,
+        point: { lat: -33.8688 + i, lon: 151.2093 - i * 0.05 },
+      }));
+      const places = await phone.pushPlaces(many);
+      assert.equal(places.length, 10);
+      const record = readRecord(body({ places }), NOW);
+      assert.notEqual(typeof record, "string", String(record));
+
+      // 39 letters then an emoji (two UTF-16 units): the emoji is dropped whole, not split.
+      const [cut] = await phone.pushPlaces([{ id: "a", name: `${"a".repeat(39)}🌧️`, point: { lat: 0, lon: 0 } }]);
+      assert.equal(cut.name, "a".repeat(39));
+      const [blank] = await phone.pushPlaces([{ id: "b", name: " ", point: { lat: 7.04, lon: 100.47 } }]);
+      assert.equal(blank.name, "7, 100.5");
+      assert.notEqual(typeof readRecord(body({ places: [cut, blank] }), NOW), "string");
+    },
+  ),
+
+  check("Phone: the VAPID key as bytes; sent again when anything changed, and once a day", () => {
+    const bytes = phone.keyBytes(VAPID.publicKey);
+    assert.equal(bytes.length, 65);
+    assert.equal(bytes[0], 4);
+    assert.deepEqual([...bytes], [...Buffer.from(VAPID.publicKey, "base64url")]);
+
+    const places = body().places;
+    const stamp = phone.syncStamp(ENDPOINT, places, "th", "Asia/Bangkok", NOW);
+    assert.equal(phone.syncStamp(ENDPOINT, places, "th", "Asia/Bangkok", NOW + 60_000), stamp);
+    assert.notEqual(phone.syncStamp(ENDPOINT, places, "th", "Asia/Bangkok", NOW + 86_400_000), stamp);
+    assert.notEqual(phone.syncStamp(ENDPOINT, places, "en", "Asia/Bangkok", NOW), stamp);
+    assert.notEqual(phone.syncStamp(ENDPOINT, places.slice(1), "th", "Asia/Bangkok", NOW), stamp);
+    assert.notEqual(phone.syncStamp(NEW_ENDPOINT, places, "th", "Asia/Bangkok", NOW), stamp);
+    assert.notEqual(phone.syncStamp(ENDPOINT, places, "th", "Asia/Tokyo", NOW), stamp);
+  }),
+
+  check('Phone: "Not now" hides the offer for 30 days', () => {
+    withStorage(() => {
+      assert.equal(phone.isSnoozed(NOW), false);
+      phone.snooze(NOW);
+      assert.equal(phone.isSnoozed(NOW + 1), true);
+      assert.equal(phone.isSnoozed(NOW + phone.LATER_MS - 1), true);
+      assert.equal(phone.isSnoozed(NOW + phone.LATER_MS), false);
+    });
+    // Storage blocked: never snoozed rather than an error.
+    assert.equal(phone.isSnoozed(NOW), false);
   }),
 ];
 

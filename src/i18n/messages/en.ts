@@ -557,6 +557,32 @@ export const en: Messages = {
     },
   },
 
+  push: {
+    title: "Storm alerts",
+    bellOn: "Storm alerts are on",
+    why: (km) =>
+      `Get a notification on this device when a tropical storm may pass within ${km} km of your saved places, even when DooFah is closed.`,
+    detailsLabel: "What DooFah keeps",
+    details:
+      "Only while alerts are on, DooFah's server (Upstash, through Vercel) keeps this device's notification address, your saved places rounded to about 10 km with their names, and your language and time zone. Alerts are delivered by Google, Apple or Mozilla. It is all deleted when you turn alerts off, or 60 days after you last open DooFah.",
+    turnOn: "Turn on",
+    notNow: "Not now",
+    install:
+      "On iPhone and iPad, storm alerts work once DooFah is on your Home Screen: tap Share, then Add to Home Screen, then open DooFah from its icon.",
+    blocked:
+      "Notifications are blocked for DooFah. Allow them in your browser's site settings (on iPhone: Settings, Notifications, DooFah), then come back.",
+    on: (n) => `Storm alerts are on for ${n === 1 ? "1 place" : `${n} places`}`,
+    turnOff: "Turn off",
+    sendTest: "Send a test",
+    testSent: "Test sent. It should arrive in a few seconds.",
+    testWait: "Wait a minute before the next test.",
+    failed: "Something went wrong. Please try again.",
+    chip: "Get storm alerts on this phone",
+    testTitle: "DooFah storm alerts",
+    testBody: "Test: alerts work on this device.",
+    close: "Close",
+  },
+
   errors: {
     forecast: "Could not load the forecast",
     offline: (clock) => `Offline · showing the forecast from ${clock}`,
@@ -573,5 +599,6 @@ export const en: Messages = {
     via: "via",
     airBy: "Air quality by",
     contact: "Contact:",
+    pushPrivacy: "Storm alerts keep your saved places (to about 10 km) on DooFah's server only while they are on.",
   },
 };
