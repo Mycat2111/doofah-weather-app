@@ -3,6 +3,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import {
   BatteryCharging,
+  BellRing,
   Clock,
   CloudLightning,
   Fan,
@@ -114,10 +115,18 @@ interface WeatherAlertBannerProps {
   timeZone: string;
   /** Show a tropical cyclone on the map. */
   onShowStorm?: (stormId: string) => void;
+  /** Offer storm alerts on this device (only while they are off and could be on). */
+  onGetStormAlerts?: () => void;
 }
 
 /** Warnings for storms, tropical cyclones, likely rain and unhealthy air, with what to do about them. */
-export function WeatherAlertBanner({ alerts, placeId, timeZone, onShowStorm }: WeatherAlertBannerProps) {
+export function WeatherAlertBanner({
+  alerts,
+  placeId,
+  timeZone,
+  onShowStorm,
+  onGetStormAlerts,
+}: WeatherAlertBannerProps) {
   const { m, f } = useI18n();
   const when = useWhen(timeZone);
   const [dismissed, setDismissed] = useState<string[]>([]);
@@ -221,7 +230,7 @@ export function WeatherAlertBanner({ alerts, placeId, timeZone, onShowStorm }: W
                       })}
                     </ul>
 
-                    {a.kind === "cyclone" && (a.also.length > 0 || onShowStorm) && (
+                    {a.kind === "cyclone" && (a.also.length > 0 || onShowStorm || onGetStormAlerts) && (
                       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
                         {onShowStorm && (
                           <TapButton
@@ -231,6 +240,15 @@ export function WeatherAlertBanner({ alerts, placeId, timeZone, onShowStorm }: W
                           >
                             <MapPinned className="size-3.5" aria-hidden />
                             {m.alerts.cyclone.showOnMap}
+                          </TapButton>
+                        )}
+                        {onGetStormAlerts && (
+                          <TapButton
+                            onClick={onGetStormAlerts}
+                            className="flex items-center gap-1.5 rounded-full border border-white/30 bg-white/15 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/25 th:text-[13px]"
+                          >
+                            <BellRing className="size-3.5" aria-hidden />
+                            {m.push.chip}
                           </TapButton>
                         )}
                         {a.also.length > 0 && (

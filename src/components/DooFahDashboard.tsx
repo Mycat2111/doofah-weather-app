@@ -25,6 +25,7 @@ import { useFavorites } from "@/hooks/useFavorites";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import { useNow } from "@/hooks/useNow";
 import { useRouteWeather } from "@/hooks/useRouteWeather";
+import { StormAlertsContext, useStormAlerts } from "@/hooks/useStormAlerts";
 import { useWeatherState, WeatherStateProvider } from "@/hooks/useWeatherState";
 import type { Locale } from "@/i18n/config";
 import { useI18n } from "@/i18n/I18nProvider";
@@ -94,6 +95,7 @@ function Dashboard({
   const [stormFocus, setStormFocus] = useState<StormFocus>({ key: 0, stormId: "" });
   const { favorites } = useFavorites();
   const now = useNow();
+  const pushAlerts = useStormAlerts(place);
 
   const onLocated = useCallback((point: GeoPoint) => setPlace(placeForPoint(point)), [setPlace]);
   const geo = useGeolocation(onLocated);
@@ -208,12 +210,24 @@ function Dashboard({
   const top = useMemo(
     () => (
       <>
-        <DooFahHeader place={place} onSelectPlace={setPlace} onLocate={geo.locate} geoStatus={geo.status} />
+        <DooFahHeader
+          place={place}
+          onSelectPlace={setPlace}
+          onLocate={geo.locate}
+          geoStatus={geo.status}
+          stormAlerts={pushAlerts}
+        />
         <FavoritesBar place={place} onSelectPlace={setPlace} weather={weather} sampleTime={sampleTime} />
-        <WeatherAlertBanner alerts={alerts} placeId={placeId} timeZone={tz} onShowStorm={showStorm} />
+        <WeatherAlertBanner
+          alerts={alerts}
+          placeId={placeId}
+          timeZone={tz}
+          onShowStorm={showStorm}
+          onGetStormAlerts={pushAlerts.canPrompt ? pushAlerts.show : undefined}
+        />
       </>
     ),
-    [place, setPlace, geo.locate, geo.status, weather, sampleTime, alerts, placeId, tz, showStorm],
+    [place, setPlace, geo.locate, geo.status, pushAlerts, weather, sampleTime, alerts, placeId, tz, showStorm],
   );
   const hourly = useMemo(
     () =>
@@ -248,7 +262,8 @@ function Dashboard({
   );
 
   return (
-    <>
+    // The star's panel offers storm alerts too.
+    <StormAlertsContext value={pushAlerts}>
       <AtmosphereBackground theme={atmosphere} />
       <main className="relative mx-auto w-full min-w-0 max-w-[1400px] px-4 pb-24 pt-5 sm:px-6 lg:px-8">
         {top}
@@ -379,6 +394,8 @@ function Dashboard({
               <FooterLink href="https://atmosphere.copernicus.eu/">Copernicus CAMS</FooterLink>
             </>
           )}
+          {/* What storm alerts keep, wherever they can be turned on (PDPA asks for it up front). */}
+          {pushAlerts.state !== "hidden" && <p className="mt-1">{m.footer.pushPrivacy}</p>}
           {/* FOSSGIS's routing terms ask every site using its router to show how to reach the operator. */}
           {contactEmail && (
             <p className="mt-1">
@@ -387,7 +404,7 @@ function Dashboard({
           )}
         </footer>
       </main>
-    </>
+    </StormAlertsContext>
   );
 }
 

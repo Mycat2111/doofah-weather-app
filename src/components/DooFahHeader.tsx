@@ -4,9 +4,11 @@ import { AnimatePresence, motion } from "framer-motion";
 import { LoaderCircle, LocateFixed, MapPin, Search, Star, X } from "lucide-react";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { LanguageToggle } from "@/components/LanguageToggle";
+import { StormAlertsButton } from "@/components/StormAlertsButton";
 import { TapButton } from "@/components/ui/TapButton";
 import { useFavorites } from "@/hooks/useFavorites";
 import type { GeolocationStatus } from "@/hooks/useGeolocation";
+import type { StormAlerts } from "@/hooks/useStormAlerts";
 import { useI18n } from "@/i18n/I18nProvider";
 import { placeLabel } from "@/i18n/places";
 import { searchPlaces } from "@/services/weather/places";
@@ -17,9 +19,11 @@ interface DooFahHeaderProps {
   onSelectPlace: (place: Place) => void;
   onLocate: () => void;
   geoStatus: GeolocationStatus;
+  /** The storm alerts bell; none when push can't work on this device. */
+  stormAlerts: StormAlerts;
 }
 
-export function DooFahHeader({ place, onSelectPlace, onLocate, geoStatus }: DooFahHeaderProps) {
+export function DooFahHeader({ place, onSelectPlace, onLocate, geoStatus, stormAlerts }: DooFahHeaderProps) {
   const { locale, m } = useI18n();
   const favorites = useFavorites();
   const [open, setOpen] = useState(false);
@@ -78,7 +82,7 @@ export function DooFahHeader({ place, onSelectPlace, onLocate, geoStatus }: DooF
         : m.header.locate;
 
   return (
-    <header className="relative z-30 flex items-center gap-3">
+    <header className="relative z-30 flex items-center gap-3 max-[379px]:gap-2">
       <motion.div
         className={`min-w-0 items-baseline gap-2 ${open ? "hidden sm:flex" : "flex"}`}
         initial={{ opacity: 0, x: -12 }}
@@ -87,7 +91,7 @@ export function DooFahHeader({ place, onSelectPlace, onLocate, geoStatus }: DooF
       >
         <span
           lang="en"
-          className="bg-gradient-to-r from-white via-sky-100 to-amber-100 bg-clip-text text-2xl font-semibold tracking-tight text-transparent sm:text-[28px]"
+          className="bg-gradient-to-r from-white via-sky-100 to-amber-100 bg-clip-text text-2xl font-semibold tracking-tight text-transparent max-[379px]:text-xl sm:text-[28px]"
         >
           DooFah
         </span>
@@ -96,12 +100,13 @@ export function DooFahHeader({ place, onSelectPlace, onLocate, geoStatus }: DooF
         </span>
       </motion.div>
 
-      <div className="ml-auto flex items-center gap-2">
+      {/* Under 380 px the buttons are 40 px with 4 px gaps, so the logo and four controls fit on a 320 px phone. */}
+      <div className="ml-auto flex items-center gap-2 max-[379px]:gap-1">
         <div className="relative">
           <motion.div
             layout
             transition={{ type: "spring", stiffness: 420, damping: 36 }}
-            className={`glass-chip flex h-11 items-center overflow-hidden rounded-full ${
+            className={`glass-chip flex h-11 items-center overflow-hidden rounded-full max-[379px]:h-10 ${
               open ? "w-[min(74vw,340px)] pl-4 pr-1.5" : "w-auto"
             }`}
           >
@@ -134,7 +139,7 @@ export function DooFahHeader({ place, onSelectPlace, onLocate, geoStatus }: DooF
               <TapButton
                 tapScale={0.92}
                 onClick={() => setOpen(true)}
-                className="flex h-full items-center gap-2 px-4 text-sm text-white/85 hover:text-white"
+                className="flex h-full items-center gap-2 px-4 text-sm text-white/85 hover:text-white max-[379px]:px-3"
                 aria-label={m.header.searchLabel}
               >
                 <Search className="size-4" />
@@ -212,7 +217,7 @@ export function DooFahHeader({ place, onSelectPlace, onLocate, geoStatus }: DooF
           disabled={geoStatus === "locating"}
           title={geoHint}
           aria-label={geoHint}
-          className={`glass-chip grid size-11 place-items-center rounded-full transition-colors hover:bg-white/20 ${
+          className={`glass-chip grid size-11 place-items-center rounded-full transition-colors hover:bg-white/20 max-[379px]:size-10 ${
             geoStatus === "denied" || geoStatus === "unavailable" ? "text-amber-200" : "text-white"
           }`}
         >
@@ -223,7 +228,8 @@ export function DooFahHeader({ place, onSelectPlace, onLocate, geoStatus }: DooF
           )}
         </TapButton>
 
-        {/* Makes room for the open search field on phones. */}
+        {/* These make room for the open search field on phones. */}
+        <StormAlertsButton alerts={stormAlerts} className={open ? "hidden sm:grid" : "grid"} />
         <LanguageToggle className={open ? "hidden sm:flex" : "flex"} />
       </div>
     </header>

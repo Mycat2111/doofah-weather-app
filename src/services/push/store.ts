@@ -14,6 +14,7 @@
  *   if it turns severe. Gone 21 days after the last send.
  * - `push:last-run`: when the send job last ran. Written on every run, which
  *   also keeps a free database from being archived as unused between storms.
+ * - `push:test:<id>`: a test push was just sent to that phone (1 minute).
  */
 
 import { Redis } from "@upstash/redis";
@@ -32,10 +33,13 @@ export interface PushStore {
   markSent(stormId: string, levels: Record<string, StormLevel>): Promise<void>;
   lastRun(): Promise<number | null>;
   setLastRun(time: number): Promise<void>;
+  /** True at most once a minute per phone: whether a test push may be sent now. */
+  claimTest(id: string): Promise<boolean>;
 }
 
 export const RECORD_TTL_S = 60 * 86_400;
 export const SENT_TTL_S = 21 * 86_400;
+export const TEST_GAP_S = 60;
 const INDEX = "push:subs";
 const LAST_RUN = "push:last-run";
 const recordKey = (id: string) => `push:sub:${id}`;
@@ -90,6 +94,9 @@ export function storeOn(redis: Redis): PushStore {
     },
     async setLastRun(time) {
       await redis.set(LAST_RUN, time);
+    },
+    async claimTest(id) {
+      return (await redis.set(`push:test:${id}`, 1, { nx: true, ex: TEST_GAP_S })) === "OK";
     },
   };
 }
