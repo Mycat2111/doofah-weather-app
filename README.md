@@ -6,8 +6,9 @@ Meteorological Department's WRF for the first two days in Thailand, then
 ECMWF's IFS, through DooFah's own `/api/forecast`; air quality comes from
 [Open-Meteo](https://open-meteo.com/). The radar map's layers (rain, cloud
 cover, wind, temperature and pressure) are ECMWF's too, through `/api/fields`.
-A simulated **WeatherNext 3** style model (5 km grid, hourly steps, 15-day
-horizon) can run the whole dashboard, map included, with `?data=sim`.
+A built-in weather simulation (5 km grid, hourly steps, 15 days) is kept as
+test data for the checks and as a demo: `?data=sim` runs the whole dashboard
+on it, map included. The live app never downloads it otherwise.
 
 - **Stack:** Next.js 16 (App Router, TypeScript), Tailwind CSS 4, Framer Motion, Lucide icons, Leaflet + react-leaflet with OpenStreetMap tiles.
 - **No API keys needed to start.** ECMWF and air quality come from Open-Meteo's free API, and place search runs on the device; WRF needs TMD's token. See [Weather data](#weather-data) and [Route weather](#route-weather).
@@ -33,7 +34,7 @@ npm run dev          # http://localhost:3000
 | `npm start`           | Serve the production build                                     |
 | `npm run lint`        | ESLint (Next.js core-web-vitals + TypeScript rules)            |
 | `npm run typecheck`   | `tsc --noEmit`                                                 |
-| `npm run verify:mock` | Shape, determinism, consistency and climate checks for the mock service |
+| `npm run verify:simulation` | Shape, determinism, consistency and climate checks for the simulation (test and demo data) |
 | `npm run verify:i18n` | Every Thai phrase is Thai, Thai dates and Thai place search       |
 | `npm run verify:favorites` | Saving, naming and reading back favorite places             |
 | `npm run verify:alerts` | Alert thresholds, time windows, order and tips in both languages |
@@ -63,7 +64,8 @@ Preview the rain countdown with `/?rain=soon` (rain in 20 minutes), `now`
 Preview the cyclone layer and its warning with `/?cyclones=demo`: a sample
 typhoon that passes about 160 km from the place on screen 30 hours from now.
 
-Show the simulated WeatherNext 3 data instead of the live forecast with `/?data=sim`.
+Show the simulation instead of the live forecast with `/?data=sim`: demo
+data, labelled as simulated, never mixed with real forecasts.
 The parameters combine, e.g. `/?data=sim&sky=rain`.
 
 ## Weather data
@@ -460,9 +462,11 @@ sends a report.
     the last hour.
 - **Changing your mind.** Tapping again within 10 minutes changes your report
   instead of adding a second one.
-- **Mock backend.** `src/services/CrowdReportMockService.ts` plays the backend.
-  Other people's reports and the badge below only show with `?data=sim`, since
-  real ones need a shared backend.
+- **No shared backend yet.** Your reports are kept on the device
+  (`src/lib/crowdReports.ts`). Other people's reports and the badge below
+  only show with `?data=sim`, from
+  `src/services/simulation/SimulatedCrowdReports.ts`, since real ones need a
+  shared backend.
   - Your reports are kept in localStorage, so they survive a reload.
   - Other people's reports are simulated from the same weather model as the
     radar. There are about six an hour within 30 km, more when it rains, and
@@ -755,6 +759,7 @@ src/
 │   ├── haptics.ts                 Short vibrations on Android and iPhone
 │   ├── lifestyle.ts               Lifestyle card rules: good, take care or not now, and why
 │   ├── rainCountdown.ts           Time to the next rain: by the hour for live forecasts, the radar nowcast with the simulation
+│   ├── crowdReports.ts            Report kinds, how long a report lasts, and this device's reports
 │   ├── crowdVerify.ts             When local reports count as verifying the rain radar
 │   ├── routeWeather.ts            Stops along a route, how wet each is, the trip outlook
 │   ├── voiceSummary.ts            What the spoken summary says
@@ -790,29 +795,32 @@ src/
     │   └── http.ts                Server side of /api/cyclones: checks, caching, errors
     ├── tts/
     │   └── googleTts.ts           Server side of /api/voice: Google Cloud Text-to-Speech
-    ├── WeatherNext3MockService.ts The simulated API (start here)
-    ├── CrowdReportMockService.ts  Mock backend for people's weather reports
     ├── routing/
     │   ├── routeService.ts        getRoute(): asks OSRM, spaced out and remembered
     │   ├── osrm.ts                OSRM's request and reply: the line, times and ferries
     │   ├── polyline.ts            Encoded polylines
     │   ├── towns.ts               Towns that name the stops
     │   └── types.ts               Route, request and error types
-    └── weathernext3/
-        ├── types.ts               All data contracts
-        ├── describe.ts            English wording of nowcast and day outlooks
-        ├── summarise.ts           Sky mood, day outlooks and the nowcast, for both sources
+    ├── weather/                   Shapes and helpers both sources share
+    │   ├── types.ts               All data contracts
+    │   ├── describe.ts            English wording of nowcast and day outlooks
+    │   ├── summarise.ts           Sky mood, day outlooks and the nowcast, for both sources
+    │   ├── physics.ts             Dew point, feels-like, UV index and the AQI category
+    │   ├── grid.ts                Bilinear sampling of a map layer's grid
+    │   ├── solar.ts               Sun elevation, sunrise and sunset (NOAA)
+    │   ├── time.ts                IANA time-zone helpers (Intl only)
+    │   └── places.ts              Offline gazetteer, search and "your location"
+    └── simulation/                Test and demo data (?data=sim), loaded only when asked for
+        ├── SimulatedWeatherService.ts  The simulated forecast and map layers (start here)
+        ├── SimulatedCrowdReports.ts    Other people's weather reports, simulated
         ├── fieldModel.ts          The atmospheric field model
-        ├── grid.ts                5 km grid snapping, radar grids, bilinear sampling
-        ├── noise.ts               Seeded value noise / fBm
-        ├── solar.ts               Sun elevation, sunrise and sunset (NOAA)
-        ├── time.ts                IANA time-zone helpers (Intl only)
-        └── places.ts              Offline gazetteer and search
+        ├── grid.ts                The 5 km grid and the map layers' grids
+        └── noise.ts               Seeded value noise / fBm
 public/
 ├── sw.js                          Service worker: offline page, build files, icons, map tiles
 ├── icons/                         Install icons, regular and maskable
 └── screenshots/                   Phone and desktop screenshots for the install dialog
-scripts/verify-mock-service.ts     Checks behind `npm run verify:mock`
+scripts/verify-simulation.ts       Checks behind `npm run verify:simulation`
 scripts/verify-i18n.ts             Checks behind `npm run verify:i18n`
 scripts/verify-favorites.ts        Checks behind `npm run verify:favorites`
 scripts/verify-alerts.ts           Checks behind `npm run verify:alerts`
@@ -832,12 +840,22 @@ scripts/generate-bufr-tables.py    Writes src/services/cyclones/bufrTables.ts fr
 scripts/generate-icons.ts          `npm run icons`, from scripts/icons/doofah-icon.svg
 ```
 
-## The WeatherNext 3 mock service
+## The simulation (test and demo data)
+
+DooFah keeps a weather simulation for its checks and for demos. `?data=sim`
+runs the whole dashboard on it, the map and other people's reports included,
+with "Demo data: simulated weather, not a forecast" in the footer and
+"Simulation" on the map. It never mixes with real data: a page shows either
+the live forecast or the simulation. The live app doesn't download it:
+`weatherService()` loads `src/services/simulation/` the first time
+`?data=sim` asks for the weather, and `useCrowdReports` does the same for the
+simulated reports.
 
 ```ts
-import { weatherNext3, DEFAULT_PLACE } from "@/services/WeatherNext3MockService";
+import { weatherSimulation } from "@/services/simulation/SimulatedWeatherService";
+import { DEFAULT_PLACE } from "@/services/weather/places";
 
-const { current, hourly, daily } = await weatherNext3.getForecastBundle(DEFAULT_PLACE);
+const { current, hourly, daily } = await weatherSimulation.getForecastBundle(DEFAULT_PLACE);
 current.sample.temperatureC;   // 2 m temperature at the 5 km cell
 current.airQuality?.aqi;       // US EPA AQI from PM2.5, PM10 and O₃ (null for real data with no recent reading)
 current.nowcast.summary;       // "Rain starting in about 40 min"
@@ -845,7 +863,7 @@ current.nowcast.outlook;       // { kind: "starting", minutes: 40, intensity: "m
 hourly.length;                 // 48 (up to 360)
 daily.length;                  // 15
 
-const rain = await weatherNext3.getRadarFrames({
+const rain = await weatherSimulation.getRadarFrames({
   layer: "precipitation",      // or "clouds" | "wind" | "temperature" | "pressure"
   bounds: [[12.5, 99.5], [15, 102]],
 });
@@ -860,10 +878,8 @@ rain.frames[3].rate;           // Float32Array of mm/h, row-major on rain.grid
 | `getHourlyForecast(place, n)`   | `n` hourly steps with probabilities and confidence                 |
 | `getDailyForecast(place, n)`    | Up to 15 local days with min/max, summary and 24 hourly steps each |
 | `getRadarFrames(request)`       | Hourly grids for one layer over an area (cached)                   |
-| `searchPlaces(query)`           | Gazetteer matches (English or Thai names)                          |
 | `sampleAt(point, time)`         | Synchronous single sample                                          |
 | `getWeatherAlong(stops)`        | One sample per `{ point, time }`, e.g. a trip's stops at their ETAs |
-| `snapToGrid(point)`             | The 5 km × 5 km cell for a point                                   |
 
 **How the simulation works.** Every variable is a continuous function of
 latitude, longitude and time built from seeded noise that drifts with the
@@ -875,12 +891,15 @@ hourly strip, 15-day list and every radar frame read the same model, they
 always agree. Rain chances come from a simulated ensemble spread that widens
 with lead time and regresses toward climatology for days far ahead.
 
-Options: `new WeatherNext3MockService({ seed, latencyMs, now })`. A fixed
+Options: `new SimulatedWeatherService({ seed, latencyMs, now })`. A fixed
 `seed` and `now` give fully reproducible weather for tests and screenshots.
 
 **Real data.** Components only depend on the types in
-`services/weathernext3/types.ts` and the `WeatherService` interface in
+`services/weather/types.ts` and the `WeatherService` interface in
 `services/weatherService.ts` (`getForecastBundle`, `getWeatherAlong` and
-`getRadarFrames`). `ForecastService` implements it for the live forecast and
-the map's ECMWF layers, and `weatherService()` picks it or `weatherNext3` from
-the page's `?data=` setting. Another source only needs the same three methods.
+`getRadarFrames`, plus `momentAt` for a source that knows more than its
+hours). `ForecastService` implements it for the live forecast and the map's
+ECMWF layers, and `weatherService()` picks it or the simulation from the
+page's `?data=` setting. Another source only needs the same three methods.
+Place search (`searchPlaces`) and "your location" (`placeForPoint`) are in
+`services/weather/places.ts`, the same for every source.

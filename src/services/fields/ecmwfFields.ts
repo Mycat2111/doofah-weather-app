@@ -10,7 +10,7 @@
 
 import { CUSTOMER_URL, FREE_URL, OpenMeteoError, type ErrorResponse, type Values } from "../openmeteo/api";
 import { ECMWF_MODEL } from "../forecast/ecmwf";
-import { HOUR_MS } from "../weathernext3/time";
+import { HOUR_MS } from "../weather/time";
 import { slotHours, TILE, tilePoints, type Spacing, type TileId } from "./lattice";
 
 /** The variables a tile carries, in Open-Meteo's names. */

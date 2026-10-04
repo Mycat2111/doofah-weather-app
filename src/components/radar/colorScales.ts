@@ -1,4 +1,4 @@
-import type { RadarLayerType } from "@/services/WeatherNext3MockService";
+import type { RadarLayerType } from "@/services/weather/types";
 
 type RGBA = [number, number, number, number];
 export type ColorStop = [value: number, color: RGBA];

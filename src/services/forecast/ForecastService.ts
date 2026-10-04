@@ -17,7 +17,7 @@
 
 import { FieldService } from "../fields/FieldService";
 import { airQualityParams, FREE_URL, type AirQualityResponse } from "../openmeteo/api";
-import { HOUR_MS } from "../weathernext3/time";
+import { HOUR_MS } from "../weather/time";
 import type {
   ForecastBundle,
   GeoPoint,
@@ -26,7 +26,7 @@ import type {
   RadarLayerType,
   RadarRequest,
   SpotWeather,
-} from "../weathernext3/types";
+} from "../weather/types";
 import type { WeatherService } from "../weatherService";
 import { forecastBundle, spotFrom } from "./bundle";
 import { forecastQuery } from "./point";

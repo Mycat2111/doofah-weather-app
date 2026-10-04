@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { sampleGrid, type RadarGridSpec } from "@/services/WeatherNext3MockService";
+import { sampleGrid } from "@/services/weather/grid";
+import type { RadarGridSpec } from "@/services/weather/types";
 import { useCanvasLayer, type CanvasHandle } from "./useCanvasLayer";
 
 interface WindParticleLayerProps {

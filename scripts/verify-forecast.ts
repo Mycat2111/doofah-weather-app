@@ -55,9 +55,9 @@ import {
   type ForecastSources,
   type WrfAnswer,
 } from "../src/services/forecast/unified";
-import { dewPoint, feelsLike, uvIndex } from "../src/services/weathernext3/fieldModel";
-import { sunElevation } from "../src/services/weathernext3/solar";
-import { HOUR_MS, localDateKey } from "../src/services/weathernext3/time";
+import { dewPoint, feelsLike, uvIndex } from "../src/services/weather/physics";
+import { sunElevation } from "../src/services/weather/solar";
+import { HOUR_MS, localDateKey } from "../src/services/weather/time";
 
 const NOW = Date.UTC(2026, 9, 2, 9, 20); // 2 Oct 2026, 16:20 in Bangkok
 const START = Date.UTC(2026, 9, 2, 9); // the hour the forecast counts from

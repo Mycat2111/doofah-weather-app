@@ -1,4 +1,4 @@
-import type { AqiCategory } from "@/services/WeatherNext3MockService";
+import type { AqiCategory } from "@/services/weather/types";
 
 /** US EPA colour for each AQI category. */
 export const AQI_COLOR: Record<AqiCategory, string> = {

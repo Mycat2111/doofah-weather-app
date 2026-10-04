@@ -15,8 +15,8 @@
  * slot and the points per view low keeps the map within the free limits.
  */
 
-import { HOUR_MS } from "../weathernext3/time";
-import type { GeoBounds } from "../weathernext3/types";
+import { HOUR_MS } from "../weather/time";
+import type { GeoBounds } from "../weather/types";
 
 /** Lattice spacings, degrees, finest first. ECMWF's own grid is about 0.1°. */
 export const SPACINGS = [0.125, 0.25, 0.5, 1, 2, 4] as const;

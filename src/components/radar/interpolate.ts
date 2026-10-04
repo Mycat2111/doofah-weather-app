@@ -16,7 +16,7 @@
  * tracking motion.
  */
 
-import type { RadarFrame, RadarGridSpec } from "@/services/WeatherNext3MockService";
+import type { RadarFrame, RadarGridSpec } from "@/services/weather/types";
 
 /** Displacement from one frame to the next, per cell, in cells: east (columns) and south (rows). */
 export interface Flow {

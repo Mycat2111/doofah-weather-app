@@ -1,7 +1,10 @@
 /**
- * WeatherNext3MockService
+ * SimulatedWeatherService
  *
- * A simulated client for a WeatherNext 3 style forecast API:
+ * DooFah's weather simulation: test data for the check scripts, and the
+ * demo behind `?data=sim`. It is never mixed with real forecasts, and the
+ * live app only loads it for `?data=sim` (see weatherService.ts).
+ *
  *   • 5 km × 5 km spatial grid
  *   • 1-hour temporal steps
  *   • 15-day horizon with ensemble-style probabilities that widen with lead time
@@ -12,29 +15,16 @@
  * and the same seed always reproduces the same weather.
  */
 
-import {
-  FieldModel,
-  classifyCondition,
-  climatologyWeight,
-  dewPoint,
-  ensembleDamping,
-  feelsLike,
-  precipitationProbability,
-  uvIndex,
-  type FieldState,
-} from "./weathernext3/fieldModel";
-import { buildGridSpec, cellCenter, snapToGrid } from "./weathernext3/grid";
-import { DEFAULT_PLACE, placeForPoint, searchPlaces } from "./weathernext3/places";
-import { sunTimes } from "./weathernext3/solar";
-import { atmosphereFor, nowcastFromSteps, summariseDay } from "./weathernext3/summarise";
-import { DAY_MS, HOUR_MS, floorToHour, localDateKey, zonedMidnight, zonedParts } from "./weathernext3/time";
+import { dewPoint, feelsLike, uvIndex } from "../weather/physics";
+import { sunTimes } from "../weather/solar";
+import { atmosphereFor, nowcastFromSteps, summariseDay } from "../weather/summarise";
+import { DAY_MS, floorToHour, HOUR_MS, localDateKey, zonedMidnight, zonedParts } from "../weather/time";
 import type {
   AtmosphericSample,
   CurrentConditions,
   DailyForecast,
   ForecastBundle,
   GeoPoint,
-  GridCell,
   HourlyForecast,
   ModelInfo,
   Nowcast,
@@ -45,21 +35,24 @@ import type {
   RadarGridSpec,
   RadarLayerType,
   RadarRequest,
-} from "./weathernext3/types";
-import type { WeatherService } from "./weatherService";
-
-export * from "./weathernext3/types";
-export { DEFAULT_PLACE, PLACES } from "./weathernext3/places";
-export { sampleGrid, snapToGrid } from "./weathernext3/grid";
-export { describeDayEn, describeNowcastEn } from "./weathernext3/describe";
-export { atmosphereFor } from "./weathernext3/summarise";
+} from "../weather/types";
+import type { WeatherService } from "../weatherService";
+import {
+  classifyCondition,
+  climatologyWeight,
+  ensembleDamping,
+  FieldModel,
+  precipitationProbability,
+  type FieldState,
+} from "./fieldModel";
+import { buildGridSpec, cellCenter, snapToGrid } from "./grid";
 
 export const FORECAST_HORIZON_DAYS = 15;
 const MAX_HOURLY = FORECAST_HORIZON_DAYS * 24;
 const RUN_INTERVAL_MS = 6 * HOUR_MS;
 const RUN_LATENCY_MS = 3 * HOUR_MS;
 
-export interface WeatherNext3MockOptions {
+export interface SimulatedWeatherOptions {
   /** Changes the simulated weather entirely. Default 3. */
   seed?: number;
   /** Simulated network latency per request, ms. Default 220. Use 0 in tests. */
@@ -68,28 +61,28 @@ export interface WeatherNext3MockOptions {
   now?: () => number;
 }
 
-export class WeatherNext3MockService implements WeatherService {
+export class SimulatedWeatherService implements WeatherService {
   readonly source = "simulated" as const;
   private readonly model: FieldModel;
   private readonly latencyMs: number;
   private readonly now: () => number;
   private readonly radarCache = new Map<string, Promise<unknown>>();
 
-  constructor(options: WeatherNext3MockOptions = {}) {
+  constructor(options: SimulatedWeatherOptions = {}) {
     this.model = new FieldModel(options.seed ?? 3);
     this.latencyMs = options.latencyMs ?? 220;
     this.now = options.now ?? Date.now;
   }
 
   /* ------------------------------------------------------------ */
-  /* Metadata and places                                           */
+  /* Metadata                                                      */
   /* ------------------------------------------------------------ */
 
   getModelInfo(): ModelInfo {
     const run = Math.floor((this.now() - RUN_LATENCY_MS) / RUN_INTERVAL_MS) * RUN_INTERVAL_MS;
     return {
-      model: "WeatherNext 3",
-      version: "3.0-sim",
+      model: "DooFah simulation",
+      version: "sim-1",
       runInitTime: new Date(run).toISOString(),
       spatialResolutionKm: 5,
       temporalResolutionHours: 1,
@@ -97,24 +90,6 @@ export class WeatherNext3MockService implements WeatherService {
       ensembleMembers: 64,
       simulated: true,
     };
-  }
-
-  snapToGrid(point: GeoPoint): GridCell {
-    return snapToGrid(point);
-  }
-
-  async searchPlaces(query: string): Promise<Place[]> {
-    await this.delay(0.4);
-    return searchPlaces(query);
-  }
-
-  /** Nearest known city within 40 km, otherwise a coordinate label. */
-  placeForPoint(point: GeoPoint, timeZone?: string): Place {
-    return placeForPoint(point, timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC");
-  }
-
-  get defaultPlace(): Place {
-    return DEFAULT_PLACE;
   }
 
   /* ------------------------------------------------------------ */
@@ -477,5 +452,5 @@ function primaryValues(frame: RadarFrame): Float32Array {
   }
 }
 
-/** Shared app-wide instance. */
-export const weatherNext3 = new WeatherNext3MockService();
+/** Shared instance for `?data=sim`. */
+export const weatherSimulation = new SimulatedWeatherService();

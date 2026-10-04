@@ -4,7 +4,7 @@
  * shows the same place asks the same URL and gets the same answer.
  */
 
-import type { GeoPoint } from "../weathernext3/types";
+import type { GeoPoint } from "../weather/types";
 
 /** Coordinates are rounded to this many degrees (about 1 km), far finer than either model. */
 export const SNAP_DEGREES = 0.01;

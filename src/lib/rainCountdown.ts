@@ -1,11 +1,11 @@
-import { rainIntensity } from "@/services/weathernext3/describe";
+import { rainIntensity } from "@/services/weather/describe";
 import type {
   CurrentConditions,
   DailyForecast,
   HourlyForecast,
   NowcastStep,
   RainIntensity,
-} from "@/services/WeatherNext3MockService";
+} from "@/services/weather/types";
 
 /** Rain rate that counts as rain, mm/h. The nowcast uses the same line. */
 export const WET_RATE = 0.1;

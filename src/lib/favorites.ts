@@ -1,5 +1,5 @@
-import { PLACES, distanceKm } from "@/services/weathernext3/places";
-import type { GeoPoint, Place } from "@/services/weathernext3/types";
+import { distanceKm, PLACES } from "@/services/weather/places";
+import type { GeoPoint, Place } from "@/services/weather/types";
 
 /** Quick labels offered when naming a favorite. Shown in the reader's language. */
 export const FAVORITE_KINDS = ["home", "office"] as const;

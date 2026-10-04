@@ -6,7 +6,7 @@
  * map shows rain at your spot.
  */
 
-import type { WeatherCondition } from "../weathernext3/types";
+import type { WeatherCondition } from "../weather/types";
 
 /** Rain from this much in an hour counts as rain: where the map's rain colours start. */
 export const WET_MM = 0.1;

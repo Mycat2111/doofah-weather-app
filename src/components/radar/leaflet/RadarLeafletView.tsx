@@ -10,15 +10,9 @@ import type { Cyclone } from "@/lib/cyclones";
 import { haptic } from "@/lib/haptics";
 import { useFrameAt } from "@/hooks/useRadarFrames";
 import type { Trip } from "@/hooks/useRouteWeather";
-import type { CrowdReport } from "@/services/CrowdReportMockService";
-import {
-  sampleGrid,
-  type GeoBounds,
-  type GeoPoint,
-  type RadarFrame,
-  type RadarFrameSet,
-  type RadarGridSpec,
-} from "@/services/WeatherNext3MockService";
+import type { CrowdReport } from "@/lib/crowdReports";
+import { sampleGrid } from "@/services/weather/grid";
+import type { GeoBounds, GeoPoint, RadarFrame, RadarFrameSet, RadarGridSpec } from "@/services/weather/types";
 import { CLOUD_SCALE, PRECIP_SCALE, PRESSURE_SCALE, TEMPERATURE_SCALE, WIND_SCALE } from "../colorScales";
 import { CycloneLayer } from "./CycloneLayer";
 import { FieldRasterLayer } from "./FieldRasterLayer";

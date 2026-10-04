@@ -5,7 +5,7 @@ import { Droplets, Eye, Gauge, Sun, Sunrise, Wind } from "lucide-react";
 import type { ReactNode } from "react";
 import { CardLabel, GlassCard } from "@/components/ui/GlassCard";
 import { useI18n } from "@/i18n/I18nProvider";
-import type { CurrentConditions } from "@/services/WeatherNext3MockService";
+import type { CurrentConditions } from "@/services/weather/types";
 
 function Tile({ icon, label, children, index }: { icon: ReactNode; label: string; children: ReactNode; index: number }) {
   return (

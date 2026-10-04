@@ -14,9 +14,11 @@ import { windParts, type ModelHour, type ModelSeries } from "../src/services/for
 import type { Model, ModelUsed, UnifiedForecast } from "../src/services/forecast/types";
 import { getUnifiedForecast, type ForecastSources } from "../src/services/forecast/unified";
 import type { AirQualityResponse } from "../src/services/openmeteo/api";
-import { floorToHour, HOUR_MS, localDateKey } from "../src/services/weathernext3/time";
+import { weatherSimulation } from "../src/services/simulation/SimulatedWeatherService";
+import { PLACES } from "../src/services/weather/places";
+import { floorToHour, HOUR_MS, localDateKey } from "../src/services/weather/time";
+import type { Place, SpotWeather } from "../src/services/weather/types";
 import { weatherService } from "../src/services/weatherService";
-import { PLACES, weatherNext3, type Place, type SpotWeather } from "../src/services/WeatherNext3MockService";
 
 const NOW = Date.UTC(2026, 9, 2, 9, 20); // 2 Oct 2026, 16:20 in Bangkok
 const START = floorToHour(NOW);
@@ -389,7 +391,14 @@ async function main() {
   console.log("✓ the countdown, an hour at a time: raining until 19:00, rain at 17:00, possible at 35%, dry");
 
   // 8. Which service the page uses ------------------------------------------------------------------
-  assert.equal(weatherService({ source: "simulated", proxy: false }), weatherNext3);
+  const sim = weatherService({ source: "simulated", proxy: false });
+  assert.equal(sim.source, "simulated");
+  assert.equal(weatherService({ source: "simulated", proxy: false }), sim);
+  const [first] = PLACES;
+  assert.equal(sim.momentAt?.(first.point, Date.now()), null, "the simulation is loaded only once it is asked for");
+  assert.equal((await sim.getForecastBundle(first)).current.source, "simulated");
+  const moment = Date.now() + 90 * 60_000;
+  assert.deepEqual(sim.momentAt?.(first.point, moment)?.sample, weatherSimulation.sampleAt(first.point, moment));
   const page = weatherService({ source: "live", proxy: false });
   assert.ok(page instanceof ForecastService);
   assert.equal(page.source, "live");

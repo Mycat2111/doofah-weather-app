@@ -36,19 +36,19 @@ import {
   type TileId,
 } from "../src/services/fields/lattice";
 import { CUSTOMER_URL, FREE_URL, OpenMeteoError, type ForecastResponse } from "../src/services/openmeteo/api";
-import { floorToHour, HOUR_MS } from "../src/services/weathernext3/time";
-import {
-  sampleGrid,
-  weatherNext3,
-  type CloudFrame,
-  type GeoBounds,
-  type PrecipitationFrame,
-  type RadarFrameSet,
-  type RadarGridSpec,
-  type RadarLayerType,
-  type TemperatureFrame,
-  type WindFrame,
-} from "../src/services/WeatherNext3MockService";
+import { weatherSimulation } from "../src/services/simulation/SimulatedWeatherService";
+import { sampleGrid } from "../src/services/weather/grid";
+import { floorToHour, HOUR_MS } from "../src/services/weather/time";
+import type {
+  CloudFrame,
+  GeoBounds,
+  PrecipitationFrame,
+  RadarFrameSet,
+  RadarGridSpec,
+  RadarLayerType,
+  TemperatureFrame,
+  WindFrame,
+} from "../src/services/weather/types";
 
 const MIN = 60_000;
 const KMH_PER_MS = 3.6;
@@ -594,7 +594,7 @@ const CHECKS = [
   }),
 
   check("the simulation draws cloud cover too, in percent", async () => {
-    const set = (await weatherNext3.getRadarFrames({
+    const set = (await weatherSimulation.getRadarFrames({
       layer: "clouds",
       bounds: BANGKOK,
       maxCellsPerSide: 40,

@@ -8,7 +8,7 @@
  * reuses tiles already here and draws at once.
  */
 
-import { floorToHour, HOUR_MS } from "../weathernext3/time";
+import { floorToHour, HOUR_MS } from "../weather/time";
 import type {
   FieldModel,
   RadarFrame,
@@ -16,7 +16,7 @@ import type {
   RadarGridSpec,
   RadarLayerType,
   RadarRequest,
-} from "../weathernext3/types";
+} from "../weather/types";
 import type { FieldTile } from "./ecmwfFields";
 import {
   AHEAD_HOURS,

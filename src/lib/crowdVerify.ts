@@ -1,4 +1,4 @@
-import { isRainReport, type CrowdReport, type ReportKind } from "@/services/CrowdReportMockService";
+import { isRainReport, type CrowdReport, type ReportKind } from "@/lib/crowdReports";
 
 /** At least this many people must agree with the radar to call it verified. */
 export const VERIFY_MIN_PEOPLE = 2;

@@ -13,8 +13,8 @@
  * that the address is not hard-coded), for example for a self-hosted OSRM.
  */
 
-import { distanceKm } from "../weathernext3/places";
-import type { GeoPoint } from "../weathernext3/types";
+import { distanceKm } from "../weather/places";
+import type { GeoPoint } from "../weather/types";
 import { decodePolyline } from "./polyline";
 import { RouteError, type FerryCrossing, type Route, type RoutePoint, type RouteRequest } from "./types";
 

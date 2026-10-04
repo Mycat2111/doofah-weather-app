@@ -3,26 +3,22 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useNow } from "@/hooks/useNow";
 import { verifyRadar } from "@/lib/crowdVerify";
-import {
-  crowdReports,
-  liveReports,
-  myReportsStore,
-  type CrowdReport,
-  type ReportKind,
-} from "@/services/CrowdReportMockService";
-import type { Place } from "@/services/WeatherNext3MockService";
+import { liveReports, myReportsStore, type CrowdReport, type ReportKind } from "@/lib/crowdReports";
+import type { Place } from "@/services/weather/types";
 
 const REFRESH_MS = 60_000;
 
 interface CommunityState {
   placeId: string;
   reports: CrowdReport[];
+  /** What the simulation's model shows at a report's spot and time, to check reports against. */
+  radarAt?: (report: CrowdReport) => ReportKind;
 }
 
 /**
  * Weather reports from the last hour around `place`: this device's from
- * localStorage and, with `simulated` data, other people's from the mock
- * backend (refreshed every minute), with how they compare with the radar.
+ * localStorage and, with `simulated` data, other people's from the
+ * simulation (refreshed every minute), with how they compare with its radar.
  *
  * With real forecasts there is no backend of other people's reports yet, so
  * only your own reports show.
@@ -40,8 +36,10 @@ export function useCrowdReports(place: Place, simulated: boolean) {
   useEffect(() => {
     if (!simulated) return;
     let cancelled = false;
-    crowdReports.getCommunityReports(place.point).then((reports) => {
-      if (!cancelled) setCommunity({ placeId: place.id, reports });
+    // Only the simulation has other people's reports, so only `?data=sim` loads it.
+    import("@/services/simulation/SimulatedCrowdReports").then(async ({ crowdSimulation }) => {
+      const reports = await crowdSimulation.getCommunityReports(place.point);
+      if (!cancelled) setCommunity({ placeId: place.id, reports, radarAt: (r) => crowdSimulation.radarAt(r) });
     });
     return () => {
       cancelled = true;
@@ -62,7 +60,7 @@ export function useCrowdReports(place: Place, simulated: boolean) {
     reports,
     /** This device's latest report around this place, if it is still live. */
     mine: reports.find((r) => r.mine) ?? null,
-    verification: simulated ? verifyRadar(reports, (r) => crowdReports.radarAt(r)) : null,
+    verification: simulated && community.radarAt ? verifyRadar(reports, community.radarAt) : null,
     now: at,
     submit: (kind: ReportKind) => myReportsStore.submit(kind, place.point),
   };

@@ -6,7 +6,7 @@ import type {
   NowcastOutlook,
   RainIntensity,
   WeatherCondition,
-} from "@/services/weathernext3/types";
+} from "@/services/weather/types";
 import type { LifestyleReason } from "@/lib/lifestyle";
 import type { RouteOutlook } from "@/lib/routeWeather";
 import type { SummaryContext, SummaryFact } from "@/lib/voiceSummary";
@@ -386,7 +386,7 @@ export const th: Messages = {
     backToNow: "กลับไปตอนนี้",
     precisionBefore: "ละเอียด",
     precisionAfter: "",
-    cellTitle: (cellId) => `ช่องกริด WeatherNext 3 ${cellId}`,
+    cellTitle: (cellId) => `ช่องกริดข้อมูลจำลอง ${cellId}`,
     feelsLike: (temp) => `รู้สึกเหมือน ${temp}`,
     highLow: (high, low) => `สูงสุด ${high} ต่ำสุด ${low}`,
     now: "ตอนนี้",
@@ -586,6 +586,7 @@ export const th: Messages = {
     },
     loading: "กำลังโหลดชั้นข้อมูล",
     grid: (km) => `กริด ${km} กม.`,
+    simulation: "ข้อมูลจำลอง",
     run: (utcClock) => `รอบ ${utcClock} UTC`,
     play: "เล่นภาพเคลื่อนไหว",
     pause: "หยุดภาพเคลื่อนไหว",
@@ -652,8 +653,8 @@ export const th: Messages = {
   },
 
   footer: {
-    credit: "DooFah ดูฟ้า · ข้อมูลพยากรณ์จำลองตามแบบ WeatherNext 3 (กริด 5 กม. รายชั่วโมง 15 วัน)",
-    modelRun: (utc) => `โมเดลรอบ ${utc} UTC`,
+    credit: "DooFah ดูฟ้า · ข้อมูลตัวอย่าง: สภาพอากาศจำลอง ไม่ใช่การพยากรณ์ (กริด 5 กม. รายชั่วโมง 15 วัน)",
+    modelRun: (utc) => `รอบจำลอง ${utc} UTC`,
     forecastBy: "พยากรณ์:",
     wrf: { before: "แบบจำลอง WRF จาก", after: " (TMD)" },
     tmd: "กรมอุตุนิยมวิทยา",

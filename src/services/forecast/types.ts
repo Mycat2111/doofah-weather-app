@@ -8,7 +8,7 @@
  * Open-Meteo's replies and like the `model_used` tag.
  */
 
-import type { DayOutlook, WeatherCondition } from "../weathernext3/types";
+import type { DayOutlook, WeatherCondition } from "../weather/types";
 
 export type Model = "WRF" | "ECMWF";
 

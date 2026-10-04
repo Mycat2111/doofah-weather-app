@@ -9,7 +9,7 @@ import {
   renameFavorite,
   type FavoriteKind,
 } from "@/lib/favorites";
-import type { Place } from "@/services/WeatherNext3MockService";
+import type { Place } from "@/services/weather/types";
 
 const actions = {
   add: (place: Place) => favoritesStore.update((list) => addFavorite(list, place)),

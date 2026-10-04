@@ -27,9 +27,9 @@ import { decodePolyline, encodePolyline } from "../src/services/routing/polyline
 import { clearRouteCache, getRoute } from "../src/services/routing/routeService";
 import { TOWNS } from "../src/services/routing/towns";
 import { RouteError, type Route, type RouteRequest } from "../src/services/routing/types";
-import { distanceKm } from "../src/services/weathernext3/places";
-import type { GeoPoint } from "../src/services/weathernext3/types";
-import { PLACES, WeatherNext3MockService, type AtmosphericSample } from "../src/services/WeatherNext3MockService";
+import { SimulatedWeatherService } from "../src/services/simulation/SimulatedWeatherService";
+import { distanceKm, PLACES } from "../src/services/weather/places";
+import type { AtmosphericSample, GeoPoint } from "../src/services/weather/types";
 
 const NOW = Date.UTC(2026, 8, 30, 7, 20); // 30 Sep 2026, 14:20 in Bangkok
 const DEPARTURE = new Date(NOW).toISOString();
@@ -351,7 +351,7 @@ async function main() {
   console.log("✓ Up to 10 stops, in order, each with the time you get there and a town name when one is near");
 
   // 3. Weather at each stop and the trip in one line ---------------------------
-  const svc = new WeatherNext3MockService({ latencyMs: 0, now: () => NOW });
+  const svc = new SimulatedWeatherService({ latencyMs: 0, now: () => NOW });
   const stops = routeStops(routes["chiang-mai"]);
   const weather = await svc.getWeatherAlong(stops.map((s) => ({ point: s.point, time: s.eta })));
   assert.equal(weather.length, stops.length);

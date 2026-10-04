@@ -1,7 +1,7 @@
 import { TOWNS } from "@/services/routing/towns";
 import type { Route, RoutePoint } from "@/services/routing/types";
-import { distanceKm, PLACES } from "@/services/weathernext3/places";
-import type { AtmosphericSample, GeoPoint, SpotWeather } from "@/services/weathernext3/types";
+import { distanceKm, PLACES } from "@/services/weather/places";
+import type { AtmosphericSample, GeoPoint, SpotWeather } from "@/services/weather/types";
 import { RAIN_LIKELY, WET_RATE } from "./rainCountdown";
 
 /** Where to stop along the route and check the weather: every this many minutes of driving, picked to give at most 10 stops. */

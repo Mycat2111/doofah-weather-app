@@ -1,9 +1,8 @@
-import { describeDayEn, describeNowcastEn } from "@/services/weathernext3/describe";
-import type { WeatherCondition } from "@/services/weathernext3/types";
+import { describeDayEn, describeNowcastEn } from "@/services/weather/describe";
+import type { AqiCategory, WeatherCondition } from "@/services/weather/types";
 import type { LifestyleReason } from "@/lib/lifestyle";
 import type { RouteOutlook } from "@/lib/routeWeather";
 import type { SummaryContext, SummaryFact } from "@/lib/voiceSummary";
-import type { AqiCategory } from "@/services/weathernext3/types";
 import { spokenTimeEn, spokenWaitEn } from "../spokenTime";
 import type { Messages } from "./types";
 
@@ -304,7 +303,7 @@ export const en: Messages = {
     backToNow: "Back to now",
     precisionBefore: "",
     precisionAfter: " precision",
-    cellTitle: (cellId) => `WeatherNext 3 grid cell ${cellId}`,
+    cellTitle: (cellId) => `Simulation grid cell ${cellId}`,
     feelsLike: (temp) => `Feels like ${temp}`,
     highLow: (high, low) => `H ${high} L ${low}`,
     now: "Now",
@@ -498,6 +497,7 @@ export const en: Messages = {
     },
     loading: "Loading layer",
     grid: (km) => `${km} km grid`,
+    simulation: "Simulation",
     run: (utcClock) => `run ${utcClock} UTC`,
     play: "Play time-lapse",
     pause: "Pause time-lapse",
@@ -563,8 +563,8 @@ export const en: Messages = {
   },
 
   footer: {
-    credit: "DooFah ดูฟ้า · Forecast data is simulated in the style of WeatherNext 3 (5 km grid, hourly, 15 days)",
-    modelRun: (utc) => `model run ${utc} UTC`,
+    credit: "DooFah ดูฟ้า · Demo data: simulated weather, not a forecast (5 km grid, hourly, 15 days)",
+    modelRun: (utc) => `simulated run ${utc} UTC`,
     forecastBy: "Forecast:",
     wrf: { before: "WRF model by the ", after: " (TMD)" },
     tmd: "Thai Meteorological Department",

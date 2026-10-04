@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { WeatherService } from "@/services/weatherService";
-import type { GeoPoint, SpotWeather } from "@/services/WeatherNext3MockService";
+import type { GeoPoint, SpotWeather } from "@/services/weather/types";
 
 // Full precision, so the points read back from the key are exactly the ones given.
 const spotKey = (p: GeoPoint) => `${p.lat},${p.lon}`;
