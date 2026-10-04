@@ -1,16 +1,21 @@
 /**
  * Checks for DooFah's own monitoring (post-launch step 2): asking a source
- * again (which failures, how many times, how long between), and the alerts
- * for whoever runs DooFah (which channels, what they are sent, at most one of
- * a kind every 15 minutes, never too long for Discord). Uses made-up
- * channels, so it needs no network and sends nothing.
+ * again (which failures, how many times, how long between), the alerts for
+ * whoever runs DooFah (which channels, what they are sent, at most one of a
+ * kind every 15 minutes, never too long for Discord), and the health check
+ * (who may call it, what counts as degraded or down, its answer and alert).
+ * Uses made-up sources and channels, so it needs no network and sends
+ * nothing.
  * Run with: npm run verify:ops
  */
 import assert from "node:assert/strict";
+import type { CycloneFeed } from "../src/lib/cyclones";
 import { CycloneSourceError } from "../src/services/cyclones/openData";
 import { TmdError } from "../src/services/forecast/tmd";
+import type { UnifiedForecast } from "../src/services/forecast/types";
 import { OpenMeteoError } from "../src/services/openmeteo/api";
 import { alertTargets, sendAlert, type Alert } from "../src/services/ops/alert";
+import { healthResponse, runChecks, type Check, type Probes } from "../src/services/ops/health";
 import { reportAfterReply } from "../src/services/ops/report";
 import { isTransient, withRetry } from "../src/services/ops/retry";
 
@@ -42,6 +47,21 @@ async function logged<T>(work: () => Promise<T>): Promise<{ result: T; lines: st
     console.error = error;
   }
 }
+
+/** A forecast with `hours` hours and, unless `wrfMissing` says why not, WRF. */
+const forecast = (hours = 360, wrfMissing?: { missing: UnifiedForecast["wrf_missing"]; reason?: string }) =>
+  ({
+    hours: Array.from({ length: hours }),
+    days: Array.from({ length: Math.floor(hours / 24) }),
+    wrf_missing: wrfMissing?.missing,
+    wrf_reason: wrfMissing?.reason,
+  }) as unknown as UnifiedForecast;
+const tracks: CycloneFeed = { run: "2026-10-04T00:00:00.000Z", storms: [] };
+const healthy: Probes = { forecast: async () => forecast(), cyclones: async () => tracks };
+const SECRET = "a-long-random-cron-secret";
+const asHealth = (query = "", authorization: string | null = `Bearer ${SECRET}`) =>
+  new Request(`https://doofah.test/api/health${query}`, authorization ? { headers: { authorization } } : {});
+const statuses = (checks: Check[]) => checks.map((c) => `${c.status} ${c.name}: ${c.detail}`);
 
 const DISCORD = "https://discord.com/api/webhooks/1/test";
 const alert = (
@@ -213,6 +233,108 @@ const CHECKS = [
     } finally {
       Object.assign(process.env, env);
     }
+  }),
+
+  /* ---------------- Health check ---------------- */
+
+  check("only a caller with the CRON_SECRET is answered, and nothing is checked otherwise", async () => {
+    const untouched: Probes = {
+      forecast: async () => assert.fail("must not ask Open-Meteo"),
+      cyclones: async () => assert.fail("must not ask ECMWF"),
+    };
+    const env = { CRON_SECRET: ` ${SECRET} ` };
+    for (const [request, why] of [
+      [asHealth("", null), "no token"],
+      [asHealth("", `Bearer ${SECRET}x`), "a wrong token"],
+      [asHealth("", SECRET), "no Bearer"],
+      [asHealth("?test", "Bearer "), "an empty token"],
+    ] as const) {
+      const response = await healthResponse(request, env, untouched, NOW, () => assert.fail("no alert"));
+      assert.equal(response.status, 401, why);
+      assert.equal(response.headers.get("cache-control"), "no-store");
+    }
+    const unset = await healthResponse(asHealth(), {}, untouched, NOW, () => assert.fail("no alert"));
+    assert.equal(unset.status, 401, "without CRON_SECRET in Vercel, no one is answered");
+  }),
+
+  check("all sources answering: 200, every check ok, no alert", async () => {
+    const response = await healthResponse(asHealth(), { CRON_SECRET: SECRET }, healthy, NOW, () =>
+      assert.fail("no alert"),
+    );
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "no-store", "never kept, or it would hide an outage");
+    const body = (await response.json()) as { ok: boolean; checked_at: string; checks: Check[] };
+    assert.equal(body.ok, true);
+    assert.equal(body.checked_at, new Date(NOW).toISOString());
+    assert.deepEqual(statuses(body.checks), [
+      "ok Forecast (ECMWF + WRF, Bangkok): ECMWF and WRF, 15 days",
+      "ok Cyclone tracks (ECMWF open data): 0 storms, run 2026-10-04T00:00:00.000Z",
+    ]);
+  }),
+
+  check("WRF missing, a short ECMWF run or the cyclone portal fallback: degraded, 200 and an alert", async () => {
+    const alerts: Alert[] = [];
+    const degraded: Probes = {
+      forecast: async () => forecast(360, { missing: "unavailable", reason: "TMD answered 401: Unauthenticated." }),
+      cyclones: async (_, onFallback) => {
+        onFallback("ECMWF answered after: Google Cloud answered 503 for …");
+        return tracks;
+      },
+    };
+    const response = await healthResponse(asHealth(), { CRON_SECRET: SECRET }, degraded, NOW, (a) => alerts.push(a));
+    assert.equal(response.status, 200, "degraded isn't down");
+    assert.deepEqual(alerts, [
+      {
+        kind: "health",
+        api: "/api/health",
+        message:
+          "DEGRADED Forecast (ECMWF + WRF, Bangkok): ECMWF ok; WRF missing: TMD answered 401: Unauthenticated.\n" +
+          "DEGRADED Cyclone tracks (ECMWF open data): 0 storms, run 2026-10-04T00:00:00.000Z; " +
+          "ECMWF answered after: Google Cloud answered 503 for …",
+      },
+    ]);
+    const short = await runChecks(NOW, { ...healthy, forecast: async () => forecast(200) });
+    assert.equal(short[0].status, "degraded");
+    assert.equal(short[0].detail, "ECMWF sent only 200 hours");
+  }),
+
+  check("a source failing or not answering in time: down, 503 and an alert", async () => {
+    const alerts: Alert[] = [];
+    const failing: Probes = {
+      ...healthy,
+      forecast: async () => {
+        throw new OpenMeteoError("Open-Meteo could not be reached", 502);
+      },
+    };
+    const response = await healthResponse(asHealth(), { CRON_SECRET: SECRET }, failing, NOW, (a) => alerts.push(a));
+    assert.equal(response.status, 503);
+    const body = (await response.json()) as { ok: boolean; checks: Check[] };
+    assert.equal(body.ok, false);
+    assert.deepEqual(statuses(body.checks), [
+      "down Forecast (ECMWF + WRF, Bangkok): Open-Meteo could not be reached",
+      "ok Cyclone tracks (ECMWF open data): 0 storms, run 2026-10-04T00:00:00.000Z",
+    ]);
+    assert.deepEqual(
+      alerts.map((a) => a.message),
+      ["DOWN Forecast (ECMWF + WRF, Bangkok): Open-Meteo could not be reached"],
+    );
+    const hanging: Probes = { ...healthy, cyclones: () => new Promise<never>(() => {}) };
+    const late = await runChecks(NOW, hanging, 50);
+    assert.equal(late[1].status, "down");
+    assert.equal(late[1].detail, "no answer in 0.05 s", "the route answers before Vercel stops it");
+  }),
+
+  check("?test sends only a test alert, and says whether a channel is set up", async () => {
+    const response = await healthResponse(
+      asHealth("?test"),
+      { CRON_SECRET: SECRET },
+      {
+        forecast: async () => assert.fail("a test checks nothing"),
+        cyclones: async () => assert.fail("a test checks nothing"),
+      },
+    );
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { test: "no-target" });
   }),
 ];
 

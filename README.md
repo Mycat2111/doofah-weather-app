@@ -48,7 +48,7 @@ npm run dev          # http://localhost:3000
 | `npm run verify:weather-state` | The moment on the map's timeline: the forecast for it, the countdown from it, the radar frames between hours and their motion, and the labels in both languages |
 | `npm run verify:fields` | The map's live layers: the lattice and its slots, the ECMWF request and reply for a tile, `/api/fields`, the frames from tiles, the same numbers as the forecast card, and the cloud layer's motion |
 | `npm run verify:cyclones` | Tropical cyclones: the BUFR reader against ecCodes on ECMWF's own files, tracks as storms, the cone, the strength names, the storm alert, finding the newest run and `/api/cyclones` |
-| `npm run verify:ops` | Monitoring: which failures are asked again and how often, and the Discord and LINE alerts (what they say, at most one of a kind in 15 minutes) |
+| `npm run verify:ops` | Monitoring: which failures are asked again and how often, the Discord and LINE alerts (what they say, at most one of a kind in 15 minutes) and `/api/health` |
 | `npm run icons`       | Re-render the app icons and favicon from `scripts/icons/doofah-icon.svg` |
 
 Preview any sky mood with a query parameter:
@@ -711,6 +711,49 @@ Set them in Vercel → Settings → Environment Variables for Production (and
 Preview, if wanted), then redeploy. Without any, alerts only reach Vercel's
 logs.
 
+### Health check every 15 minutes
+
+GitHub Actions (`.github/workflows/health.yml`) calls `/api/health` every
+15 minutes. The route asks each source the way the API routes do, past
+Vercel's cache (a cached answer would hide an outage), and answers each
+check's state: ok, degraded or down (`src/services/ops/health.ts`).
+
+| Check | Degraded when | Down when |
+| --- | --- | --- |
+| Forecast for Bangkok (ECMWF and WRF) | WRF is missing, or ECMWF sent under 300 hours | ECMWF fails after 2 tries, or no answer in 40 s |
+| Cyclone tracks | ECMWF's portal had to answer for Google Cloud | Both fail, or no answer in 40 s |
+
+Anything but ok sends a "Health check" alert; the route answers 200 when
+every source is ok or degraded, and 503 when one is down. When DooFah
+doesn't answer at all, or answers anything else, the workflow posts to
+Discord itself with a link to the run. Each check costs about 2 Open-Meteo
+calls and 1 TMD call, so about 192 of the 10,000 free Open-Meteo calls a
+day. Map tiles (36 calls each) aren't checked; the forecast check already
+shows whether Open-Meteo answers.
+
+Setting it up:
+
+1. In Vercel, set `CRON_SECRET` for Production to a random string of 16 or
+   more characters (for example from `openssl rand -hex 24`), then redeploy.
+   `/api/health` answers only `Authorization: Bearer <CRON_SECRET>`, so no
+   one else can spend DooFah's calls.
+2. In GitHub → Settings → Secrets and variables → Actions, add two
+   repository secrets: `HEALTH_TOKEN` with the same value as `CRON_SECRET`,
+   and `ALERT_DISCORD_WEBHOOK_URL` with the same webhook as in Vercel.
+3. Under Actions → Health check, choose "Run workflow" once. Its log lists
+   each check. To see an alert land in Discord without waiting for an
+   outage, call `/api/health?test` with the token:
+   `curl -H "Authorization: Bearer <CRON_SECRET>" https://doofah-weather-app.vercel.app/api/health?test`.
+
+Until `HEALTH_TOKEN` is set, each run only notes that nothing was checked.
+A repository variable `HEALTH_URL` points the workflow at another address.
+GitHub may start a scheduled run a few minutes late, and turns schedules off
+after 60 days without activity in the repository; "Enable workflow" under
+Actions turns it back on. On Vercel's Pro plan, Vercel Cron can call the
+route instead (`vercel.json` with `{"crons": [{"path": "/api/health", "schedule": "*/15 * * * *"}]}`;
+Vercel sends `CRON_SECRET` by itself). On the Hobby plan a cron runs at most
+once a day, and a 15-minute schedule fails the deploy.
+
 ## Project structure
 
 ```
@@ -723,6 +766,7 @@ src/
 │   ├── api/forecast/              The unified forecast (WRF + ECMWF) for one place, read by every card
 │   ├── api/fields/                One tile of the map's layers (ECMWF) for a 6-hour slot
 │   ├── api/cyclones/              Active tropical cyclones from ECMWF's newest track file
+│   ├── api/health/                DooFah's sources checked for the 15-minute health check (CRON_SECRET)
 │   ├── manifest.ts                Web app manifest (install name, colours, icons)
 │   ├── icon.svg, apple-icon.png, favicon.ico   App icons (from `npm run icons`)
 │   └── globals.css                Glass surfaces, sky effects, touch rules, Leaflet styling
@@ -848,7 +892,8 @@ src/
     ├── ops/
     │   ├── retry.ts               Asking a source again after a timeout or a 5xx
     │   ├── alert.ts               Alerts to Discord and LINE, at most one of a kind in 15 minutes
-    │   └── report.ts              A route's alert, sent once its reply has gone
+    │   ├── report.ts              A route's alert, sent once its reply has gone
+    │   └── health.ts              Server side of /api/health: each source ok, degraded or down
     ├── tts/
     │   └── googleTts.ts           Server side of /api/voice: Google Cloud Text-to-Speech
     ├── routing/
@@ -895,6 +940,7 @@ scripts/verify-ops.ts              Checks behind `npm run verify:ops`
 scripts/fixtures/ecmwf-*.bufr      ECMWF sample BUFR files for the cyclone checks (see ECMWF-SAMPLES.md)
 scripts/generate-bufr-tables.py    Writes src/services/cyclones/bufrTables.ts from ecCodes
 scripts/generate-icons.ts          `npm run icons`, from scripts/icons/doofah-icon.svg
+.github/workflows/health.yml       The 15-minute health check on GitHub Actions
 ```
 
 ## The simulation (test and demo data)
