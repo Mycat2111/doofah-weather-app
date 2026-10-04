@@ -1,0 +1,55 @@
+# Asks DooFah's /api/health every 15 minutes (GitHub may start a run a few minutes late when busy).
+# DooFah sends its own alert when a source is degraded or down; this workflow tells Discord itself
+# only when DooFah doesn't answer at all, or answers something other than 200 or 503.
+#
+# Repository secrets (Settings > Secrets and variables > Actions):
+#   HEALTH_TOKEN               the same value as CRON_SECRET in Vercel
+#   ALERT_DISCORD_WEBHOOK_URL  the same webhook as in Vercel
+# Optional repository variable HEALTH_URL, to check another address.
+name: Health check
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ask /api/health
+        id: ask
+        env:
+          HEALTH_TOKEN: ${{ secrets.HEALTH_TOKEN }}
+          HEALTH_URL: ${{ vars.HEALTH_URL || 'https://doofah-weather-app.vercel.app/api/health' }}
+        run: |
+          if [ -z "$HEALTH_TOKEN" ]; then
+            echo "::notice::HEALTH_TOKEN isn't set yet, so nothing was checked."
+            exit 0
+          fi
+          code=$(curl -s -o body.json -w '%{http_code}' --max-time 90 \
+            -H "Authorization: Bearer $HEALTH_TOKEN" "$HEALTH_URL" || true)
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          jq -r '.checks[]? | "\(.status) · \(.name) · \(.detail) (\(.ms) ms)"' body.json 2>/dev/null || true
+          # 200: every source ok or degraded. 503: a source is down. DooFah has already sent its own alert for both.
+          if [ "$code" != 200 ] && [ "$code" != 503 ]; then
+            echo "::error::DooFah answered ${code:-nothing} (000 means no answer)."
+            exit 1
+          fi
+
+      - name: Tell Discord that DooFah didn't answer
+        if: failure() && steps.ask.outputs.code != ''
+        env:
+          WEBHOOK: ${{ secrets.ALERT_DISCORD_WEBHOOK_URL }}
+          CODE: ${{ steps.ask.outputs.code }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [ -n "$WEBHOOK" ] || { echo "::warning::ALERT_DISCORD_WEBHOOK_URL isn't set."; exit 0; }
+          jq -n --arg code "$CODE" --arg run "$RUN_URL" '{
+            username: "DooFah monitor",
+            content: "🩺 Health check · DooFah production · /api/health\nDooFah answered \($code) (000 means no answer). Run: \($run)",
+            allowed_mentions: { parse: [] }
+          }' | curl -s --max-time 15 -H "Content-Type: application/json" -d @- "$WEBHOOK"
