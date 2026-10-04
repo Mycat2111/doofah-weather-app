@@ -327,7 +327,7 @@ const CHECKS = [
 
   /* ---------------- /api/fields ---------------- */
 
-  check("/api/fields answers a tile and keeps it at the edge for the rest of its slot", async () => {
+  check("/api/fields answers a tile, kept in the browser and at the edge for the rest of its slot", async () => {
     const id: TileId = { spacing: 0.25, row: 9, col: 66 };
     const asked: string[] = [];
     const source: TileSource = async (tile, slot) => {
@@ -341,17 +341,17 @@ const CHECKS = [
       NOW,
     );
     assert.equal(response.status, 200);
-    assert.equal(
-      response.headers.get("Cache-Control"),
-      `public, s-maxage=${(SLOT + SLOT_MS - NOW) / 1000}, stale-while-revalidate=3600`,
-    );
+    const left = (SLOT + SLOT_MS - NOW) / 1000;
+    assert.equal(response.headers.get("Cache-Control"), `public, max-age=${left}`);
+    assert.equal(response.headers.get("Vercel-CDN-Cache-Control"), `max-age=${left}, stale-while-revalidate=3600`);
     const body = (await response.json()) as FieldTile;
     assert.deepEqual(body, tileFor(id));
     assert.deepEqual(asked, ["9,66@2026-10-03T02"]);
     // The slot before, for a clock a little behind: answered, kept a minute.
     const before = await fieldsResponse(new Request(url.replace("2026-10-03T02", "2026-10-02T20")), source, NOW);
     assert.equal(before.status, 200);
-    assert.match(before.headers.get("Cache-Control")!, /s-maxage=60,/);
+    assert.equal(before.headers.get("Cache-Control"), "public, max-age=60");
+    assert.match(before.headers.get("Vercel-CDN-Cache-Control")!, /^max-age=60,/);
   }),
 
   check("/api/fields refuses other sites, bad requests, far-off tiles and other slots", async () => {
@@ -394,6 +394,7 @@ const CHECKS = [
     assert.equal(busy.status, 503);
     assert.equal(busy.headers.get("Retry-After"), "60");
     assert.equal(busy.headers.get("Cache-Control"), "no-store");
+    assert.equal(busy.headers.get("Vercel-CDN-Cache-Control"), null, "a failure is never kept");
     assert.equal((await ask(new OpenMeteoError("Bad", 400))).status, 502);
     const log = console.error;
     console.error = () => {};

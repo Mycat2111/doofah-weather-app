@@ -2,12 +2,13 @@
  * Server side of /api/fields?spacing=…&tile=row,col&slot=…: one tile of the
  * map's lattice as JSON (ecmwfFields.ts).
  *
- * A tile is the same for everyone in a slot, so Vercel's edge keeps it for
- * the whole slot and Open-Meteo is asked once per tile per slot. Only the
+ * A tile is the same for everyone in a slot, so Vercel's edge and the browser
+ * keep it for the whole slot and Open-Meteo is asked once per tile per slot. Only the
  * current slot (or the one either side, for clocks a little off) is
  * answered, so no one can make DooFah ask again by inventing slots.
  */
 
+import { cacheHeaders } from "../http/cacheHeaders";
 import { OpenMeteoError } from "../openmeteo/api";
 import { fetchFieldTile, type FieldTile } from "./ecmwfFields";
 import { isSpacing, parseSlot, SLOT_MS, slotOf, tileAllowed, type TileId } from "./lattice";
@@ -58,11 +59,11 @@ export async function fieldsResponse(
 
   try {
     const body = await source(tile, slot);
-    // Kept until the slot is over; a request for the slot before is only answered while clocks catch up.
+    // A slot's tile never changes and its URL names the slot, so the browser and the edge keep it until the
+    // slot is over; a request for the slot before is only answered while clocks catch up. No stale-if-error:
+    // a new slot is a new URL, with no older copy to fall back to.
     const seconds = Math.max(60, Math.round((slot + SLOT_MS - now) / 1000));
-    return Response.json(body, {
-      headers: { "Cache-Control": `public, s-maxage=${seconds}, stale-while-revalidate=${STALE_SECONDS}` },
-    });
+    return Response.json(body, { headers: cacheHeaders({ browser: seconds, fresh: seconds, stale: STALE_SECONDS }) });
   } catch (error) {
     if (error instanceof OpenMeteoError) {
       if (error.status === 429) {
