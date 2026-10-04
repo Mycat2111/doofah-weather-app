@@ -1,5 +1,6 @@
 import { DooFahDashboard } from "@/components/DooFahDashboard";
 import type { AlertKind } from "@/lib/alerts";
+import { readStormLink } from "@/lib/pushLink";
 import { COUNTDOWN_PREVIEWS } from "@/lib/rainCountdown";
 import { FOSSGIS_OSRM_URL } from "@/services/routing/osrm";
 import type { WeatherSetup } from "@/services/weatherService";
@@ -8,7 +9,7 @@ import { ATMOSPHERE_THEMES, type AtmosphereTheme } from "@/services/weather/type
 const ALERT_KINDS: AlertKind[] = ["storm", "rain", "air"];
 
 export default async function Home({ searchParams }: PageProps<"/">) {
-  const { sky, alert, rain, data, cyclones } = await searchParams;
+  const { sky, alert, rain, data, cyclones, storm, place } = await searchParams;
   const contactEmail = process.env.CONTACT_EMAIL || undefined;
   const override = ATMOSPHERE_THEMES.find((t) => t === sky) as AtmosphereTheme | undefined;
   // `?alert=storm`, `?alert=rain,air` or `?alert=all` previews the alert banner.
@@ -29,6 +30,8 @@ export default async function Home({ searchParams }: PageProps<"/">) {
       rainPreview={rainPreview}
       // `?cyclones=demo` shows a made-up tropical cyclone near the place, with its alert.
       cyclonePreview={cyclones === "demo"}
+      // A tapped storm notification opens `?storm=<id>&place=<ref>`: that saved place, with the storm on the map.
+      openStorm={readStormLink(storm, place)}
       weather={weather}
       // Road routes from OSRM: FOSSGIS's public server unless OSRM_URL names another. FOSSGIS's
       // terms ask every site using it to show the operator's address, so without one there are no routes.

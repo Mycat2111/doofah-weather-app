@@ -1,5 +1,6 @@
 /**
- * Renders the app icons from scripts/icons/doofah-icon.svg.
+ * Renders the app icons from scripts/icons/doofah-icon.svg, and the
+ * notification badge from scripts/icons/doofah-badge.svg.
  * Run with: npm run icons
  *
  * Uses sharp, which Next.js already installs for image optimisation.
@@ -8,6 +9,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import sharp from "sharp";
 
 const SOURCE = "scripts/icons/doofah-icon.svg";
+const BADGE = "scripts/icons/doofah-badge.svg";
 
 /**
  * - "any": rounded corners, for browsers, desktop installs and the favicon.
@@ -61,6 +63,7 @@ async function main() {
   const any = svgFor(source, "any");
   const maskable = svgFor(source, "maskable");
   const apple = svgFor(source, "apple");
+  const badge = await readFile(BADGE, "utf8");
 
   const outputs: [string, Promise<Buffer | string>][] = [
     ["public/icons/icon-192.png", png(any, 192)],
@@ -68,6 +71,8 @@ async function main() {
     ["public/icons/icon-maskable-192.png", png(maskable, 192)],
     ["public/icons/icon-maskable-512.png", png(maskable, 512)],
     ["src/app/apple-icon.png", png(apple, 180)],
+    // Storm alert notifications on Android (public/sw.js); only its shape is shown.
+    ["public/icons/badge-96.png", png(badge, 96)],
     ["src/app/icon.svg", Promise.resolve(any)],
     [
       "src/app/favicon.ico",

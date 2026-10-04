@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { AlertTriangle, RotateCw, WifiOff } from "lucide-react";
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AtmosphereBackground } from "@/components/AtmosphereBackground";
 import { CurrentWeatherCard } from "@/components/CurrentWeatherCard";
 import { DailyForecastList } from "@/components/DailyForecastList";
@@ -31,7 +31,9 @@ import { useI18n } from "@/i18n/I18nProvider";
 import { favoriteName, placeLabel } from "@/i18n/places";
 import { previewAlerts, weatherAlerts, type AlertKind, type WeatherAlert } from "@/lib/alerts";
 import { cycloneAlerts } from "@/lib/cyclones";
+import { favoritesStore } from "@/lib/favorites";
 import { lifestyleIndex } from "@/lib/lifestyle";
+import { placeRef, type StormLink } from "@/lib/pushLink";
 import { previewCountdown, previewNowcast, rainCountdown, type CountdownPreview } from "@/lib/rainCountdown";
 import { weatherSummary } from "@/lib/voiceSummary";
 import { weatherService, type WeatherService, type WeatherSetup } from "@/services/weatherService";
@@ -47,6 +49,8 @@ interface DooFahDashboardProps {
   rainPreview?: CountdownPreview;
   /** Show a made-up tropical cyclone near the place (`?cyclones=demo`) instead of ECMWF's. */
   cyclonePreview?: boolean;
+  /** The storm and saved place a tapped storm notification is about (`?storm=<id>&place=<ref>`). */
+  openStorm?: StormLink;
   /** Where the forecast comes from, decided on the server. */
   weather: WeatherSetup;
   /** The OSRM server road trips are routed by, or null when the site has none it may use. */
@@ -73,6 +77,7 @@ function Dashboard({
   alertPreview,
   rainPreview,
   cyclonePreview,
+  openStorm,
   weather,
   osrmUrl,
   contactEmail,
@@ -122,6 +127,42 @@ function Dashboard({
     setStormFocus((f) => ({ key: f.key + 1, stormId }));
     document.getElementById("doofah-radar")?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, []);
+
+  // A tapped storm notification: switch to the saved place it was about (matched by
+  // its hashed id), then show the storm once ECMWF's storms have loaded. A storm
+  // that has since gone, or a place no longer saved, is skipped.
+  const linkPlace = useRef<Promise<void> | null>(null);
+  useEffect(() => {
+    if (!openStorm) return;
+    // Forget the link, so a reload doesn't jump to the storm again.
+    const url = new URL(window.location.href);
+    url.searchParams.delete("storm");
+    url.searchParams.delete("place");
+    window.history.replaceState(window.history.state, "", url);
+    const ref = openStorm.placeRef;
+    // The store, not the hook: the hook's first render has no favorites yet.
+    const saved = ref ? favoritesStore.getSnapshot() : [];
+    linkPlace.current = Promise.all(saved.map((f) => placeRef(f.place.id)))
+      .then((refs) => {
+        const match = saved[refs.indexOf(ref ?? "")];
+        if (match) setPlace(match.place);
+      })
+      // No Web Crypto (a plain-http address): the storm still shows, on the place already open.
+      .catch(() => undefined);
+  }, [openStorm, setPlace]);
+  const linkStormShown = useRef(false);
+  // Until a forecast (or its error) is on screen the page is too short to scroll to the map.
+  const laidOut = Boolean(data) || Boolean(error);
+  useEffect(() => {
+    const placeSwitched = linkPlace.current;
+    const feed = cyclones.feed;
+    if (!openStorm || !placeSwitched || !feed || !laidOut || linkStormShown.current) return;
+    linkStormShown.current = true;
+    // After the place switch, so the map frames the storm with the right place.
+    placeSwitched.then(() => {
+      if (feed.storms.some((s) => s.id === openStorm.stormId)) showStorm(openStorm.stormId);
+    });
+  }, [openStorm, cyclones.feed, laidOut, showStorm]);
 
   const countdownOf = (bundle: typeof data) =>
     !bundle

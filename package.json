@@ -23,9 +23,11 @@
     "verify:fields": "tsx scripts/verify-fields.ts",
     "verify:cyclones": "tsx scripts/verify-cyclones.ts",
     "verify:ops": "tsx scripts/verify-ops.ts",
+    "verify:push": "tsx scripts/verify-push.ts",
     "icons": "tsx scripts/generate-icons.ts"
   },
   "dependencies": {
+    "@upstash/redis": "^1.39.0",
     "framer-motion": "^13.4.6",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.49.0",
@@ -33,7 +35,8 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-leaflet": "^5.0.0",
-    "swr": "2.5.1"
+    "swr": "2.5.1",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -41,6 +44,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/web-push": "^3.6.4",
     "eslint": "^9",
     "eslint-config-next": "16.3.7",
     "tailwindcss": "^4",

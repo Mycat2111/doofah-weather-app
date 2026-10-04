@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!--
+    DooFah's notification badge: the app icon's sun and cloud as one white
+    shape on transparent. Android shows only the shape, tinted, in the status bar.
+  -->
+  <defs>
+    <mask id="gap" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
+      <rect width="512" height="512" fill="#fff"/>
+      <!-- A thin gap between the sun and the cloud, so they read as two things. -->
+      <g fill="#000" stroke="#000" stroke-width="28">
+        <rect x="112" y="268" width="300" height="104" rx="52"/>
+        <circle cx="206" cy="276" r="64"/>
+        <circle cx="286" cy="240" r="86"/>
+      </g>
+    </mask>
+  </defs>
+  <g fill="#fff" transform="translate(256 256) scale(1.4) translate(-266 -236)">
+    <circle cx="334" cy="186" r="86" mask="url(#gap)"/>
+    <rect x="112" y="268" width="300" height="104" rx="52"/>
+    <circle cx="206" cy="276" r="64"/>
+    <circle cx="286" cy="240" r="86"/>
+  </g>
+</svg>
