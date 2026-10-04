@@ -18,6 +18,8 @@ export interface WeatherService {
   readonly source: WeatherSource;
   /** Current conditions, the next 48 hours and 15 days for a place. */
   getForecastBundle(place: Place): Promise<ForecastBundle>;
+  /** The forecast for a place saved on this device, if the source keeps one: shown while the network answers. */
+  savedBundle?(place: Place): ForecastBundle | undefined;
   /**
    * Weather at many points, each at its own time: the favorites now, or a
    * road trip's stops at the times you reach them.

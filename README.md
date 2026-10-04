@@ -10,7 +10,7 @@ A built-in weather simulation (5 km grid, hourly steps, 15 days) is kept as
 test data for the checks and as a demo: `?data=sim` runs the whole dashboard
 on it, map included. The live app never downloads it otherwise.
 
-- **Stack:** Next.js 16 (App Router, TypeScript), Tailwind CSS 4, Framer Motion, Lucide icons, Leaflet + react-leaflet with OpenStreetMap tiles.
+- **Stack:** Next.js 16 (App Router, TypeScript), Tailwind CSS 4, Framer Motion, Lucide icons, Leaflet + react-leaflet with OpenStreetMap tiles, SWR for the page's forecast.
 - **No API keys needed to start.** ECMWF and air quality come from Open-Meteo's free API, and place search runs on the device; WRF needs TMD's token. See [Weather data](#weather-data) and [Route weather](#route-weather).
 - **Thai and English.** A TH / EN switch in the header changes every label, forecast phrase, date and place name.
 - **Favorite places.** Star any place and it joins a one-tap bar under the header, saved in the browser.
@@ -110,8 +110,10 @@ The parameters combine, e.g. `/?data=sim&sky=rain`.
 - **Offline.** The last forecast for up to 6 places is saved in
   `localStorage` (`doofah-offline-forecasts`, about 135 kB a place). With no
   connection the dashboard shows it for up to 2 days, says when it was
-  downloaded, and offers a retry. Copies saved before the unified forecast
-  (`doofah-saved-forecasts`) are cleared.
+  downloaded, and offers a retry. Online, a place's saved copy shows at
+  once, marked "Updating", until the network answers
+  (`src/hooks/useForecast.ts`, on [SWR](https://swr.vercel.app)). Copies
+  saved before the unified forecast (`doofah-saved-forecasts`) are cleared.
 - **How the reply is read.** `src/services/forecast/ForecastService.ts` asks
   `/api/forecast` for each place, and `src/services/forecast/bundle.ts` turns
   the reply into the dashboard's shapes once, when it arrives. The
@@ -190,8 +192,9 @@ layers read ECMWF from `/api/fields` ([Map layers from the model](#map-layers-fr
 - **Caching.** Places are rounded to 0.01° (about 1 km). Vercel keeps each
   answer until the hour ends, then serves it for up to an hour more while it
   fetches a new one, and for up to 6 hours while the models fail; failures
-  themselves are never kept. The browser reuses an answer for a minute and
-  the page for 5 minutes. Vercel reads its part from
+  themselves are never kept. The browser reuses an answer for a minute, and
+  the page keeps the last 12 places it showed in memory, so going back to one
+  shows it at once and asks again only after 5 minutes. Vercel reads its part from
   `Vercel-CDN-Cache-Control` and the browser from `Cache-Control`
   (`src/services/http/cacheHeaders.ts`). Other sites' pages are refused, as
   for `/api/weather/air-quality`.
@@ -685,6 +688,7 @@ src/
 ├── components/
 │   ├── AppProviders.tsx           Language, reduced-motion setting, service worker registration
 │   ├── DooFahDashboard.tsx        Page composition, place state, loading states
+│   ├── SwrProvider.tsx            SWR's cache for the page: the 12 most recently used answers
 │   ├── DooFahHeader.tsx           Logo, animated search, geolocation button, language switch
 │   ├── LanguageToggle.tsx         TH / EN switch
 │   ├── WeatherAlertBanner.tsx     Storm, rain, air quality and tropical cyclone warnings with tips
@@ -742,7 +746,7 @@ src/
 │   ├── spokenTime.ts              Times and waits as people say them ("5 PM", "ห้าโมงเย็น")
 │   └── messages/                  en.ts, th.ts and the Messages type
 ├── hooks/
-│   ├── useForecast.ts             Loads + refreshes the forecast bundle
+│   ├── useForecast.ts             The forecast for a place on SWR: the saved copy at once, then the network's
 │   ├── useWeatherState.tsx        The place, its forecast and the moment on the map's timeline, for every screen
 │   ├── useRadarFrames.ts          Loads frames for the visible map area from the forecast's source; the frame at any moment
 │   ├── useFavorites.ts            Favorite places from localStorage, synced across tabs

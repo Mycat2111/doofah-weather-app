@@ -34,6 +34,8 @@ export interface WeatherState {
     loading: boolean;
     /** Why the forecast could not be loaded (technical; screens show their own words). */
     error?: string;
+    /** The forecast on screen is the one saved on this device, and a new one is on its way. */
+    updating: boolean;
     refresh: () => void;
   };
   /** The moment shown: null for now, else a time on the map's timeline (ms). */
@@ -69,7 +71,7 @@ export function WeatherStateProvider({ weather, children }: { weather: WeatherSe
   // Until a place is picked, open on a saved favorite (the server, which
   // cannot see localStorage, renders the default place first).
   const place = chosen ?? (inBrowser ? readOpeningPlace() : undefined) ?? DEFAULT_PLACE;
-  const { data: forecast, loading, error, refresh } = useForecast(weather, place);
+  const { data: forecast, loading, error, updating, refresh } = useForecast(weather, place);
   const [time, setShown] = useState<number | null>(null);
   const [seek, setSeek] = useState<{ time: number | null; key: number }>({ time: null, key: 0 });
 
@@ -95,7 +97,7 @@ export function WeatherStateProvider({ weather, children }: { weather: WeatherSe
       place,
       setPlace,
       forecast,
-      status: { loading, error, refresh },
+      status: { loading, error, updating, refresh },
       time,
       setTime,
       here,
@@ -103,7 +105,7 @@ export function WeatherStateProvider({ weather, children }: { weather: WeatherSe
       followMap: setShown,
       fields: weather,
     }),
-    [place, forecast, loading, error, refresh, time, setTime, here, seek, weather],
+    [place, forecast, loading, error, updating, refresh, time, setTime, here, seek, weather],
   );
   return <WeatherStateContext.Provider value={value}>{children}</WeatherStateContext.Provider>;
 }

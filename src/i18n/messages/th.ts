@@ -649,6 +649,7 @@ export const th: Messages = {
   errors: {
     forecast: "โหลดข้อมูลพยากรณ์ไม่สำเร็จ",
     offline: (clock) => `ออฟไลน์อยู่ · แสดงพยากรณ์ที่โหลดไว้เมื่อ ${clock}${NB}น.`,
+    updating: (clock) => `กำลังอัปเดต · แสดงพยากรณ์ที่โหลดไว้เมื่อ ${clock}${NB}น.`,
     retry: "ลองอีกครั้ง",
   },
 

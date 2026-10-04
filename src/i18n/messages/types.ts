@@ -367,6 +367,8 @@ export interface Messages {
     forecast: string;
     /** No connection: the forecast shown is the one saved at `clock`. */
     offline: (clock: string) => string;
+    /** The forecast saved at `clock` is on screen while a new one loads. */
+    updating: (clock: string) => string;
     retry: string;
   };
 

@@ -346,6 +346,19 @@ async function main() {
     TypeError,
     "nothing saved: the error",
   );
+  // The saved copy straight from the device, for the page to show before the network answers.
+  const unused = fakeFetch(() => assert.fail("the saved copy needs no request"));
+  const before = new ForecastService({ fetch: unused.fetch, now: () => later, storage }).savedBundle(bangkok);
+  assert.equal(before?.current.savedAt, iso(NOW), "the saved copy, marked with when it was downloaded");
+  assert.equal(before?.hourly[0].time, iso(floorToHour(later)), "its hours start at the hour it is now");
+  assert.equal(unused.calls.length, 0);
+  assert.equal(
+    new ForecastService({ now: () => NOW + 49 * HOUR_MS, storage }).savedBundle(bangkok),
+    undefined,
+    "too old",
+  );
+  assert.equal(new ForecastService({ now: () => NOW, storage: memoryStorage() }).savedBundle(bangkok), undefined);
+  assert.equal(new ForecastService({ now: () => NOW, storage: null }).savedBundle(bangkok), undefined, "no storage");
   const many = memoryStorage();
   for (const [i, p] of PLACES.slice(0, 8).entries()) {
     await new ForecastService({ fetch: net.fetch, now: () => NOW + i * MIN, storage: many }).getForecastBundle(p);
@@ -359,7 +372,7 @@ async function main() {
     bangkok,
   );
   console.log(
-    `✓ offline: the last forecast for 6 places (${Math.round(savedText.length / 1000)} kB each), up to 2 days old`,
+    `✓ offline: the last forecast for 6 places (${Math.round(savedText.length / 1000)} kB each), up to 2 days old, shown before the network answers`,
   );
 
   // 7. The rain countdown names hours ------------------------------------------------------------

@@ -137,6 +137,22 @@ export class ForecastService implements WeatherService {
     throw forecast.reason;
   }
 
+  /**
+   * The forecast saved on this device for `place`, marked with when it was
+   * saved, so the page can show it before the network answers. Undefined when
+   * there is none from the last 2 days, or it no longer reaches today.
+   */
+  savedBundle(place: Place): ForecastBundle | undefined {
+    const saved = this.load(forecastQuery(place.point));
+    const now = this.now();
+    if (!saved || now - saved.savedAt >= SAVED_MAX_AGE_MS) return undefined;
+    try {
+      return forecastBundle(saved.forecast, saved.air, place, now, saved.savedAt);
+    } catch {
+      return undefined;
+    }
+  }
+
   async getWeatherAlong(stops: { point: GeoPoint; time: string }[]): Promise<SpotWeather[]> {
     const keys = stops.map((s) => forecastQuery(s.point));
     const unique = [...new Set(keys)];
