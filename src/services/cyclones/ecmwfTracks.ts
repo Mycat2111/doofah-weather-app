@@ -22,7 +22,7 @@ import {
   type TimedPoint,
   type TrackPoint,
 } from "@/lib/cyclones";
-import { decodeBufr, type BufrMessage, type BufrValue } from "./bufr";
+import { BufrError, decodeBufr, type BufrMessage, type BufrValue } from "./bufr";
 
 const HOUR_MS = 3_600_000;
 /** Hours after the run kept: the map and the alert look 5 days ahead of a run that may be half a day old. */
@@ -239,9 +239,10 @@ function toCyclone(storm: Storm): Cyclone | null {
 
 /** The active storms in an ECMWF track file, and the run they are from (ISO; null when the file has none). */
 export function cyclonesFromBufr(bytes: Uint8Array): { run: string | null; storms: Cyclone[] } {
-  const storms = decodeBufr(bytes)
-    .map(readStorm)
-    .filter((s): s is Storm => s !== null);
+  const messages = decodeBufr(bytes);
+  // ECMWF writes a track file only when there are storms, a message for each, so one with none is something else.
+  if (!messages.length) throw new BufrError("the file holds no BUFR message");
+  const storms = messages.map(readStorm).filter((s): s is Storm => s !== null);
   const runs = storms.map((s) => s.run).filter((r): r is number => r !== null);
   return {
     run: runs.length ? new Date(Math.max(...runs)).toISOString() : null,

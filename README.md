@@ -389,9 +389,10 @@ the region".
   [data.ecmwf.int](https://data.ecmwf.int/forecasts/) (`…/enfo/…-tf.bufr`; up
   to 360 hours from the 00 and 12 UTC runs, 144 hours from 06 and 18 UTC).
   `/api/cyclones` finds the newest run that has one (two runs in a row
-  without one mean there are no storms), from ECMWF's portal or, when the
-  portal refuses or fails, from the same files ECMWF keeps on
-  [Google Cloud](https://storage.googleapis.com/ecmwf-open-data/), reads it
+  without one mean there are no storms) in the same files ECMWF keeps on
+  [Google Cloud](https://storage.googleapis.com/ecmwf-open-data/), or on
+  ECMWF's portal when Google Cloud fails (the portal limits how much each
+  server may ask), reads it
   with DooFah's own BUFR reader (`src/services/cyclones/bufr.ts`, no native
   libraries) and answers with every active storm: its path to 144 hours, the
   cone and each member's path. No key is needed. The data is
@@ -788,7 +789,7 @@ src/
     │   ├── http.ts                Server side of /api/forecast: checks, caching, errors
     │   └── types.ts               The reply: hours and days with model_used
     ├── cyclones/
-    │   ├── openData.ts            Finding the newest run's track file on ECMWF's portal (or its Google Cloud copy), kept for 12 hours
+    │   ├── openData.ts            Finding the newest run's track file on ECMWF's Google Cloud copy (or its portal), kept for 12 hours
     │   ├── bufr.ts                A BUFR edition 3 and 4 reader (compressed or not)
     │   ├── bufrTables.ts          The WMO table entries it needs (generated)
     │   ├── ecmwfTracks.ts         ECMWF's track messages as storms: path, cone, members

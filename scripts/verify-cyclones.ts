@@ -175,6 +175,11 @@ async function main() {
 
   /* ---------------- ECMWF's tracks as storms ---------------- */
   const feed = cyclonesFromBufr(TRACKS);
+  assert.throws(
+    () => cyclonesFromBufr(new TextEncoder().encode("<html>Too many requests</html>")),
+    BufrError,
+    "a page instead of a track file is an error, not a quiet day",
+  );
   assert.equal(feed.run, "2015-11-18T00:00:00.000Z");
   assert.deepEqual(
     feed.storms.map((s) => s.id),
@@ -375,7 +380,9 @@ async function main() {
   assert.deepEqual(
     fetched.storms.map((s) => s.name),
     ["IN-FA"],
+    "Google Cloud answers 404 here, so the file comes from the portal",
   );
+  assert.ok(withFile.asked[0].startsWith(MIRROR_URL), "Google Cloud is asked first");
   await fetchCyclones(at + 60_000, withFile.fetcher);
   assert.equal(withFile.asked.filter((u) => u.endsWith(".bufr")).length, 1, "a run's file is read once and kept");
 
@@ -391,7 +398,7 @@ async function main() {
       )
       .join("") +
     "</ListBucketResult>";
-  /** The portal refusing every request, and Google Cloud's bucket with these folders and files. */
+  /** The portal answering every request with this status, and Google Cloud's bucket with these folders and files. */
   const mirrored = (
     portalStatus: number,
     folders: Record<number, string[] | number>,
@@ -435,23 +442,60 @@ async function main() {
   assert.deepEqual(
     fromMirror.storms.map((s) => s.name),
     ["IN-FA"],
-    "the portal says 429, so the same file comes from Google Cloud",
+    "the file comes from Google Cloud",
   );
-  assert.ok(asked[0].startsWith(OPEN_DATA_URL), "the portal is asked first");
-  assert.equal(asked.filter((u) => u.startsWith(OPEN_DATA_URL)).length, 1, "and given up on at once");
+  assert.ok(
+    asked.every((u) => u.startsWith(MIRROR_URL)),
+    "the portal isn't asked when Google Cloud has the file",
+  );
   assert.equal(asked.at(-1), `${mirrorFolder(r00)}20261003000000-360h-enfo-tf.bufr`);
-  assert.deepEqual(
-    await fetchCyclones(at, mirrored(403, { [r12]: names(r12), [r06]: names(r06) }, {}).fetcher),
-    { run: null, storms: [] },
-    "no tracks on Google Cloud either: no storms",
-  );
+  const noTracks = mirrored(403, { [r12]: names(r12), [r06]: names(r06) }, {});
+  assert.deepEqual(await fetchCyclones(at, noTracks.fetcher), { run: null, storms: [] }, "no tracks: no storms");
+  assert.ok(!noTracks.asked.some((u) => u.startsWith(OPEN_DATA_URL)), "Google Cloud's answer is enough");
   await assert.rejects(
     fetchCyclones(at, mirrored(403, { [r12]: 503 }, {}).fetcher),
     (error: Error) =>
       error instanceof CycloneSourceError &&
-      /ECMWF answered 403/.test(error.message) &&
-      /Google Cloud answered 503/.test(error.message),
+      /Google Cloud answered 503/.test(error.message) &&
+      /ECMWF answered 403/.test(error.message),
     "both fail: the error names both",
+  );
+
+  // Google Cloud handing over something that isn't tracks, or a file cut off part way: the portal's file is read.
+  const at2 = at + 24 * HOUR;
+  const r00b = r00 + 24 * HOUR;
+  const fileB = "20261004000000-360h-enfo-tf.bufr";
+  const goodPortal = portal({ [r00b]: listing(r00b, tf(r00b, 360)) }, { [fileB]: TRACKS });
+  const split = (copy: typeof fetch) =>
+    (async (input: string | URL | Request, init?: RequestInit) =>
+      String(input).startsWith(MIRROR_URL) ? copy(input, init) : goodPortal.fetcher(input, init)) as typeof fetch;
+  const garbled = mirrored(
+    403,
+    { [r00b]: names(r00b, 360) },
+    { [fileB]: new TextEncoder().encode("<html>busy</html>") },
+  );
+  assert.deepEqual(
+    (await fetchCyclones(at2, split(garbled.fetcher))).storms.map((s) => s.name),
+    ["IN-FA"],
+    "a file from Google Cloud that isn't BUFR: the portal's is read",
+  );
+  assert.ok(goodPortal.asked.some((u) => u === runFolder(r00b) + fileB));
+  const cutOff = (async (input: string | URL | Request, init?: RequestInit) => {
+    if (!String(input).endsWith(".bufr")) return garbled.fetcher(input, init);
+    return new Response(new ReadableStream({ start: (c) => c.error(new Error("connection reset")) }));
+  }) as typeof fetch;
+  assert.deepEqual(
+    (await fetchCyclones(at2, split(cutOff))).storms.map((s) => s.name),
+    ["IN-FA"],
+    "a file from Google Cloud cut off part way: a failed source, so the portal's is read",
+  );
+  await assert.rejects(
+    fetchCyclones(at2, mirrored(403, { [r00b]: names(r00b, 360) }, { [fileB]: new Uint8Array([1, 2, 3]) }).fetcher),
+    (error: Error) =>
+      error instanceof CycloneSourceError &&
+      /Google Cloud's track file could not be read/.test(error.message) &&
+      /ECMWF answered 403/.test(error.message),
+    "a bad file and a refusal: the error names both",
   );
 
   /* ---------------- /api/cyclones ---------------- */

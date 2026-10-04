@@ -1,8 +1,8 @@
 /**
  * Finds and reads the newest tropical cyclone track file in ECMWF's open
- * data (CC BY 4.0): on ECMWF's portal, data.ecmwf.int, or when the portal
- * fails (it limits how much each server may ask), on the copy ECMWF keeps
- * on Google Cloud, which has the same folders and files.
+ * data (CC BY 4.0): on the copy ECMWF keeps on Google Cloud, which has the
+ * same folders and files as ECMWF's portal, data.ecmwf.int, and no limit on
+ * how much each server may ask; or on the portal when Google Cloud fails.
  *
  * The ensemble runs four times a day. A run's files land together about
  * 7.5 hours after it starts, and its tracks a minute later, as a file like
@@ -13,6 +13,7 @@
  */
 
 import type { CycloneFeed } from "@/lib/cyclones";
+import { BufrError } from "./bufr";
 import { cyclonesFromBufr } from "./ecmwfTracks";
 
 export const OPEN_DATA_URL = "https://data.ecmwf.int/forecasts";
@@ -65,6 +66,15 @@ async function get(url: string, fetcher: typeof fetch, from = "ECMWF"): Promise<
   }
 }
 
+/** A reply's body; one cut off or timed out part way is the source failing, like a refusal. */
+async function body<T>(read: () => Promise<T>, from: string): Promise<T> {
+  try {
+    return await read();
+  } catch (error) {
+    throw new CycloneSourceError(`${from} stopped answering (${(error as Error).message})`);
+  }
+}
+
 /** A place that publishes ECMWF's open data: a run's folder, and the text listing its files (null when not there). */
 export interface OpenDataSource {
   name: string;
@@ -80,7 +90,7 @@ export const PORTAL: OpenDataSource = {
     const res = await get(runFolder(run), fetcher);
     if (res.status === 404) return null;
     if (!res.ok) throw new CycloneSourceError(`ECMWF answered ${res.status} for ${runFolder(run)}`);
-    return res.text();
+    return body(() => res.text(), "ECMWF");
   },
 };
 
@@ -92,7 +102,7 @@ export const MIRROR: OpenDataSource = {
     const url = `${MIRROR_URL}?${new URLSearchParams({ prefix: runPath(run), delimiter: "/" })}`;
     const res = await get(url, fetcher, "Google Cloud");
     if (!res.ok) throw new CycloneSourceError(`Google Cloud answered ${res.status} for ${mirrorFolder(run)}`);
-    const text = await res.text();
+    const text = await body(() => res.text(), "Google Cloud");
     return text.includes("<Key>") ? text : null;
   },
 };
@@ -123,23 +133,33 @@ const kept = new Map<string, { at: number; feed: Promise<CycloneFeed> }>();
 async function readTrackFile(url: string, run: number, source: OpenDataSource, fetcher: typeof fetch) {
   const res = await get(url, fetcher, source.name);
   if (!res.ok) throw new CycloneSourceError(`${source.name} answered ${res.status} for ${url}`);
-  const { run: inFile, storms } = cyclonesFromBufr(new Uint8Array(await res.arrayBuffer()));
+  const { run: inFile, storms } = cyclonesFromBufr(new Uint8Array(await body(() => res.arrayBuffer(), source.name)));
   return { run: inFile ?? new Date(run).toISOString(), storms };
 }
 
-/** The storms of the newest ECMWF run with tracks, from the portal, or Google Cloud when the portal fails. */
+/** Where the tracks are read from, in turn: Google Cloud first, as the portal limits how much each server may ask. */
+export const SOURCES: OpenDataSource[] = [MIRROR, PORTAL];
+
+/** Why a source failed (refused, stopped answering, or handed over a file that isn't tracks); null for DooFah's own bugs. */
+function failure(error: unknown, source: OpenDataSource): string | null {
+  if (error instanceof CycloneSourceError) return error.message;
+  if (error instanceof BufrError) return `${source.name}'s track file could not be read: ${error.message}`;
+  return null;
+}
+
+/** The storms of the newest ECMWF run with tracks, from Google Cloud, or the portal when Google Cloud fails. */
 export async function fetchCyclones(now: number = Date.now(), fetcher: typeof fetch = fetch): Promise<CycloneFeed> {
-  try {
-    return await fetchFrom(PORTAL, now, fetcher);
-  } catch (error) {
-    if (!(error instanceof CycloneSourceError)) throw error;
+  const reasons: string[] = [];
+  for (const source of SOURCES) {
     try {
-      return await fetchFrom(MIRROR, now, fetcher);
-    } catch (second) {
-      if (!(second instanceof CycloneSourceError)) throw second;
-      throw new CycloneSourceError(`${error.message}; ${second.message}`);
+      return await fetchFrom(source, now, fetcher);
+    } catch (error) {
+      const reason = failure(error, source);
+      if (reason === null) throw error;
+      reasons.push(reason);
     }
   }
+  throw new CycloneSourceError(reasons.join("; "));
 }
 
 async function fetchFrom(source: OpenDataSource, now: number, fetcher: typeof fetch): Promise<CycloneFeed> {

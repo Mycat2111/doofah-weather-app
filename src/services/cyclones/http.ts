@@ -3,9 +3,9 @@
  * newest ensemble run, the same for everyone.
  *
  * Vercel's edge keeps the answer for half an hour (ECMWF adds a run every
- * 6 hours), so ECMWF's portal is asked a few times an hour at most, however
- * many people open DooFah. A failure is kept for a minute, so a busy portal
- * isn't asked again by every page that retries.
+ * 6 hours), so ECMWF's open data is asked a few times an hour at most,
+ * however many people open DooFah. A failure is kept for a minute, so a busy
+ * source isn't asked again by every page that retries.
  */
 
 import type { CycloneFeed } from "@/lib/cyclones";
