@@ -53,16 +53,27 @@ interface CycloneLayerProps {
   /** The dashboard's place, for distances. */
   place: { name: string; point: GeoPoint };
   timeZone: string;
+  /** The ECMWF run the tracks come from (ISO). */
+  run?: string | null;
   /** The storms are the made-up sample. */
   demo?: boolean;
 }
 
 /** Tropical cyclones on the map: each storm's cone, its most likely path with a dot every 12 hours, and where it is at the timeline's time. */
-export function CycloneLayer({ storms, time, now, place, timeZone, demo = false }: CycloneLayerProps) {
+export function CycloneLayer({ storms, time, now, place, timeZone, run = null, demo = false }: CycloneLayerProps) {
   return (
     <>
       {storms.map((storm) => (
-        <StormShape key={storm.id} storm={storm} time={time} now={now} place={place} timeZone={timeZone} demo={demo} />
+        <StormShape
+          key={storm.id}
+          storm={storm}
+          time={time}
+          now={now}
+          place={place}
+          timeZone={timeZone}
+          run={run}
+          demo={demo}
+        />
       ))}
     </>
   );
@@ -74,6 +85,7 @@ function StormShape({
   now,
   place,
   timeZone,
+  run,
   demo,
 }: Omit<CycloneLayerProps, "storms"> & { storm: Cyclone }) {
   const { m } = useI18n();
@@ -96,6 +108,8 @@ function StormShape({
   );
   const closestLine =
     shape.closest && m.cyclones.popup.closest(roundKm(shape.closest.km), place.name, when(shape.closest.time));
+  // While ECMWF can't be reached, the map keeps showing the last run for up to 12 hours: say which.
+  const runLine = run && !demo ? m.cyclones.popup.run(when(run)) : null;
 
   const details = (p: TrackPoint, line: string) => (
     // Unlike a tap-anywhere reading, this tap asks for the storm, so the map makes room for its details.
@@ -110,6 +124,12 @@ function StormShape({
         <>
           <br />
           {closestLine}
+        </>
+      )}
+      {runLine && (
+        <>
+          <br />
+          <span className="opacity-70">{runLine}</span>
         </>
       )}
     </Popup>

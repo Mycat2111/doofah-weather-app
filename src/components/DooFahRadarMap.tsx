@@ -326,7 +326,13 @@ export function DooFahRadarMap({
           timeZone={place.timeZone}
           cyclones={
             stormsOn && nowStep !== null
-              ? { storms, now: nowStep, placeName: placeLabel(place, locale).name, demo: feed?.demo }
+              ? {
+                  storms,
+                  now: nowStep,
+                  placeName: placeLabel(place, locale).name,
+                  run: feed?.run ?? null,
+                  demo: feed?.demo,
+                }
               : undefined
           }
         />

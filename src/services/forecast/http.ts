@@ -8,10 +8,15 @@
  * models fail. The browser reuses an answer for a minute. The page should ask
  * with coordinates already rounded by snapPoint, so that nearby requests
  * share one answer.
+ *
+ * Each model is asked again once after a timeout or a 5xx (unified.ts). An
+ * answer without WRF, a 502 and a 500 each send an alert (ops/alert.ts) once
+ * the reply has gone.
  */
 
 import { cacheHeaders } from "../http/cacheHeaders";
 import { OpenMeteoError } from "../openmeteo/api";
+import { reportAfterReply, type Report } from "../ops/report";
 import { floorToHour, HOUR_MS } from "../weather/time";
 import { defaultSources, getUnifiedForecast, type ForecastSources } from "./unified";
 
@@ -39,6 +44,7 @@ export async function forecastResponse(
   request: Request,
   sources: ForecastSources = defaultSources(),
   now: number = Date.now(),
+  report: Report = reportAfterReply,
 ): Promise<Response> {
   // Browsers say where a request comes from; other sites' pages may not spend DooFah's model calls.
   const site = request.headers.get("sec-fetch-site");
@@ -51,6 +57,9 @@ export async function forecastResponse(
 
   try {
     const forecast = await getUnifiedForecast(lat, lon, now, sources);
+    if (forecast.wrf_missing === "unavailable") {
+      report({ kind: "fallback", api: "/api/forecast", message: `ECMWF alone for 5 minutes: ${forecast.wrf_reason}` });
+    }
     const untilHour = Math.max(MIN_SECONDS, Math.round((floorToHour(now) + HOUR_MS - now) / 1000));
     const headers =
       forecast.wrf_missing === "unavailable"
@@ -63,8 +72,14 @@ export async function forecastResponse(
         : cacheHeaders({ browser: BROWSER_SECONDS, fresh: untilHour, stale: STALE_SECONDS, ifError: IF_ERROR_SECONDS });
     return Response.json(forecast, { headers });
   } catch (error) {
-    if (error instanceof OpenMeteoError) return refuse(502, `ECMWF unavailable: ${error.message}`);
+    if (error instanceof OpenMeteoError) {
+      // Vercel's edge now serves the place's last good answer, for up to 6 hours (stale-if-error).
+      const reason = `ECMWF unavailable: ${error.message}`;
+      report({ kind: "error", api: "/api/forecast", message: `502, ${reason}` });
+      return refuse(502, reason);
+    }
     console.error("[forecast]", error);
+    report({ kind: "error", api: "/api/forecast", message: `500: ${error instanceof Error ? error.message : error}` });
     return refuse(500, "The forecast could not be made");
   }
 }

@@ -48,6 +48,7 @@ npm run dev          # http://localhost:3000
 | `npm run verify:weather-state` | The moment on the map's timeline: the forecast for it, the countdown from it, the radar frames between hours and their motion, and the labels in both languages |
 | `npm run verify:fields` | The map's live layers: the lattice and its slots, the ECMWF request and reply for a tile, `/api/fields`, the frames from tiles, the same numbers as the forecast card, and the cloud layer's motion |
 | `npm run verify:cyclones` | Tropical cyclones: the BUFR reader against ecCodes on ECMWF's own files, tracks as storms, the cone, the strength names, the storm alert, finding the newest run and `/api/cyclones` |
+| `npm run verify:ops` | Monitoring: which failures are asked again and how often, and the Discord and LINE alerts (what they say, at most one of a kind in 15 minutes) |
 | `npm run icons`       | Re-render the app icons and favicon from `scripts/icons/doofah-icon.svg` |
 
 Preview any sky mood with a query parameter:
@@ -85,7 +86,9 @@ The parameters combine, e.g. `/?data=sim&sky=rain`.
   [Unified forecast](#unified-forecast-wrf--ecmwf)). Set `CONTACT_EMAIL` for
   the road router (see [Route weather](#route-weather)), and
   `GOOGLE_CLOUD_TTS_API_KEY` for the AI voice (see
-  [Spoken weather summary](#spoken-weather-summary)). `OPEN_METEO_API_KEY`
+  [Spoken weather summary](#spoken-weather-summary)), and
+  `ALERT_DISCORD_WEBHOOK_URL` for alerts when a source fails (see
+  [Monitoring and alerts](#monitoring-and-alerts)). `OPEN_METEO_API_KEY`
   and `OSRM_URL` are optional.
 - **Free API terms.** Non-commercial use only, with up to 10,000 calls a day,
   5,000 an hour and 600 a minute. ECMWF is asked by DooFah's server, so
@@ -408,8 +411,12 @@ the region".
 - **Caching.** Vercel keeps the answer for 30 minutes and serves the old one
   while fetching a new one for up to 6 hours more, and the server keeps each
   run's file in memory for 12 hours, so ECMWF sees a few requests an hour
-  however many people use DooFah. A failure is kept for a minute; the page
-  says the tracks are unavailable and tries again.
+  however many people use DooFah. The browser reuses it for 5 minutes.
+  Failures aren't kept: while both sources fail, Vercel serves the last
+  answer for up to 12 hours, the storm popup names the ECMWF run it comes
+  from, and an alert goes out (see [Monitoring and alerts](#monitoring-and-alerts)).
+  With no answer at all, the page says the tracks are unavailable and tries
+  again.
 - **Tables.** `src/services/cyclones/bufrTables.ts` holds the parts of WMO's
   BUFR tables the tracks use, made by `scripts/generate-bufr-tables.py`
   (`python3 -m pip install eccodes`, then run it): elements from the ecCodes
@@ -670,6 +677,40 @@ shapes), and `public/screenshots/*` for the richer install dialog.
   and letter-spacing used for English ones. Language-specific styles use the
   `th:` variant defined in `globals.css`, e.g. `th:tracking-normal`.
 
+## Monitoring and alerts
+
+DooFah's server asks a failing source again before giving up, falls back
+where it can, and tells whoever runs DooFah when it had to.
+
+- **Asking again.** ECMWF (Open-Meteo), WRF (TMD) and the map's tiles are
+  asked a second time about half a second after a timeout, a dropped
+  connection or a 5xx; ECMWF's cyclone tracks about a second after, on
+  Google Cloud and then on ECMWF's portal (`src/services/ops/retry.ts`). A
+  4xx or Open-Meteo's 429 is never asked again, since that only makes a
+  limit worse. Each try waits at most 8 s for ECMWF and 6 s for TMD.
+- **Falling back.** Without WRF, the forecast is ECMWF alone for 5 minutes.
+  Without ECMWF, `/api/forecast` answers 502, Vercel serves the place's last
+  good forecast for up to 6 hours, and the page shows its own saved copy.
+  Without either cyclone source, Vercel serves the last tracks for up to 12
+  hours. Map tiles have no older copy; the page asks again after a minute.
+- **Alerts.** Every fallback and every 5xx from `/api/forecast`,
+  `/api/fields` and `/api/cyclones` writes a line to Vercel's logs and, once
+  the reply has gone (Next's `after()`), sends it to Discord, and to LINE if
+  set up (`src/services/ops/alert.ts`). The same kind of alert about the same
+  API goes out at most once every 15 minutes from each server instance, so an
+  outage sends a few messages, not hundreds. Messages never hold a token, a
+  key or anyone's location, and name where they ran (`production`,
+  `preview` or `local`).
+
+| Variable | What it is |
+| --- | --- |
+| `ALERT_DISCORD_WEBHOOK_URL` | A Discord webhook. In a private channel: Edit Channel → Integrations → Webhooks → New Webhook → Copy Webhook URL. Anyone with the URL can post there, so it lives only in Vercel's environment variables. |
+| `ALERT_LINE_CHANNEL_TOKEN`, `ALERT_LINE_TO` | Optional. LINE's Messaging API (LINE Notify closed on 31 March 2025): a channel access token, and the user or group ID to push to. The free plan in Thailand has 300 messages a month, so Discord comes first. |
+
+Set them in Vercel → Settings → Environment Variables for Production (and
+Preview, if wanted), then redeploy. Without any, alerts only reach Vercel's
+logs.
+
 ## Project structure
 
 ```
@@ -785,7 +826,7 @@ src/
     ├── fields/
     │   ├── lattice.ts             The map's points and 6-hour slots, shared by the page and the server
     │   ├── ecmwfFields.ts         ECMWF for one tile from Open-Meteo, by the forecast's hour rules
-    │   ├── http.ts                Server side of /api/fields: checks, caching for the slot, errors
+    │   ├── http.ts                Server side of /api/fields: checks, caching for the slot, retries, errors and alerts
     │   └── FieldService.ts        The page's side: the tiles over the view as hourly frames
     ├── forecast/
     │   ├── ForecastService.ts     The live forecast for the page: /api/forecast per place, the map's layers, reuse, the offline copy
@@ -796,14 +837,18 @@ src/
     │   ├── condition.ts           The condition from an hour's numbers, shared with the map
     │   ├── ecmwf.ts               ECMWF's IFS from Open-Meteo in the router's units
     │   ├── tmd.ts                 WRF from TMD's NWP API (TMD_API_TOKEN) in the router's units
-    │   ├── http.ts                Server side of /api/forecast: checks, caching, errors
+    │   ├── http.ts                Server side of /api/forecast: checks, caching, errors and alerts
     │   └── types.ts               The reply: hours and days with model_used
     ├── cyclones/
     │   ├── openData.ts            Finding the newest run's track file on ECMWF's Google Cloud copy (or its portal), kept for 12 hours
     │   ├── bufr.ts                A BUFR edition 3 and 4 reader (compressed or not)
     │   ├── bufrTables.ts          The WMO table entries it needs (generated)
     │   ├── ecmwfTracks.ts         ECMWF's track messages as storms: path, cone, members
-    │   └── http.ts                Server side of /api/cyclones: checks, caching, errors
+    │   └── http.ts                Server side of /api/cyclones: checks, caching, errors and alerts
+    ├── ops/
+    │   ├── retry.ts               Asking a source again after a timeout or a 5xx
+    │   ├── alert.ts               Alerts to Discord and LINE, at most one of a kind in 15 minutes
+    │   └── report.ts              A route's alert, sent once its reply has gone
     ├── tts/
     │   └── googleTts.ts           Server side of /api/voice: Google Cloud Text-to-Speech
     ├── routing/
@@ -846,6 +891,7 @@ scripts/verify-forecast-service.ts Checks behind `npm run verify:forecast-servic
 scripts/verify-weather-state.ts    Checks behind `npm run verify:weather-state`
 scripts/verify-fields.ts           Checks behind `npm run verify:fields`
 scripts/verify-cyclones.ts         Checks behind `npm run verify:cyclones`
+scripts/verify-ops.ts              Checks behind `npm run verify:ops`
 scripts/fixtures/ecmwf-*.bufr      ECMWF sample BUFR files for the cyclone checks (see ECMWF-SAMPLES.md)
 scripts/generate-bufr-tables.py    Writes src/services/cyclones/bufrTables.ts from ecCodes
 scripts/generate-icons.ts          `npm run icons`, from scripts/icons/doofah-icon.svg

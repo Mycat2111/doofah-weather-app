@@ -643,6 +643,7 @@ export const th: Messages = {
       away: (km, place) => `ห่างจาก${place} ${km}${NB}กม.`,
       closest: (km, place, when) => `ใกล้${place}ที่สุด ${km}${NB}กม. ${when}`,
       at: (when) => `ตำแหน่งพายุ ${when}`,
+      run: (when) => `พยากรณ์ ECMWF รอบ${when}`,
     },
   },
 

@@ -10,6 +10,7 @@
  */
 
 import { FORECAST_DAYS } from "../openmeteo/api";
+import { isTransient, withRetry } from "../ops/retry";
 import { sunTimes } from "../weather/solar";
 import { summariseDay } from "../weather/summarise";
 import { floorToHour, HOUR_MS, localDateKey, zonedMidnight, zonedParts } from "../weather/time";
@@ -43,11 +44,15 @@ export function defaultSources(
   const apiKey = env.OPEN_METEO_API_KEY?.trim() || undefined;
   const token = env.TMD_API_TOKEN?.trim() || undefined;
   return {
-    ecmwf: (point) => fetchEcmwf(point, { apiKey, fetch: fetcher }),
+    // Each asked again once after a timeout, a dropped connection or a 5xx; never after a 4xx or 429.
+    ecmwf: (point) => withRetry(() => fetchEcmwf(point, { apiKey, fetch: fetcher }), { retryable: isTransient }),
     wrf: async (point, start) => {
       if (!token) return { missing: "not-configured" };
       if (!inTmdArea(point)) return { missing: "outside-area" };
-      return { series: await fetchWrf(point, start, { token, fetch: fetcher }) };
+      const series = await withRetry(() => fetchWrf(point, start, { token, fetch: fetcher }), {
+        retryable: isTransient,
+      });
+      return { series };
     },
   };
 }

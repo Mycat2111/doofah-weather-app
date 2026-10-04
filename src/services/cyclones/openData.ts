@@ -13,6 +13,7 @@
  */
 
 import type { CycloneFeed } from "@/lib/cyclones";
+import { isTransient, withRetry } from "../ops/retry";
 import { BufrError } from "./bufr";
 import { cyclonesFromBufr } from "./ecmwfTracks";
 
@@ -27,7 +28,11 @@ const TIMEOUT_MS = 20_000;
 const KEEP_MS = 12 * HOUR_MS;
 
 export class CycloneSourceError extends Error {
-  constructor(message: string) {
+  /** The source's HTTP status; 502 when it didn't answer or stopped part way. */
+  constructor(
+    message: string,
+    readonly status = 502,
+  ) {
     super(message);
     this.name = "CycloneSourceError";
   }
@@ -89,7 +94,7 @@ export const PORTAL: OpenDataSource = {
   async list(run, fetcher) {
     const res = await get(runFolder(run), fetcher);
     if (res.status === 404) return null;
-    if (!res.ok) throw new CycloneSourceError(`ECMWF answered ${res.status} for ${runFolder(run)}`);
+    if (!res.ok) throw new CycloneSourceError(`ECMWF answered ${res.status} for ${runFolder(run)}`, res.status);
     return body(() => res.text(), "ECMWF");
   },
 };
@@ -101,7 +106,8 @@ export const MIRROR: OpenDataSource = {
   async list(run, fetcher) {
     const url = `${MIRROR_URL}?${new URLSearchParams({ prefix: runPath(run), delimiter: "/" })}`;
     const res = await get(url, fetcher, "Google Cloud");
-    if (!res.ok) throw new CycloneSourceError(`Google Cloud answered ${res.status} for ${mirrorFolder(run)}`);
+    if (!res.ok)
+      throw new CycloneSourceError(`Google Cloud answered ${res.status} for ${mirrorFolder(run)}`, res.status);
     const text = await body(() => res.text(), "Google Cloud");
     return text.includes("<Key>") ? text : null;
   },
@@ -132,7 +138,7 @@ const kept = new Map<string, { at: number; feed: Promise<CycloneFeed> }>();
 
 async function readTrackFile(url: string, run: number, source: OpenDataSource, fetcher: typeof fetch) {
   const res = await get(url, fetcher, source.name);
-  if (!res.ok) throw new CycloneSourceError(`${source.name} answered ${res.status} for ${url}`);
+  if (!res.ok) throw new CycloneSourceError(`${source.name} answered ${res.status} for ${url}`, res.status);
   const { run: inFile, storms } = cyclonesFromBufr(new Uint8Array(await body(() => res.arrayBuffer(), source.name)));
   return { run: inFile ?? new Date(run).toISOString(), storms };
 }
@@ -147,12 +153,23 @@ function failure(error: unknown, source: OpenDataSource): string | null {
   return null;
 }
 
-/** The storms of the newest ECMWF run with tracks, from Google Cloud, or the portal when Google Cloud fails. */
-export async function fetchCyclones(now: number = Date.now(), fetcher: typeof fetch = fetch): Promise<CycloneFeed> {
+/**
+ * The storms of the newest ECMWF run with tracks, from Google Cloud, or the
+ * portal when Google Cloud fails. Each source is asked twice when it times
+ * out, drops the connection or answers 5xx. `onFallback` hears why the first
+ * source was passed over when a later one answers.
+ */
+export async function fetchCyclones(
+  now: number = Date.now(),
+  fetcher: typeof fetch = fetch,
+  onFallback: (reason: string) => void = () => {},
+): Promise<CycloneFeed> {
   const reasons: string[] = [];
   for (const source of SOURCES) {
     try {
-      return await fetchFrom(source, now, fetcher);
+      const feed = await withRetry(() => fetchFrom(source, now, fetcher), { delayMs: 1_000, retryable: isTransient });
+      if (reasons.length) onFallback(`${source.name} answered after: ${reasons.join("; ")}`);
+      return feed;
     } catch (error) {
       const reason = failure(error, source);
       if (reason === null) throw error;

@@ -25,6 +25,7 @@ import {
 } from "../src/services/forecast/condition";
 import { ecmwfFromOpenMeteo, ecmwfParams, fetchEcmwf } from "../src/services/forecast/ecmwf";
 import { forecastResponse } from "../src/services/forecast/http";
+import type { Alert } from "../src/services/ops/alert";
 import {
   BLEND_HOURS,
   routeHours,
@@ -493,8 +494,11 @@ async function main() {
   console.log("✓ places are rounded to 0.01° (about 1 km), so nearby requests share an answer");
 
   // --- /api/forecast ----------------------------------------------------------------
+  const alerts: Alert[] = [];
   const ask = (query: string, headers: Record<string, string> = {}, at = NOW, used = plain.sources) =>
-    forecastResponse(new Request(`https://doofah.test/api/forecast?${query}`, { headers }), used, at);
+    forecastResponse(new Request(`https://doofah.test/api/forecast?${query}`, { headers }), used, at, (alert) =>
+      alerts.push(alert),
+    );
   for (const query of ["", "lat=13.7", "lat=abc&lon=100", "lat=91&lon=100", "lat=13&lon=181", "lat=&lon=100"]) {
     const response = await ask(query);
     assert.equal(response.status, 400, query);
@@ -526,8 +530,21 @@ async function main() {
   assert.equal(failed.headers.get("cache-control"), "no-store");
   assert.equal(failed.headers.get("vercel-cdn-cache-control"), null, "a failure is never kept");
   assert.match((await failed.json()).reason, /ECMWF unavailable/);
+  assert.deepEqual(alerts.splice(0), [
+    { kind: "error", api: "/api/forecast", message: "502, ECMWF unavailable: Open-Meteo could not be reached" },
+  ]);
+  const broken: ForecastSources = {
+    ...plain.sources,
+    ecmwf: async () => {
+      throw new TypeError("hours is undefined");
+    },
+  };
+  const bug = await quiet(() => ask("lat=13.75&lon=100.5", {}, NOW, broken));
+  assert.equal(bug.status, 500);
+  assert.equal(bug.headers.get("cache-control"), "no-store");
+  assert.deepEqual(alerts.splice(0), [{ kind: "error", api: "/api/forecast", message: "500: hours is undefined" }]);
   console.log(
-    "✓ /api/forecast: checks the place, refuses other sites, a minute in the browser, the edge until the hour ends, 502 without ECMWF",
+    "✓ /api/forecast: checks the place, refuses other sites, a minute in the browser, the edge until the hour ends, 502 without ECMWF; 5xx alerts",
   );
 
   // --- Open-Meteo from the server, with or without the commercial key -------------------
@@ -627,14 +644,22 @@ async function main() {
   console.log("✓ TMD is asked with the token as a Bearer header; its refusals and failures come through");
 
   // The server's sources: no token, no WRF; outside Thailand, TMD isn't asked; inside, WRF from TMD.
-  const servers = (tmdStatus = 200, tmdBody: unknown = tmdReply(START, TMD_HOURS)) => {
+  /** Open-Meteo and TMD; `failFirst` answers the first requests to each with its status instead. */
+  const servers = (
+    tmdStatus = 200,
+    tmdBody: unknown = tmdReply(START, TMD_HOURS),
+    failFirst: { ecmwf?: number[]; tmd?: number[] } = {},
+  ) => {
     const seen: string[] = [];
     const fetcher = (async (url: string | URL | Request) => {
       seen.push(String(url));
       const fromTmd = String(url).startsWith(TMD_URL);
+      const failing = (fromTmd ? failFirst.tmd : failFirst.ecmwf)?.shift();
+      if (failing) return new Response(JSON.stringify({ error: true, reason: "Busy" }), { status: failing });
       return new Response(JSON.stringify(fromTmd ? tmdBody : ecmwfReply()), { status: fromTmd ? tmdStatus : 200 });
     }) as typeof fetch;
-    return { fetcher, seen };
+    const count = (from: "ecmwf" | "tmd") => seen.filter((url) => url.startsWith(TMD_URL) === (from === "tmd")).length;
+    return { fetcher, seen, count };
   };
   const idle = servers();
   assert.deepEqual(await defaultSources({}, idle.fetcher).wrf(BANGKOK, START), { missing: "not-configured" });
@@ -681,13 +706,42 @@ async function main() {
   assert.equal(withoutWrf.wrf_missing, "unavailable");
   assert.equal(withoutWrf.wrf_reason, "TMD answered 401: Unauthenticated.");
   assert.ok(withoutWrf.hours.every((h) => h.model_used === "ECMWF"));
-  const busy = defaultSources({ TMD_API_TOKEN: "test-token" }, servers(429).fetcher);
-  const soon = await quiet(() => ask("lat=13.75&lon=100.5", {}, NOW, busy));
+  const busyTmd = servers(429);
+  const soon = await quiet(() =>
+    ask("lat=13.75&lon=100.5", {}, NOW, defaultSources({ TMD_API_TOKEN: "test-token" }, busyTmd.fetcher)),
+  );
   assert.equal(soon.headers.get("cache-control"), "public, max-age=60");
   assert.equal(soon.headers.get("vercel-cdn-cache-control"), "max-age=300, stale-while-revalidate=300");
+  assert.equal(busyTmd.count("tmd"), 1, "a 429 isn't asked again");
+  assert.deepEqual(alerts.splice(0), [
+    { kind: "fallback", api: "/api/forecast", message: "ECMWF alone for 5 minutes: TMD answered 429" },
+  ]);
   console.log(
-    "✓ with TMD_API_TOKEN, WRF from TMD in Thailand; when TMD fails, ECMWF alone, why, and only for 5 minutes",
+    "✓ with TMD_API_TOKEN, WRF from TMD in Thailand; when TMD fails, ECMWF alone, why, only for 5 minutes, and an alert",
   );
+
+  // A timeout, a dropped connection or a 5xx is asked again once; a 4xx or 429 never.
+  const hiccup = servers(200, undefined, { ecmwf: [503], tmd: [502] });
+  const retried = await getUnifiedForecast(
+    13.7563,
+    100.5018,
+    NOW,
+    defaultSources({ TMD_API_TOKEN: "test-token" }, hiccup.fetcher),
+  );
+  assert.equal(hiccup.count("ecmwf"), 2, "ECMWF asked again after a 503");
+  assert.equal(hiccup.count("tmd"), 2, "TMD asked again after a 502");
+  assert.equal(retried.wrf_missing, undefined, "both answer the second time");
+  const outage = servers(200, undefined, { ecmwf: [503, 503, 503] });
+  const gone = await ask("lat=13.75&lon=100.5", {}, NOW, defaultSources({}, outage.fetcher));
+  assert.equal(gone.status, 502);
+  assert.equal(outage.count("ecmwf"), 2, "two tries in all");
+  assert.deepEqual(alerts.splice(0), [
+    { kind: "error", api: "/api/forecast", message: "502, ECMWF unavailable: Busy" },
+  ]);
+  const badRequest = servers(200, undefined, { ecmwf: [400] });
+  await assert.rejects(getUnifiedForecast(13.75, 100.5, NOW, defaultSources({}, badRequest.fetcher)), OpenMeteoError);
+  assert.equal(badRequest.count("ecmwf"), 1, "a 400 isn't asked again");
+  console.log("✓ ECMWF and TMD are asked again once after a 5xx, never after a 4xx or 429");
 }
 
 main().catch((error) => {

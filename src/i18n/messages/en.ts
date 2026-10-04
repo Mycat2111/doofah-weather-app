@@ -553,6 +553,7 @@ export const en: Messages = {
       away: (km, place) => `${km} km from ${place}`,
       closest: (km, place, when) => `Closest to ${place}: ${km} km at ${when}`,
       at: (when) => `Here at ${when}`,
+      run: (when) => `ECMWF forecast from ${when}`,
     },
   },
 
