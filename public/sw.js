@@ -8,6 +8,9 @@
  * - icons and the manifest;
  * - map tiles you have already looked at, so the radar map has a base map offline.
  *
+ * It also shows storm alerts sent by Web Push (see "Storm alerts" below), even
+ * when DooFah is closed.
+ *
  * Bump VERSION to drop every cached page and icon on the next visit.
  */
 const VERSION = "1";
@@ -73,6 +76,76 @@ self.addEventListener("fetch", (event) => {
   } else if (url.hostname.endsWith("tile.openstreetmap.org")) {
     event.respondWith(staleWhileRevalidate(event, TILES, MAX_TILES));
   }
+});
+
+/* ------------------------------------------------------------------ */
+/* Storm alerts (Web Push)                                             */
+/* ------------------------------------------------------------------ */
+
+// Each push is a small JSON message already in the reader's language:
+// { title, body, tag, level, lang, url }. `tag` is per storm, so a newer alert
+// about the same storm replaces the one on screen instead of adding another.
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    // Not JSON (DevTools' test push sends text). Still show it: browsers expect a notification for every push.
+    data = { body: event.data ? event.data.text() : "" };
+  }
+  event.waitUntil(
+    self.registration.showNotification(data.title || "DooFah", {
+      body: data.body || "",
+      icon: "/icons/icon-192.png",
+      // Android's status bar icon: white on transparent (`npm run icons`).
+      badge: "/icons/badge-96.png",
+      tag: data.tag || "doofah",
+      // Buzz again when a storm's notification is replaced by a newer one.
+      renotify: Boolean(data.tag),
+      // Desktop Chrome keeps severe alerts on screen until they are dismissed.
+      requireInteraction: data.level === "severe",
+      lang: data.lang || "",
+      data: { url: data.url || "/" },
+    }),
+  );
+});
+
+// A tap brings DooFah forward (or opens it) on the storm the alert was about.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = new URL(event.notification.data?.url || "/", self.location.origin);
+  // Only DooFah's own pages, whatever the message says.
+  const target = url.origin === self.location.origin ? url.href : self.location.origin + "/";
+  event.waitUntil(
+    (async () => {
+      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      const open = windows.find((c) => new URL(c.url).origin === self.location.origin);
+      if (open) {
+        await open.focus();
+        // Only a page this worker controls can be sent somewhere else; otherwise it just comes forward.
+        await open.navigate(target).catch(() => undefined);
+        return;
+      }
+      await self.clients.openWindow(target);
+    })(),
+  );
+});
+
+// Firefox renews subscriptions and says so here; Chrome and Safari don't fire
+// this, so the page also checks its subscription each time DooFah opens.
+self.addEventListener("pushsubscriptionchange", (event) => {
+  event.waitUntil(
+    (async () => {
+      const old = event.oldSubscription;
+      const fresh = event.newSubscription || (old && (await self.registration.pushManager.subscribe(old.options)));
+      if (!fresh) return;
+      await fetch("/api/push/subscribe", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ oldEndpoint: old ? old.endpoint : null, subscription: fresh.toJSON() }),
+      });
+    })(),
+  );
 });
 
 /** Network first, falling back to the saved page when offline or very slow. */

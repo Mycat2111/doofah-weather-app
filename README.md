@@ -49,7 +49,8 @@ npm run dev          # http://localhost:3000
 | `npm run verify:fields` | The map's live layers: the lattice and its slots, the ECMWF request and reply for a tile, `/api/fields`, the frames from tiles, the same numbers as the forecast card, and the cloud layer's motion |
 | `npm run verify:cyclones` | Tropical cyclones: the BUFR reader against ecCodes on ECMWF's own files, tracks as storms, the cone, the strength names, the storm alert, finding the newest run and `/api/cyclones` |
 | `npm run verify:ops` | Monitoring: which failures are asked again and how often, the Discord and LINE alerts (what they say, at most one of a kind in 15 minutes) and `/api/health` |
-| `npm run icons`       | Re-render the app icons and favicon from `scripts/icons/doofah-icon.svg` |
+| `npm run verify:push` | Storm alerts by push: the VAPID settings, which subscriptions are kept, the link a notification opens, the Upstash store and the service worker's push, tap and renewal handlers |
+| `npm run icons`       | Re-render the app icons, favicon and notification badge from `scripts/icons/` |
 
 Preview any sky mood with a query parameter:
 `/?sky=thunderstorm`, `golden-hour`, `clear-night`, `heavy-rain`, `rain`,
@@ -651,6 +652,46 @@ shapes), and `public/screenshots/*` for the richer install dialog.
   Vibration API on Android and the system switch tick in Safari on iOS 18 and
   later. Animations follow the system's reduced-motion setting.
 
+## Storm alerts by push notification
+
+Being built in three parts (post-launch step 3). With all three, anyone who
+turns storm alerts on gets a notification when a tropical cyclone may pass
+within 500 km of one of their saved places, even with DooFah closed, using
+the same rule as the storm banner. This first part is the groundwork: it
+changes nothing on screen yet.
+
+- **Service worker.** `public/sw.js` shows each push as a DooFah
+  notification (one per storm, replaced by newer ones; severe ones stay on
+  desktop screens until dismissed), and a tap brings DooFah forward on
+  `/?storm=<id>&place=<ref>`: that saved place, with the storm on the map.
+  When Firefox renews a subscription, the worker sends the new one to
+  `/api/push/subscribe`. Android shows `public/icons/badge-96.png` in the
+  status bar.
+- **The link.** `<ref>` is the first 8 hex digits of SHA-256 of the place's
+  id, never the id itself, because a GPS place's id is its exact spot and the
+  link passes through Google's, Apple's or Mozilla's push service
+  (`src/lib/pushLink.ts`). A storm that has gone, or a place no longer saved,
+  is skipped.
+- **What is kept, and only after a check** (`src/services/push/subscription.ts`):
+  the push address (Google, Mozilla, Apple or Microsoft only, over https) and
+  its keys, up to 10 places already rounded to 0.1° (about 11 km) with names
+  of up to 40 characters, the language and the time zone.
+- **Where** (`src/services/push/store.ts`): Upstash Redis. One record per
+  phone under the SHA-256 of its push address, kept 60 days after the phone
+  last sent it; a set of every record; per storm, the level each phone has
+  already been sent (21 days); and the send job's last run.
+
+| Variable | What it is |
+| --- | --- |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Made once with `npx web-push generate-vapid-keys`. The public key is built into the page; the private key stays on the server. Never change the pair once people subscribe: every subscription is tied to it. |
+| `VAPID_SUBJECT` | A contact for the push services: `https://doofah-weather-app.vercel.app` or a `mailto:`. Apple refuses anything else. |
+| `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Added by Vercel when Upstash for Redis is connected from the Marketplace (`UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` work too). |
+
+Push needs Node, not the Edge runtime (`web-push`). To try the worker:
+`npm run build && npm start`, then in Chrome DevTools → Application →
+Service Workers press **Push**; `/?cyclones=demo&storm=99` opens the sample
+storm the way a tapped alert would.
+
 ## Thai and English
 
 - **Switching.** The TH / EN control in the header switches instantly and is
@@ -850,6 +891,7 @@ src/
 │   ├── cycloneDemo.ts             The sample storm for ?cyclones=demo
 │   ├── colors.ts                  AQI and temperature colours
 │   ├── favorites.ts               Favorite list rules and the localStorage store
+│   ├── pushLink.ts                The link a storm notification opens, with the place's id hashed
 │   ├── haptics.ts                 Short vibrations on Android and iPhone
 │   ├── lifestyle.ts               Lifestyle card rules: good, take care or not now, and why
 │   ├── rainCountdown.ts           Time to the next rain: by the hour for live forecasts, the radar nowcast with the simulation
@@ -894,6 +936,10 @@ src/
     │   ├── alert.ts               Alerts to Discord and LINE, at most one of a kind in 15 minutes
     │   ├── report.ts              A route's alert, sent once its reply has gone
     │   └── health.ts              Server side of /api/health: each source ok, degraded or down
+    ├── push/
+    │   ├── vapid.ts               The VAPID keys from Vercel, or none
+    │   ├── subscription.ts        What is kept for a phone with storm alerts on, and the checks before it is
+    │   └── store.ts               Upstash Redis: records, storms already sent, the send job's last run
     ├── tts/
     │   └── googleTts.ts           Server side of /api/voice: Google Cloud Text-to-Speech
     ├── routing/
@@ -918,8 +964,8 @@ src/
         ├── grid.ts                The 5 km grid and the map layers' grids
         └── noise.ts               Seeded value noise / fBm
 public/
-├── sw.js                          Service worker: offline page, build files, icons, map tiles
-├── icons/                         Install icons, regular and maskable
+├── sw.js                          Service worker: offline page, build files, icons, map tiles, storm alert notifications
+├── icons/                         Install icons, regular and maskable, and the notification badge
 └── screenshots/                   Phone and desktop screenshots for the install dialog
 scripts/verify-simulation.ts       Checks behind `npm run verify:simulation`
 scripts/verify-i18n.ts             Checks behind `npm run verify:i18n`
@@ -937,9 +983,10 @@ scripts/verify-weather-state.ts    Checks behind `npm run verify:weather-state`
 scripts/verify-fields.ts           Checks behind `npm run verify:fields`
 scripts/verify-cyclones.ts         Checks behind `npm run verify:cyclones`
 scripts/verify-ops.ts              Checks behind `npm run verify:ops`
+scripts/verify-push.ts             Checks behind `npm run verify:push`
 scripts/fixtures/ecmwf-*.bufr      ECMWF sample BUFR files for the cyclone checks (see ECMWF-SAMPLES.md)
 scripts/generate-bufr-tables.py    Writes src/services/cyclones/bufrTables.ts from ecCodes
-scripts/generate-icons.ts          `npm run icons`, from scripts/icons/doofah-icon.svg
+scripts/generate-icons.ts          `npm run icons`, from scripts/icons/doofah-icon.svg and doofah-badge.svg
 .github/workflows/health.yml       The 15-minute health check on GitHub Actions
 ```
 
