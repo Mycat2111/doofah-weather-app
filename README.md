@@ -188,9 +188,13 @@ layers read ECMWF from `/api/fields` ([Map layers from the model](#map-layers-fr
 - **Days** are summarised from their hours, and only whole days are listed,
   so there are 14 or 15 depending on how far the latest ECMWF run reaches.
 - **Caching.** Places are rounded to 0.01° (about 1 km). Vercel keeps each
-  answer until the hour ends, then serves it for up to 10 more minutes while
-  it fetches a new one; the page reuses an answer for 5 minutes. Other
-  sites' pages are refused, as for `/api/weather/air-quality`.
+  answer until the hour ends, then serves it for up to an hour more while it
+  fetches a new one, and for up to 6 hours while the models fail; failures
+  themselves are never kept. The browser reuses an answer for a minute and
+  the page for 5 minutes. Vercel reads its part from
+  `Vercel-CDN-Cache-Control` and the browser from `Cache-Control`
+  (`src/services/http/cacheHeaders.ts`). Other sites' pages are refused, as
+  for `/api/weather/air-quality`.
 - **Not tested here against the real Open-Meteo or TMD**, which the sandbox
   can't reach; `npm run verify:forecast` and `npm run verify:forecast-service`
   use replies in their formats.
@@ -251,9 +255,9 @@ follows the timeline, its 10-minute steps and playback.
   20 UTC, about when each ECMWF run is out. `/api/fields?spacing=…&tile=row,col&slot=…`
   answers one tile with every hour from 3 hours before its slot to a day
   after it ends (`src/services/fields/http.ts`), so any moment in the slot
-  finds the timeline's 3 hours back to a day ahead in it. Vercel keeps each
-  tile until its slot is over, so Open-Meteo is asked for a tile once per
-  slot, whoever looks. Only the current slot (or the one either side, for
+  finds the timeline's 3 hours back to a day ahead in it. Vercel and the
+  browser keep each tile until its slot is over, so Open-Meteo is asked for
+  a tile once per slot, whoever looks. Only the current slot (or the one either side, for
   clocks that are a little off) is answered, and only for DooFah's own
   pages.
 - **The same numbers as the cards.** A tile's hours follow the forecast's
@@ -772,6 +776,8 @@ src/
     │   ├── api.ts                 Endpoints, the values asked for and the reply types
     │   ├── air.ts                 Open-Meteo's air quality in DooFah's shape
     │   └── proxy.ts               Server side of /api/weather/air-quality: adds OPEN_METEO_API_KEY
+    ├── http/
+    │   └── cacheHeaders.ts        Cache headers for the browser and for Vercel's CDN, set apart
     ├── fields/
     │   ├── lattice.ts             The map's points and 6-hour slots, shared by the page and the server
     │   ├── ecmwfFields.ts         ECMWF for one tile from Open-Meteo, by the forecast's hour rules

@@ -3,16 +3,24 @@
  *
  * Answers are the same for everyone at the same rounded point (snapPoint) and
  * hour, so Vercel's edge keeps each one until the hour is over and serves it
- * again without asking the models. The page should ask with coordinates
- * already rounded by snapPoint, so that nearby requests share one answer.
+ * again without asking the models. After the hour it serves the last answer
+ * while it makes a new one in the background, and keeps serving it while the
+ * models fail. The browser reuses an answer for a minute. The page should ask
+ * with coordinates already rounded by snapPoint, so that nearby requests
+ * share one answer.
  */
 
+import { cacheHeaders } from "../http/cacheHeaders";
 import { OpenMeteoError } from "../openmeteo/api";
 import { floorToHour, HOUR_MS } from "../weather/time";
 import { defaultSources, getUnifiedForecast, type ForecastSources } from "./unified";
 
-/** While a new answer is fetched after the hour, the old one may still be served for this long. */
-const STALE_SECONDS = 600;
+/** After the hour, the last answer may still be served for this long while a new one is made. */
+const STALE_SECONDS = 3600;
+/** While the models fail, the edge keeps serving the last answer for this long. */
+const IF_ERROR_SECONDS = 6 * 3600;
+/** The browser reuses an answer for this long without asking. */
+const BROWSER_SECONDS = 60;
 /** An answer is never kept for less than this. */
 const MIN_SECONDS = 60;
 /** An answer without WRF because TMD failed is kept no longer than this, so WRF is back soon after TMD is. */
@@ -44,10 +52,16 @@ export async function forecastResponse(
   try {
     const forecast = await getUnifiedForecast(lat, lon, now, sources);
     const untilHour = Math.max(MIN_SECONDS, Math.round((floorToHour(now) + HOUR_MS - now) / 1000));
-    const seconds = forecast.wrf_missing === "unavailable" ? Math.min(untilHour, WRF_RETRY_SECONDS) : untilHour;
-    return Response.json(forecast, {
-      headers: { "Cache-Control": `public, s-maxage=${seconds}, stale-while-revalidate=${STALE_SECONDS}` },
-    });
+    const headers =
+      forecast.wrf_missing === "unavailable"
+        ? // Without WRF because TMD failed: kept briefly, so WRF is back soon after TMD is.
+          cacheHeaders({
+            browser: BROWSER_SECONDS,
+            fresh: Math.min(untilHour, WRF_RETRY_SECONDS),
+            stale: WRF_RETRY_SECONDS,
+          })
+        : cacheHeaders({ browser: BROWSER_SECONDS, fresh: untilHour, stale: STALE_SECONDS, ifError: IF_ERROR_SECONDS });
+    return Response.json(forecast, { headers });
   } catch (error) {
     if (error instanceof OpenMeteoError) return refuse(502, `ECMWF unavailable: ${error.message}`);
     console.error("[forecast]", error);

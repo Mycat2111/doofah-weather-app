@@ -503,10 +503,18 @@ async function main() {
   assert.equal((await ask("lat=13.75&lon=100.5", { "sec-fetch-site": "cross-site" })).status, 403);
   const ok = await ask("lat=13.7563&lon=100.5018", { "sec-fetch-site": "same-origin" });
   assert.equal(ok.status, 200);
-  assert.equal(ok.headers.get("cache-control"), "public, s-maxage=2400, stale-while-revalidate=600", "until 10:00 UTC");
+  assert.equal(ok.headers.get("cache-control"), "public, max-age=60", "the browser reuses it for a minute");
+  assert.equal(
+    ok.headers.get("vercel-cdn-cache-control"),
+    "max-age=2400, stale-while-revalidate=3600, stale-if-error=21600",
+    "the edge until 10:00 UTC, then while a new one is made or the models fail",
+  );
   assert.deepEqual(await ok.json(), JSON.parse(JSON.stringify(f)));
   const lateInHour = await ask("lat=13.75&lon=100.5", {}, START + HOUR_MS - 20_000);
-  assert.equal(lateInHour.headers.get("cache-control"), "public, s-maxage=60, stale-while-revalidate=600");
+  assert.equal(
+    lateInHour.headers.get("vercel-cdn-cache-control"),
+    "max-age=60, stale-while-revalidate=3600, stale-if-error=21600",
+  );
   const down: ForecastSources = {
     ...plain.sources,
     ecmwf: async () => {
@@ -516,8 +524,11 @@ async function main() {
   const failed = await ask("lat=13.75&lon=100.5", {}, NOW, down);
   assert.equal(failed.status, 502);
   assert.equal(failed.headers.get("cache-control"), "no-store");
+  assert.equal(failed.headers.get("vercel-cdn-cache-control"), null, "a failure is never kept");
   assert.match((await failed.json()).reason, /ECMWF unavailable/);
-  console.log("✓ /api/forecast: checks the place, refuses other sites, kept until the hour ends, 502 without ECMWF");
+  console.log(
+    "✓ /api/forecast: checks the place, refuses other sites, a minute in the browser, the edge until the hour ends, 502 without ECMWF",
+  );
 
   // --- Open-Meteo from the server, with or without the commercial key -------------------
   const urls: string[] = [];
@@ -672,7 +683,8 @@ async function main() {
   assert.ok(withoutWrf.hours.every((h) => h.model_used === "ECMWF"));
   const busy = defaultSources({ TMD_API_TOKEN: "test-token" }, servers(429).fetcher);
   const soon = await quiet(() => ask("lat=13.75&lon=100.5", {}, NOW, busy));
-  assert.equal(soon.headers.get("cache-control"), "public, s-maxage=300, stale-while-revalidate=600");
+  assert.equal(soon.headers.get("cache-control"), "public, max-age=60");
+  assert.equal(soon.headers.get("vercel-cdn-cache-control"), "max-age=300, stale-while-revalidate=300");
   console.log(
     "✓ with TMD_API_TOKEN, WRF from TMD in Thailand; when TMD fails, ECMWF alone, why, and only for 5 minutes",
   );
