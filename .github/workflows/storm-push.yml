@@ -1,0 +1,45 @@
+# Asks DooFah to send storm alerts every 30 minutes: /api/push/send reads ECMWF's newest
+# cyclone tracks and pushes a notification to each phone with storm alerts on whose saved
+# places a storm may pass within 500 km of (once as a warning, once more if it turns severe).
+# With no storms anywhere it reads nothing and sends nothing.
+#
+# Uses the health check's secret: HEALTH_TOKEN, the same value as CRON_SECRET in Vercel.
+# Optional repository variable PUSH_SEND_URL, to call another address.
+# DooFah tells Discord itself when sending fails; /api/health reports a run older than 2 hours.
+name: Storm alerts
+
+on:
+  schedule:
+    # Minutes 7 and 37, away from the health check's quarter hours.
+    - cron: "7,37 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: storm-push
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ask DooFah to send storm alerts
+        env:
+          TOKEN: ${{ secrets.HEALTH_TOKEN }}
+          URL: ${{ vars.PUSH_SEND_URL || 'https://doofah-weather-app.vercel.app/api/push/send' }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::notice::HEALTH_TOKEN isn't set yet, so nothing was sent."
+            exit 0
+          fi
+          code=$(curl -s -o reply.json -w '%{http_code}' -X POST --max-time 90 \
+            -H "Authorization: Bearer $TOKEN" "$URL" || true)
+          jq -r 'if .ok then "run \(.run // "none") · \(.storms) storms · \(.phones) phones · \(.alerts) alerts · \(.sent) sent · \(.removed) removed · \(.failed) failed" else .reason end' reply.json 2>/dev/null || cat reply.json 2>/dev/null || true
+          # 409: a run started by hand is still going; this one has nothing to add.
+          if [ "$code" = 409 ]; then exit 0; fi
+          if [ "$code" != 200 ]; then
+            echo "::error::DooFah answered ${code:-nothing} (000 means no answer)."
+            exit 1
+          fi

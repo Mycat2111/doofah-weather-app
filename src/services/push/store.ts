@@ -15,6 +15,8 @@
  * - `push:last-run`: when the send job last ran. Written on every run, which
  *   also keeps a free database from being archived as unused between storms.
  * - `push:test:<id>`: a test push was just sent to that phone (1 minute).
+ * - `push:run`: the send job is running (at most 2 minutes), so two runs
+ *   never send the same alert twice.
  */
 
 import { Redis } from "@upstash/redis";
@@ -35,13 +37,19 @@ export interface PushStore {
   setLastRun(time: number): Promise<void>;
   /** True at most once a minute per phone: whether a test push may be sent now. */
   claimTest(id: string): Promise<boolean>;
+  /** Whether this run of the send job may go ahead: false while another one runs. */
+  claimRun(): Promise<boolean>;
+  releaseRun(): Promise<void>;
 }
 
 export const RECORD_TTL_S = 60 * 86_400;
 export const SENT_TTL_S = 21 * 86_400;
 export const TEST_GAP_S = 60;
+/** Longer than the send route may run (maxDuration), so a run that dies still lets the next one go. */
+export const RUN_LOCK_S = 120;
 const INDEX = "push:subs";
 const LAST_RUN = "push:last-run";
+const RUN = "push:run";
 const recordKey = (id: string) => `push:sub:${id}`;
 const sentKey = (stormId: string) => `push:sent:${stormId}`;
 /** Keys per MGET, so each request stays small. */
@@ -97,6 +105,12 @@ export function storeOn(redis: Redis): PushStore {
     },
     async claimTest(id) {
       return (await redis.set(`push:test:${id}`, 1, { nx: true, ex: TEST_GAP_S })) === "OK";
+    },
+    async claimRun() {
+      return (await redis.set(RUN, 1, { nx: true, ex: RUN_LOCK_S })) === "OK";
+    },
+    async releaseRun() {
+      await redis.del(RUN);
     },
   };
 }

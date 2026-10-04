@@ -4,8 +4,9 @@
  * link a notification opens, the Upstash Redis store (against a stand-in for
  * Upstash's REST API), the service worker's push, tap and renewal handlers
  * (run in a stand-in worker), the subscribe and test routes (with an
- * in-memory store and a stand-in push service), and what the phone sends.
- * Needs no network and sends nothing. Run with: npm run verify:push
+ * in-memory store and a stand-in push service), what the phone sends, and
+ * the storm alert job (with made-up storms). Needs no network and sends
+ * nothing. Run with: npm run verify:push
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -15,13 +16,26 @@ import type { AddressInfo } from "node:net";
 import { runInNewContext } from "node:vm";
 import { Redis } from "@upstash/redis";
 import webpush, { WebPushError, type RequestOptions } from "web-push";
+import { createFormatters } from "../src/i18n/format";
 import { MESSAGES } from "../src/i18n/messages";
+import { cycloneAlerts, type CycloneAlert, type CycloneFeed } from "../src/lib/cyclones";
 import * as phone from "../src/lib/push";
 import { placeRef, readStormLink, stormLink } from "../src/lib/pushLink";
+import { CycloneSourceError } from "../src/services/cyclones/openData";
 import type { Alert } from "../src/services/ops/alert";
 import { pushServer, storeProblem, type PushDeps } from "../src/services/push/http";
-import type { Sender } from "../src/services/push/send";
-import { RECORD_TTL_S, SENT_TTL_S, TEST_GAP_S, redisStore, storeOn, type PushStore } from "../src/services/push/store";
+import { stormMessage } from "../src/services/push/message";
+import { topicOf, type Sender } from "../src/services/push/send";
+import {
+  RECORD_TTL_S,
+  RUN_LOCK_S,
+  SENT_TTL_S,
+  TEST_GAP_S,
+  redisStore,
+  storeOn,
+  type PushStore,
+  type StormLevel,
+} from "../src/services/push/store";
 import {
   MAX_NAME_LENGTH,
   MAX_PLACES,
@@ -237,11 +251,25 @@ const pushData = (value: unknown) => ({
 
 const VAPID: Vapid = { subject: "https://doofah.example", ...webpush.generateVAPIDKeys() };
 
-function memoryStore(): PushStore & { records: Map<string, PushRecord> } {
+interface MemoryStore extends PushStore {
+  records: Map<string, PushRecord>;
+  marked: Map<string, Record<string, StormLevel>>;
+  /** How often the phones were listed, removed, and how often sends were marked. */
+  counts: { all: number; remove: number; markSent: number };
+  state: { last: number | null; running: boolean };
+}
+
+function memoryStore(): MemoryStore {
   const records = new Map<string, PushRecord>();
+  const marked = new Map<string, Record<string, StormLevel>>();
   const tests = new Set<string>();
+  const counts = { all: 0, remove: 0, markSent: 0 };
+  const state = { last: null as number | null, running: false };
   return {
     records,
+    marked,
+    counts,
+    state,
     async save(id, record) {
       records.set(id, plain(record));
     },
@@ -249,23 +277,38 @@ function memoryStore(): PushStore & { records: Map<string, PushRecord> } {
       return records.get(id) ?? null;
     },
     async remove(id) {
+      counts.remove++;
       records.delete(id);
     },
     async all() {
+      counts.all++;
       return [...records];
     },
-    async sent() {
-      return {};
+    async sent(stormId) {
+      return { ...marked.get(stormId) };
     },
-    async markSent() {},
+    async markSent(stormId, levels) {
+      counts.markSent++;
+      marked.set(stormId, { ...marked.get(stormId), ...levels });
+    },
     async lastRun() {
-      return null;
+      return state.last;
     },
-    async setLastRun() {},
+    async setLastRun(time) {
+      state.last = time;
+    },
     async claimTest(id) {
       if (tests.has(id)) return false;
       tests.add(id);
       return true;
+    },
+    async claimRun() {
+      if (state.running) return false;
+      state.running = true;
+      return true;
+    },
+    async releaseRun() {
+      state.running = false;
     },
   };
 }
@@ -276,15 +319,34 @@ interface Sent {
   options: RequestOptions;
 }
 
-/** A push server on a memory store; `sent` collects pushes, `failWith` makes the push service refuse them. */
+const SECRET = "cron-secret";
+
+/**
+ * A push server on a memory store; `sent` collects pushes, `failWith` makes
+ * the push service refuse them (`failFor` for one push address), and
+ * `world.feed` is what ECMWF has (`world.error` when it can't be reached).
+ */
 function routes(change: Partial<PushDeps> = {}) {
   const store = memoryStore();
   const sent: Sent[] = [];
   const alerts: Alert[] = [];
   const clock = { now: NOW };
-  const push = { failWith: null as Error | null };
+  const push = {
+    failWith: null as Error | null,
+    failFor: new Map<string, Error>(),
+    tried: 0,
+    inFlight: 0,
+    mostInFlight: 0,
+  };
+  const world = { feed: { run: null, storms: [] } as CycloneFeed, error: null as Error | null };
   const send: Sender = async (subscription, payload, options) => {
-    if (push.failWith) throw push.failWith;
+    push.tried++;
+    push.inFlight++;
+    push.mostInFlight = Math.max(push.mostInFlight, push.inFlight);
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    push.inFlight--;
+    const fail = push.failFor.get(subscription.endpoint) ?? push.failWith;
+    if (fail) throw fail;
     sent.push({ subscription, payload: JSON.parse(payload), options });
   };
   const server = pushServer({
@@ -293,10 +355,64 @@ function routes(change: Partial<PushDeps> = {}) {
     now: () => clock.now,
     report: (alert) => alerts.push(alert),
     send,
+    secret: SECRET,
+    cyclones: async () => {
+      if (world.error) throw world.error;
+      return world.feed;
+    },
     ...change,
   });
-  return { server, store, sent, alerts, clock, push };
+  return { server, store, sent, alerts, clock, push, world };
 }
+
+/* ------------------------------------------------------------------ */
+/* Made-up storms for the send job                                     */
+/* ------------------------------------------------------------------ */
+
+const HOUR = 3_600_000;
+/** About 20 km/h at 15°N. */
+const DEG_PER_HOUR = 0.186;
+
+/**
+ * A typhoon heading due west along 15°N from 114.5°E at `start`: it comes
+ * within 500 km of (14°N, 100°E) about 54 hours later (a warning until then,
+ * severe from 6 hours before), closest (110 km) about 78 hours later. No
+ * ensemble members, so no chance is given.
+ */
+function westward(start = NOW, id = "27W"): CycloneFeed {
+  const track = Array.from({ length: 25 }, (_, i) => ({
+    time: new Date(start + i * 6 * HOUR).toISOString(),
+    lat: 15,
+    lon: 114.5 - i * 6 * DEG_PER_HOUR,
+    pressure_hpa: 960,
+    wind_kmh: 150,
+  }));
+  return {
+    run: new Date(start).toISOString(),
+    storms: [{ id, name: "IN-FA", basin: "typhoon", track, track_from: "hres", cone: [], members: [] }],
+  };
+}
+
+const APPLE_ENDPOINT = "https://web.push.apple.com/QGxJ5example";
+
+/** Saves a phone with alerts on: its places, language and time zone. */
+async function savePhone(
+  store: PushStore,
+  endpoint: string,
+  places: { ref: string; name: string; lat: number; lon: number }[],
+  lang = "th",
+  timeZone = "Asia/Bangkok",
+) {
+  const record = readRecord(body({ subscription: { endpoint, keys: KEYS }, places, lang, timeZone }), NOW);
+  assert.notEqual(typeof record, "string", String(record));
+  await store.save(subscriptionId(endpoint), record as PushRecord);
+  return subscriptionId(endpoint);
+}
+
+const HOME = { ref: "0a1b2c3d", name: "บ้าน", lat: 14, lon: 100 };
+const FAR = { ref: "9f8e7d6c", name: "Hat Yai", lat: 7, lon: 100.5 };
+const job = (token = SECRET) =>
+  new Request(`${ORIGIN}/api/push/send`, { method: "POST", headers: { authorization: `Bearer ${token}` } });
 
 /** A request as DooFah's own page sends it; `headers` can take the same-site header away. */
 function call(method: string, path: string, json: unknown, headers: Record<string, string> = {}) {
@@ -596,6 +712,20 @@ const CHECKS = [
     await nothing.dispatch("pushsubscriptionchange", { oldSubscription: null, newSubscription: null });
     assert.deepEqual(nothing.posted, []);
   }),
+  check("Store: one send job at a time, the lock gone after 2 minutes even if a run dies", async () => {
+    const upstash = await fakeUpstash();
+    try {
+      const store = storeOn(new Redis({ url: upstash.url, token: "test-token", enableTelemetry: false }));
+      assert.equal(await store.claimRun(), true);
+      assert.equal(await store.claimRun(), false);
+      assert.equal(upstash.ttl.get("push:run"), RUN_LOCK_S);
+      await store.releaseRun();
+      assert.equal(await store.claimRun(), true);
+    } finally {
+      await upstash.close();
+    }
+  }),
+
   check("Store: one test push a minute per phone", async () => {
     const upstash = await fakeUpstash();
     try {
@@ -848,6 +978,241 @@ const CHECKS = [
     });
     // Storage blocked: never snoozed rather than an error.
     assert.equal(phone.isSnoozed(NOW), false);
+  }),
+  check("Storm job: only the scheduler's CRON_SECRET; 503 until set up; one run at a time", async () => {
+    const { server, store } = routes();
+    for (const request of [
+      new Request(`${ORIGIN}/api/push/send`, { method: "POST" }),
+      job("wrong"),
+      job(SECRET.toUpperCase()),
+      // A page on DooFah itself can't start it either.
+      new Request(`${ORIGIN}/api/push/send`, { method: "POST", headers: { "sec-fetch-site": "same-origin" } }),
+    ]) {
+      assert.equal((await answer(await server.sendStorms(request))).status, 401);
+    }
+    const noSecret = routes({ secret: undefined });
+    assert.equal((await noSecret.server.sendStorms(job(""))).status, 401);
+    assert.equal(
+      (await noSecret.server.sendStorms(new Request(ORIGIN, { headers: { authorization: "Bearer " } }))).status,
+      401,
+    );
+    assert.equal((await routes({ store: null }).server.sendStorms(job())).status, 503);
+    assert.equal((await routes({ vapid: null }).server.sendStorms(job())).status, 503);
+
+    store.state.running = true;
+    const busy = await answer(await server.sendStorms(job()));
+    assert.deepEqual(busy, { status: 409, body: { error: true, reason: "Already running" } });
+    store.state.running = false;
+    assert.equal((await server.sendStorms(job())).status, 200);
+    assert.equal(store.state.running, false);
+  }),
+
+  check(
+    "Storm job: no storms anywhere means the phones aren't read; the run time is kept for the health check",
+    async () => {
+      const { server, store, sent, world } = routes();
+      await savePhone(store, ENDPOINT, [HOME]);
+      world.feed = { run: "2026-10-04T00:00:00.000Z", storms: [] };
+      const run = await answer(await server.sendStorms(job()));
+      assert.deepEqual(run, {
+        status: 200,
+        body: {
+          ok: true,
+          run: "2026-10-04T00:00:00.000Z",
+          storms: 0,
+          phones: 0,
+          alerts: 0,
+          sent: 0,
+          removed: 0,
+          failed: 0,
+        },
+      });
+      assert.equal(store.counts.all, 0);
+      assert.equal(sent.length, 0);
+      assert.equal(store.state.last, NOW);
+    },
+  ),
+
+  check("Storm job: a phone near the path gets one warning, in its language and time zone; never twice", async () => {
+    const { server, store, sent, world } = routes();
+    const thai = await savePhone(store, ENDPOINT, [HOME, FAR]);
+    await savePhone(store, NEW_ENDPOINT, [{ ...HOME, name: "Home" }], "en", "Europe/London");
+    await savePhone(store, APPLE_ENDPOINT, [FAR]);
+    world.feed = westward();
+
+    const first = await answer(await server.sendStorms(job()));
+    assert.deepEqual(first.body, {
+      ok: true,
+      run: world.feed.run,
+      storms: 1,
+      phones: 3,
+      alerts: 2,
+      sent: 2,
+      removed: 0,
+      failed: 0,
+    });
+    assert.equal(sent.length, 2);
+    assert.ok(!sent.some((s) => s.subscription.endpoint === APPLE_ENDPOINT), "the phone 800 km away gets nothing");
+
+    const [alert] = cycloneAlerts(world.feed, { id: HOME.ref, name: HOME.name, point: HOME }, [], NOW);
+    assert.equal(alert.level, "warning");
+    assert.equal(alert.km, 110);
+    const th = sent.find((s) => s.subscription.endpoint === ENDPOINT)!;
+    const en = sent.find((s) => s.subscription.endpoint === NEW_ENDPOINT)!;
+    const thaiClock = createFormatters("th").clock(alert.at!, "Asia/Bangkok");
+    const londonClock = createFormatters("en").clock(alert.at!, "Europe/London");
+    assert.notEqual(thaiClock, londonClock);
+    assert.equal(th.payload.title, "พายุไต้ฝุ่น IN-FA อาจเคลื่อนผ่านห่างจากบ้านราว 110\u00a0กม.");
+    assert.ok(String(th.payload.body).includes(thaiClock), String(th.payload.body));
+    assert.equal(en.payload.title, "Typhoon IN-FA may pass about 110 km from Home");
+    assert.ok(String(en.payload.body).startsWith(`Closest at ${londonClock} `), String(en.payload.body));
+    assert.ok(String(en.payload.body).includes("winds near the centre up to 150 km/h"));
+    assert.deepEqual(
+      { tag: th.payload.tag, level: th.payload.level, lang: th.payload.lang, url: th.payload.url },
+      { tag: "storm-27W", level: "warning", lang: "th", url: "/?storm=27W&place=0a1b2c3d" },
+    );
+    assert.equal(en.payload.lang, "en");
+    assert.equal(th.options.TTL, 6 * 3600);
+    assert.equal(th.options.urgency, "normal");
+    assert.equal(th.options.topic, "27W");
+    assert.deepEqual(th.options.vapidDetails, VAPID);
+    assert.deepEqual(store.marked.get("27W"), { [thai]: "warning", [subscriptionId(NEW_ENDPOINT)]: "warning" });
+
+    const again = await answer(await server.sendStorms(job()));
+    assert.equal(again.body.alerts, 2);
+    assert.equal(again.body.sent, 0);
+    assert.equal(sent.length, 2);
+  }),
+
+  check("Storm job: the same storm turning severe sends once more, urgent; then nothing", async () => {
+    const { server, store, sent, world, clock } = routes();
+    await savePhone(store, ENDPOINT, [HOME]);
+    world.feed = westward();
+    await server.sendStorms(job());
+    assert.equal(sent.length, 1);
+
+    // 12 hours on, the path is within 500 km inside 48 hours.
+    clock.now = NOW + 12 * HOUR;
+    const severe = await answer(await server.sendStorms(job()));
+    assert.equal(severe.body.sent, 1);
+    assert.equal(sent[1].payload.level, "severe");
+    assert.equal(sent[1].payload.tag, "storm-27W");
+    assert.equal(sent[1].options.urgency, "high");
+    clock.now = NOW + 13 * HOUR;
+    assert.equal((await answer(await server.sendStorms(job()))).body.sent, 0);
+
+    // A phone that first hears of it when it is already severe hears once.
+    await savePhone(store, NEW_ENDPOINT, [HOME]);
+    assert.equal((await answer(await server.sendStorms(job()))).body.sent, 1);
+    assert.equal((await answer(await server.sendStorms(job()))).body.sent, 0);
+    assert.equal(sent.length, 3);
+  }),
+
+  check(
+    "Storm job: a dropped phone is deleted; other refusals are retried next run, reported once without the address",
+    async () => {
+      const { server, store, sent, world, push, alerts } = routes();
+      const gone = await savePhone(store, ENDPOINT, [HOME]);
+      const busy = await savePhone(store, NEW_ENDPOINT, [HOME]);
+      world.feed = westward();
+      push.failFor.set(ENDPOINT, new WebPushError("Received unexpected response code", 410, {}, "", ENDPOINT));
+      push.failFor.set(
+        NEW_ENDPOINT,
+        new WebPushError(`Received unexpected response code from ${NEW_ENDPOINT}`, 429, {}, "", NEW_ENDPOINT),
+      );
+      const first = await answer(await server.sendStorms(job()));
+      assert.deepEqual([first.body.sent, first.body.removed, first.body.failed], [0, 1, 1]);
+      assert.equal(store.counts.remove, 1);
+      assert.ok(!store.records.has(gone));
+      assert.ok(store.records.has(busy));
+      assert.equal(store.marked.get("27W"), undefined);
+      assert.deepEqual(alerts, [
+        {
+          kind: "error",
+          api: "/api/push/send",
+          message: "1 of 2 storm pushes failed; first: 429: Received unexpected response code from <address>",
+        },
+      ]);
+
+      push.failFor.clear();
+      const retry = await answer(await server.sendStorms(job()));
+      assert.deepEqual([retry.body.phones, retry.body.sent], [1, 1]);
+      assert.equal(sent[0].subscription.endpoint, NEW_ENDPOINT);
+      assert.equal(alerts.length, 1);
+    },
+  ),
+
+  check("Storm job: a dropped phone near several storms is deleted once and not tried again", async () => {
+    const { server, store, world, push } = routes();
+    await savePhone(store, ENDPOINT, [HOME]);
+    world.feed = { ...westward(), storms: Array.from({ length: 25 }, (_, i) => westward(NOW, `${i + 1}W`).storms[0]) };
+    push.failFor.set(ENDPOINT, new WebPushError("Received unexpected response code", 410, {}, "", ENDPOINT));
+    const run = await answer(await server.sendStorms(job()));
+    assert.deepEqual([run.body.alerts, run.body.sent, run.body.removed, run.body.failed], [25, 0, 1, 0]);
+    assert.equal(store.counts.remove, 1);
+    assert.equal(push.tried, 20);
+  }),
+
+  check("Storm job: 20 pushes at a time, each batch marked as sent when it is done", async () => {
+    const { server, store, sent, world, push } = routes();
+    for (let i = 0; i < 45; i++) await savePhone(store, `${ENDPOINT}-${i}`, [HOME]);
+    world.feed = westward();
+    const run = await answer(await server.sendStorms(job()));
+    assert.equal(run.body.sent, 45);
+    assert.equal(sent.length, 45);
+    assert.equal(push.mostInFlight, 20);
+    assert.equal(store.counts.markSent, 3);
+    assert.equal(Object.keys(store.marked.get("27W")!).length, 45);
+  }),
+
+  check(
+    "Storm job: ECMWF out of reach is a 502, reported; nothing sent, the lock released, no run time kept",
+    async () => {
+      const { server, store, sent, world, alerts } = routes();
+      await savePhone(store, ENDPOINT, [HOME]);
+      world.error = new CycloneSourceError("Google Cloud answered 503; ECMWF answered 503");
+      const down = await answer(await server.sendStorms(job()));
+      assert.deepEqual(down, {
+        status: 502,
+        body: { error: true, reason: "Google Cloud answered 503; ECMWF answered 503" },
+      });
+      assert.deepEqual(alerts, [
+        { kind: "error", api: "/api/push/send", message: "502, Google Cloud answered 503; ECMWF answered 503" },
+      ]);
+      assert.equal(sent.length, 0);
+      assert.equal(store.state.running, false);
+      assert.equal(store.state.last, null);
+
+      world.error = new TypeError("Cannot read properties of undefined");
+      const bug = await answer(await server.sendStorms(job()));
+      assert.equal(bug.status, 500);
+      assert.equal(store.state.running, false);
+    },
+  ),
+
+  check("Storm message: already close, other ids, topics", () => {
+    const alert: CycloneAlert = {
+      kind: "cyclone",
+      level: "severe",
+      stormId: "27W",
+      name: null,
+      category: "storm",
+      place: "Home",
+      placeId: "0a1b2c3d",
+      km: 90,
+      at: null,
+      windKmh: null,
+      chance: 80,
+      also: [],
+    };
+    const message = stormMessage(alert, "en", "Asia/Bangkok", NOW);
+    assert.equal(message.title, "Tropical storm 27W is 90 km from Home");
+    assert.equal(message.body, "80% of ECMWF's forecasts bring it within 500 km");
+    assert.equal(stormMessage({ ...alert, stormId: "27W/b" }, "en", "Asia/Bangkok", NOW).url, "/");
+    assert.equal(topicOf("27W"), "27W");
+    assert.equal(topicOf("!!"), undefined);
+    assert.equal(topicOf("x".repeat(40))?.length, 32);
+    assert.ok(new TextEncoder().encode(JSON.stringify(stormMessage(alert, "th", "Asia/Bangkok", NOW))).length < 1000);
   }),
 ];
 

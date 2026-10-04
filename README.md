@@ -48,8 +48,8 @@ npm run dev          # http://localhost:3000
 | `npm run verify:weather-state` | The moment on the map's timeline: the forecast for it, the countdown from it, the radar frames between hours and their motion, and the labels in both languages |
 | `npm run verify:fields` | The map's live layers: the lattice and its slots, the ECMWF request and reply for a tile, `/api/fields`, the frames from tiles, the same numbers as the forecast card, and the cloud layer's motion |
 | `npm run verify:cyclones` | Tropical cyclones: the BUFR reader against ecCodes on ECMWF's own files, tracks as storms, the cone, the strength names, the storm alert, finding the newest run and `/api/cyclones` |
-| `npm run verify:ops` | Monitoring: which failures are asked again and how often, the Discord and LINE alerts (what they say, at most one of a kind in 15 minutes) and `/api/health` |
-| `npm run verify:push` | Storm alerts by push: the VAPID settings, which subscriptions are kept, the link a notification opens, the Upstash store, the service worker's push, tap and renewal handlers, the subscribe and test routes, and what the phone sends |
+| `npm run verify:ops` | Monitoring: which failures are asked again and how often, the Discord and LINE alerts (what they say, at most one of a kind in 15 minutes) and `/api/health`, including when the storm alert job last ran |
+| `npm run verify:push` | Storm alerts by push: the VAPID settings, which subscriptions are kept, the link a notification opens, the Upstash store, the service worker's push, tap and renewal handlers, the subscribe and test routes, what the phone sends, and the storm alert job (who gets which alert, in which words, once per level, gone phones deleted, 20 at a time) |
 | `npm run icons`       | Re-render the app icons, favicon and notification badge from `scripts/icons/` |
 
 Preview any sky mood with a query parameter:
@@ -654,12 +654,10 @@ shapes), and `public/screenshots/*` for the richer install dialog.
 
 ## Storm alerts by push notification
 
-Being built in three parts (post-launch step 3). With all three, anyone who
-turns storm alerts on gets a notification when a tropical cyclone may pass
-within 500 km of one of their saved places, even with DooFah closed, using
-the same rule as the storm banner. The first two parts are in: the
-service worker and the store, and turning alerts on and off. The third, the
-job that sends them, is next; until then only test notifications are sent.
+Anyone who turns storm alerts on gets a notification when a tropical
+cyclone may pass within 500 km of one of their saved places, even with
+DooFah closed, using the same rule and the same words as the storm banner
+(post-launch step 3).
 
 ### Turning alerts on
 
@@ -697,6 +695,39 @@ job that sends them, is next; until then only test notifications are sent.
 | `PUT /api/push/subscribe` | The worker's renewed subscription: the record moves to the new address |
 | `DELETE /api/push/subscribe` | Turn off: the record is deleted |
 | `POST /api/push/test` | One test notification in the phone's language: 204, 404 (no record), 429 (wait a minute), 410 (the push service dropped it; the record is deleted) or 502 |
+| `POST /api/push/send` | The storm alert job, for the scheduler only (`Authorization: Bearer <CRON_SECRET>`): 200 with what it did, 401, 409 (a run is still going), 502 (ECMWF out of reach) or 503 (not set up) |
+
+### Sending them
+
+GitHub Actions (`.github/workflows/storm-push.yml`) calls `/api/push/send`
+at minutes 7 and 37 of every hour, with the health check's `HEALTH_TOKEN`;
+"Run workflow" under Actions → Storm alerts runs it at once, and its log
+shows how many storms, phones, alerts and pushes there were.
+`sendStormAlerts()` in `src/services/push/send.ts`:
+
+- **Reads ECMWF's newest cyclone tracks** the way `/api/cyclones` does. With
+  no storm anywhere, it stops there and doesn't read a single phone.
+- **Checks each phone's places with the banner's rule** (`cycloneAlerts`):
+  within 500 km, severe when it is within 48 hours, a warning up to 5 days
+  ahead.
+- **Tells each phone once per level**: once as a warning, once more if the
+  same storm turns severe, never the same level twice (`push:sent:<storm>`,
+  kept 21 days). What was sent is marked after every 20 pushes, so a run cut
+  short doesn't repeat itself.
+- **The notification** (`src/services/push/message.ts`) is the banner's own
+  title and detail line, in the phone's language and time zone, and opens
+  that place with the storm on the map. The push services keep it 6 hours
+  for a phone that is off; severe ones are sent as urgent; a newer push for
+  the same storm replaces one still waiting.
+- **When a push is refused**: a phone the push service says is gone (404 or
+  410) is deleted. Anything else (rate limits, outages) isn't marked as
+  sent, so the next run tries again, and one alert goes to Discord without
+  the push address.
+- **One run at a time** (`push:run`, 2 minutes). The time of each finished
+  run is kept, and the health check reports it as degraded after 2 hours
+  without one: GitHub turns schedules off after 60 days without commits.
+  A run with no storms costs 3 Upstash commands, about 4,500 a month of the
+  free 500,000.
 
 ### The groundwork
 
@@ -806,6 +837,7 @@ check's state: ok, degraded or down (`src/services/ops/health.ts`).
 | --- | --- | --- |
 | Forecast for Bangkok (ECMWF and WRF) | WRF is missing, or ECMWF sent under 300 hours | ECMWF fails after 2 tries, or no answer in 40 s |
 | Cyclone tracks | ECMWF's portal had to answer for Google Cloud | Both fail, or no answer in 40 s |
+| Storm alerts (push job), only once Redis is set up | No run for 2 hours | Redis doesn't answer |
 
 Anything but ok sends a "Health check" alert; the route answers 200 when
 every source is ok or degraded, and 503 when one is down. When DooFah
@@ -853,6 +885,7 @@ src/
 │   ├── api/health/                DooFah's sources checked for the 15-minute health check (CRON_SECRET)
 │   ├── api/push/subscribe/        Storm alerts on (POST), renewed (PUT) or off (DELETE) for this device
 │   ├── api/push/test/             One test notification to this device, at most once a minute
+│   ├── api/push/send/             The storm alert job, called every 30 minutes by GitHub Actions
 │   ├── manifest.ts                Web app manifest (install name, colours, icons)
 │   ├── icon.svg, apple-icon.png, favicon.ico   App icons (from `npm run icons`)
 │   └── globals.css                Glass surfaces, sky effects, touch rules, Leaflet styling
@@ -916,6 +949,7 @@ src/
 │   ├── format.ts                  Times, Thai / English day names, short dates
 │   ├── places.ts                  Place names and areas in the current language
 │   ├── spokenTime.ts              Times and waits as people say them ("5 PM", "ห้าโมงเย็น")
+│   ├── when.ts                    "Closest at 21:40 Fri" for a storm, in a given time zone
 │   └── messages/                  en.ts, th.ts and the Messages type
 ├── hooks/
 │   ├── useForecast.ts             The forecast for a place on SWR: the saved copy at once, then the network's
@@ -983,13 +1017,15 @@ src/
     │   ├── retry.ts               Asking a source again after a timeout or a 5xx
     │   ├── alert.ts               Alerts to Discord and LINE, at most one of a kind in 15 minutes
     │   ├── report.ts              A route's alert, sent once its reply has gone
+    │   ├── auth.ts                The scheduler's token check, shared by /api/health and /api/push/send
     │   └── health.ts              Server side of /api/health: each source ok, degraded or down
     ├── push/
     │   ├── vapid.ts               The VAPID keys from Vercel, or none
     │   ├── subscription.ts        What is kept for a phone with storm alerts on, and the checks before it is
     │   ├── store.ts               Upstash Redis: records, storms already sent, the send job's last run, test pushes
-    │   ├── send.ts                One push with web-push, and what a refusal means
-    │   └── http.ts                Server side of /api/push/subscribe and /api/push/test
+    │   ├── send.ts                One push with web-push, what a refusal means, and the storm alert job
+    │   ├── message.ts             A storm notification's words, in the phone's language and time zone
+    │   └── http.ts                Server side of /api/push/subscribe, /api/push/test and /api/push/send
     ├── tts/
     │   └── googleTts.ts           Server side of /api/voice: Google Cloud Text-to-Speech
     ├── routing/
@@ -1038,6 +1074,7 @@ scripts/fixtures/ecmwf-*.bufr      ECMWF sample BUFR files for the cyclone check
 scripts/generate-bufr-tables.py    Writes src/services/cyclones/bufrTables.ts from ecCodes
 scripts/generate-icons.ts          `npm run icons`, from scripts/icons/doofah-icon.svg and doofah-badge.svg
 .github/workflows/health.yml       The 15-minute health check on GitHub Actions
+.github/workflows/storm-push.yml   The storm alert job every 30 minutes on GitHub Actions
 ```
 
 ## The simulation (test and demo data)
