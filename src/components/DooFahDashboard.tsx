@@ -13,6 +13,7 @@ import { HourlyForecastSlider } from "@/components/HourlyForecastSlider";
 import { LifestyleIndex } from "@/components/LifestyleIndex";
 import type { RouteFocus } from "@/components/radar/leaflet/RouteLayer";
 import { RouteWeatherCard } from "@/components/route/RouteWeatherCard";
+import { SwrProvider } from "@/components/SwrProvider";
 import { TapButton } from "@/components/ui/TapButton";
 import { WeatherAlertBanner } from "@/components/WeatherAlertBanner";
 import { WeatherDetailsGrid } from "@/components/WeatherDetailsGrid";
@@ -59,9 +60,11 @@ interface DooFahDashboardProps {
 export function DooFahDashboard({ weather: setup, ...props }: DooFahDashboardProps) {
   const weather = weatherService(setup);
   return (
-    <WeatherStateProvider weather={weather}>
-      <Dashboard weather={weather} {...props} />
-    </WeatherStateProvider>
+    <SwrProvider>
+      <WeatherStateProvider weather={weather}>
+        <Dashboard weather={weather} {...props} />
+      </WeatherStateProvider>
+    </SwrProvider>
   );
 }
 
@@ -78,7 +81,7 @@ function Dashboard({
   const { locale, m, f } = useI18n();
   const simulated = weather.source === "simulated";
   const { place, setPlace, forecast: data, here, status, setTime } = useWeatherState();
-  const { loading, error, refresh } = status;
+  const { loading, error, updating, refresh } = status;
   const crowd = useCrowdReports(place, simulated);
   const route = useRouteWeather(weather, place, osrmUrl);
   const [routeFocus, setRouteFocus] = useState<RouteFocus>({ key: 0, stop: null });
@@ -222,11 +225,20 @@ function Dashboard({
         )}
         {!error && data?.current.savedAt && (
           <div role="status" className="glass mt-3 flex items-center gap-3 rounded-2xl px-4 py-3 text-sm">
-            <WifiOff className="size-4 shrink-0 text-sky-200" aria-hidden />
-            <span className="flex-1">{m.errors.offline(f.clock(data.current.savedAt, tz))}</span>
-            <TapButton onClick={refresh} className="flex items-center gap-1 text-sky-200 hover:text-white">
-              <RotateCw className="size-3.5" /> {m.errors.retry}
-            </TapButton>
+            {updating ? (
+              <>
+                <RotateCw className="size-4 shrink-0 animate-spin text-sky-200" aria-hidden />
+                <span className="flex-1">{m.errors.updating(f.clock(data.current.savedAt, tz))}</span>
+              </>
+            ) : (
+              <>
+                <WifiOff className="size-4 shrink-0 text-sky-200" aria-hidden />
+                <span className="flex-1">{m.errors.offline(f.clock(data.current.savedAt, tz))}</span>
+                <TapButton onClick={refresh} className="flex items-center gap-1 text-sky-200 hover:text-white">
+                  <RotateCw className="size-3.5" /> {m.errors.retry}
+                </TapButton>
+              </>
+            )}
           </div>
         )}
 

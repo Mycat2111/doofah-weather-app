@@ -559,6 +559,7 @@ export const en: Messages = {
   errors: {
     forecast: "Could not load the forecast",
     offline: (clock) => `Offline · showing the forecast from ${clock}`,
+    updating: (clock) => `Updating · showing the forecast from ${clock}`,
     retry: "Retry",
   },
 
