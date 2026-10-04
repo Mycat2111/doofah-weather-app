@@ -1,6 +1,8 @@
 /**
- * Finds and reads the newest tropical cyclone track file on ECMWF's open
- * data portal (data.ecmwf.int, CC BY 4.0).
+ * Finds and reads the newest tropical cyclone track file in ECMWF's open
+ * data (CC BY 4.0): on ECMWF's portal, data.ecmwf.int, or when the portal
+ * fails (it limits how much each server may ask), on the copy ECMWF keeps
+ * on Google Cloud, which has the same folders and files.
  *
  * The ensemble runs four times a day. A run's files land together about
  * 7.5 hours after it starts, and its tracks a minute later, as a file like
@@ -14,6 +16,7 @@ import type { CycloneFeed } from "@/lib/cyclones";
 import { cyclonesFromBufr } from "./ecmwfTracks";
 
 export const OPEN_DATA_URL = "https://data.ecmwf.int/forecasts";
+export const MIRROR_URL = "https://storage.googleapis.com/ecmwf-open-data";
 const HOUR_MS = 3_600_000;
 const RUN_MS = 6 * HOUR_MS;
 /** Runs looked at for a folder, newest first: a day's worth and the one being made. */
@@ -31,12 +34,18 @@ export class CycloneSourceError extends Error {
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
-/** The folder of the ensemble run starting at `run` (ms). */
-export function runFolder(run: number): string {
+/** Where the ensemble run starting at `run` (ms) keeps its files, from the top of the open data. */
+function runPath(run: number): string {
   const d = new Date(run);
   const day = `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}`;
-  return `${OPEN_DATA_URL}/${day}/${pad(d.getUTCHours())}z/ifs/0p25/enfo/`;
+  return `${day}/${pad(d.getUTCHours())}z/ifs/0p25/enfo/`;
 }
+
+/** The portal folder of the ensemble run starting at `run` (ms). */
+export const runFolder = (run: number) => `${OPEN_DATA_URL}/${runPath(run)}`;
+
+/** The Google Cloud folder of the same run. */
+export const mirrorFolder = (run: number) => `${MIRROR_URL}/${runPath(run)}`;
 
 /** The track file named in a run folder's listing, for that run. */
 export function trackFileIn(listing: string, run: number): string | null {
@@ -48,50 +57,98 @@ export function trackFileIn(listing: string, run: number): string | null {
 
 export const latestRun = (now: number) => Math.floor(now / RUN_MS) * RUN_MS;
 
-async function get(url: string, fetcher: typeof fetch): Promise<Response> {
+async function get(url: string, fetcher: typeof fetch, from = "ECMWF"): Promise<Response> {
   try {
     return await fetcher(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
   } catch (error) {
-    throw new CycloneSourceError(`ECMWF could not be reached (${(error as Error).message})`);
+    throw new CycloneSourceError(`${from} could not be reached (${(error as Error).message})`);
   }
 }
 
+/** A place that publishes ECMWF's open data: a run's folder, and the text listing its files (null when not there). */
+export interface OpenDataSource {
+  name: string;
+  folder: (run: number) => string;
+  list: (run: number, fetcher: typeof fetch) => Promise<string | null>;
+}
+
+/** ECMWF's own portal: a folder's address lists its files, and a missing folder is 404. */
+export const PORTAL: OpenDataSource = {
+  name: "ECMWF",
+  folder: runFolder,
+  async list(run, fetcher) {
+    const res = await get(runFolder(run), fetcher);
+    if (res.status === 404) return null;
+    if (!res.ok) throw new CycloneSourceError(`ECMWF answered ${res.status} for ${runFolder(run)}`);
+    return res.text();
+  },
+};
+
+/** ECMWF's copy on Google Cloud: the bucket lists the names under a folder, none when it isn't there. */
+export const MIRROR: OpenDataSource = {
+  name: "Google Cloud",
+  folder: mirrorFolder,
+  async list(run, fetcher) {
+    const url = `${MIRROR_URL}?${new URLSearchParams({ prefix: runPath(run), delimiter: "/" })}`;
+    const res = await get(url, fetcher, "Google Cloud");
+    if (!res.ok) throw new CycloneSourceError(`Google Cloud answered ${res.status} for ${mirrorFolder(run)}`);
+    const text = await res.text();
+    return text.includes("<Key>") ? text : null;
+  },
+};
+
 /** The newest run with tracks: its start (ms) and file; null when the two newest runs have none. */
-export async function findTrackFile(now: number, fetcher: typeof fetch): Promise<{ run: number; url: string } | null> {
+export async function findTrackFile(
+  now: number,
+  fetcher: typeof fetch,
+  source: OpenDataSource = PORTAL,
+): Promise<{ run: number; url: string } | null> {
   let found = 0;
   for (let k = 0; k < RUNS_LOOKED_AT; k++) {
     const run = latestRun(now) - k * RUN_MS;
-    const folder = runFolder(run);
-    const res = await get(folder, fetcher);
-    // Not there yet (the run being made, or a gap on the portal).
-    if (res.status === 404) continue;
-    if (!res.ok) throw new CycloneSourceError(`ECMWF answered ${res.status} for ${folder}`);
+    const listing = await source.list(run, fetcher);
+    // Not there yet (the run being made, or a gap in the open data).
+    if (listing === null) continue;
     found += 1;
-    const file = trackFileIn(await res.text(), run);
-    if (file) return { run, url: folder + file };
+    const file = trackFileIn(listing, run);
+    if (file) return { run, url: source.folder(run) + file };
     if (found === 2) return null;
   }
-  if (found === 0) throw new CycloneSourceError("No ECMWF run of the last day could be found");
+  if (found === 0) throw new CycloneSourceError(`No ECMWF run of the last day could be found on ${source.name}`);
   return null;
 }
 
 const kept = new Map<string, { at: number; feed: Promise<CycloneFeed> }>();
 
-async function readTrackFile(url: string, run: number, fetcher: typeof fetch): Promise<CycloneFeed> {
-  const res = await get(url, fetcher);
-  if (!res.ok) throw new CycloneSourceError(`ECMWF answered ${res.status} for ${url}`);
+async function readTrackFile(url: string, run: number, source: OpenDataSource, fetcher: typeof fetch) {
+  const res = await get(url, fetcher, source.name);
+  if (!res.ok) throw new CycloneSourceError(`${source.name} answered ${res.status} for ${url}`);
   const { run: inFile, storms } = cyclonesFromBufr(new Uint8Array(await res.arrayBuffer()));
   return { run: inFile ?? new Date(run).toISOString(), storms };
 }
 
-/** The storms of the newest ECMWF run with tracks. */
+/** The storms of the newest ECMWF run with tracks, from the portal, or Google Cloud when the portal fails. */
 export async function fetchCyclones(now: number = Date.now(), fetcher: typeof fetch = fetch): Promise<CycloneFeed> {
-  const file = await findTrackFile(now, fetcher);
+  try {
+    return await fetchFrom(PORTAL, now, fetcher);
+  } catch (error) {
+    if (!(error instanceof CycloneSourceError)) throw error;
+    try {
+      return await fetchFrom(MIRROR, now, fetcher);
+    } catch (second) {
+      if (!(second instanceof CycloneSourceError)) throw second;
+      throw new CycloneSourceError(`${error.message}; ${second.message}`);
+    }
+  }
+}
+
+async function fetchFrom(source: OpenDataSource, now: number, fetcher: typeof fetch): Promise<CycloneFeed> {
+  const file = await findTrackFile(now, fetcher, source);
   if (!file) return { run: null, storms: [] };
   for (const [url, entry] of kept) if (now - entry.at > KEEP_MS) kept.delete(url);
   let entry = kept.get(file.url);
   if (!entry) {
-    entry = { at: now, feed: readTrackFile(file.url, file.run, fetcher) };
+    entry = { at: now, feed: readTrackFile(file.url, file.run, source, fetcher) };
     kept.set(file.url, entry);
     // A failed read is tried again next time, not kept.
     entry.feed.catch(() => kept.delete(file.url));
