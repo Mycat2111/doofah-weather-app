@@ -360,6 +360,8 @@ export interface Messages {
       closest: (km: number, place: string, when: string) => string;
       /** For the storm's marker at the map's time. */
       at: (when: string) => string;
+      /** The ECMWF run the tracks come from, which is older while ECMWF can't be reached. */
+      run: (when: string) => string;
     };
   };
 

@@ -28,7 +28,7 @@ const RESOLUTION_KM = 9;
 /** One day more than the list shows: the last hour of a day reads its rain from the hour after it. */
 const DAYS_ASKED = FORECAST_DAYS + 1;
 /** A request that takes longer than this has failed. */
-const TIMEOUT_MS = 15_000;
+const TIMEOUT_MS = 8_000;
 
 export interface EcmwfAnswer {
   series: ModelSeries;

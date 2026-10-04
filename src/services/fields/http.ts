@@ -6,10 +6,15 @@
  * keep it for the whole slot and Open-Meteo is asked once per tile per slot. Only the
  * current slot (or the one either side, for clocks a little off) is
  * answered, so no one can make DooFah ask again by inventing slots.
+ *
+ * Open-Meteo is asked again once after a timeout or a 5xx; every 5xx answer
+ * sends an alert (ops/alert.ts) once the reply has gone.
  */
 
 import { cacheHeaders } from "../http/cacheHeaders";
 import { OpenMeteoError } from "../openmeteo/api";
+import { reportAfterReply, type Report } from "../ops/report";
+import { isTransient, withRetry } from "../ops/retry";
 import { fetchFieldTile, type FieldTile } from "./ecmwfFields";
 import { isSpacing, parseSlot, SLOT_MS, slotOf, tileAllowed, type TileId } from "./lattice";
 
@@ -28,7 +33,9 @@ export function defaultTileSource(
   fetcher: typeof fetch = fetch,
 ): TileSource {
   const apiKey = env.OPEN_METEO_API_KEY?.trim() || undefined;
-  return (tile, slot) => fetchFieldTile(tile, slot, { apiKey, fetch: fetcher });
+  // Asked again once after a timeout, a dropped connection or a 5xx; never after a 4xx or 429.
+  return (tile, slot) =>
+    withRetry(() => fetchFieldTile(tile, slot, { apiKey, fetch: fetcher }), { retryable: isTransient });
 }
 
 const integer = (value: string | undefined) =>
@@ -38,6 +45,7 @@ export async function fieldsResponse(
   request: Request,
   source: TileSource = defaultTileSource(),
   now: number = Date.now(),
+  report: Report = reportAfterReply,
 ): Promise<Response> {
   // Browsers say where a request comes from; other sites' pages may not spend DooFah's model calls.
   const site = request.headers.get("sec-fetch-site");
@@ -67,11 +75,15 @@ export async function fieldsResponse(
   } catch (error) {
     if (error instanceof OpenMeteoError) {
       if (error.status === 429) {
+        report({ kind: "error", api: "/api/fields", message: `503, Open-Meteo's per-minute limit: ${error.message}` });
         return refuse(503, "Open-Meteo is busy; try again in a minute", { "Retry-After": String(RETRY_SECONDS) });
       }
-      return refuse(502, `ECMWF unavailable: ${error.message}`);
+      const reason = `ECMWF unavailable: ${error.message}`;
+      report({ kind: "error", api: "/api/fields", message: `502, ${reason}` });
+      return refuse(502, reason);
     }
     console.error("[fields]", error);
+    report({ kind: "error", api: "/api/fields", message: `500: ${error instanceof Error ? error.message : error}` });
     return refuse(500, "The map layers could not be made");
   }
 }

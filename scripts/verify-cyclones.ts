@@ -37,6 +37,7 @@ import {
 import { BufrError, decodeBufr, type BufrValue } from "../src/services/cyclones/bufr";
 import { cyclonesFromBufr, MAX_HOURS } from "../src/services/cyclones/ecmwfTracks";
 import { cyclonesResponse, FRESH_SECONDS } from "../src/services/cyclones/http";
+import type { Alert } from "../src/services/ops/alert";
 import {
   CycloneSourceError,
   fetchCyclones,
@@ -452,14 +453,35 @@ async function main() {
   const noTracks = mirrored(403, { [r12]: names(r12), [r06]: names(r06) }, {});
   assert.deepEqual(await fetchCyclones(at, noTracks.fetcher), { run: null, storms: [] }, "no tracks: no storms");
   assert.ok(!noTracks.asked.some((u) => u.startsWith(OPEN_DATA_URL)), "Google Cloud's answer is enough");
+  const bothFail = mirrored(403, { [r12]: 503 }, {});
   await assert.rejects(
-    fetchCyclones(at, mirrored(403, { [r12]: 503 }, {}).fetcher),
+    fetchCyclones(at, bothFail.fetcher),
     (error: Error) =>
       error instanceof CycloneSourceError &&
       /Google Cloud answered 503/.test(error.message) &&
       /ECMWF answered 403/.test(error.message),
     "both fail: the error names both",
   );
+  assert.deepEqual(
+    bothFail.asked.map((u) => (u.startsWith(MIRROR_URL) ? "Google Cloud" : "ECMWF")),
+    ["Google Cloud", "Google Cloud", "ECMWF"],
+    "a 503 is asked again once, a 403 never",
+  );
+
+  // Google Cloud failing once: asked again, and no fallback. Failing for good: the portal, and a fallback reported.
+  let busyOnce = 1;
+  const flaky = (async (input: string | URL | Request, init?: RequestInit) =>
+    String(input).startsWith(`${MIRROR_URL}?`) && busyOnce-- > 0
+      ? new Response("busy", { status: 503 })
+      : viaMirror.fetcher(input, init)) as typeof fetch;
+  const fellBack: string[] = [];
+  assert.deepEqual(
+    (await fetchCyclones(at + 2 * HOUR, flaky, (reason) => fellBack.push(reason))).storms.map((s) => s.name),
+    ["IN-FA"],
+    "Google Cloud answers the second time",
+  );
+  assert.ok(busyOnce < 0, "Google Cloud is asked again after its 503");
+  assert.equal(fellBack.length, 0, "a retry that works isn't a fallback");
 
   // Google Cloud handing over something that isn't tracks, or a file cut off part way: the portal's file is read.
   const at2 = at + 24 * HOUR;
@@ -474,11 +496,19 @@ async function main() {
     { [r00b]: names(r00b, 360) },
     { [fileB]: new TextEncoder().encode("<html>busy</html>") },
   );
+  const garbledAsked = garbled.asked.length;
   assert.deepEqual(
-    (await fetchCyclones(at2, split(garbled.fetcher))).storms.map((s) => s.name),
+    (await fetchCyclones(at2, split(garbled.fetcher), (reason) => fellBack.push(reason))).storms.map((s) => s.name),
     ["IN-FA"],
     "a file from Google Cloud that isn't BUFR: the portal's is read",
   );
+  assert.equal(
+    garbled.asked.slice(garbledAsked).filter((u) => u.endsWith(".bufr")).length,
+    1,
+    "a file that isn't tracks isn't asked for again",
+  );
+  assert.equal(fellBack.length, 1, "reading from the portal is a fallback");
+  assert.match(fellBack[0], /^ECMWF answered after: Google Cloud's track file could not be read/);
   assert.ok(goodPortal.asked.some((u) => u === runFolder(r00b) + fileB));
   const cutOff = (async (input: string | URL | Request, init?: RequestInit) => {
     if (!String(input).endsWith(".bufr")) return garbled.fetcher(input, init);
@@ -501,30 +531,74 @@ async function main() {
   /* ---------------- /api/cyclones ---------------- */
   const request = (headers: Record<string, string> = {}) =>
     new Request("https://doofah.test/api/cyclones", { headers });
-  const ok = await cyclonesResponse(request({ "sec-fetch-site": "same-origin" }), async () => feed, NOW);
+  const alerts: Alert[] = [];
+  const report = (alert: Alert) => alerts.push(alert);
+  const ok = await cyclonesResponse(request({ "sec-fetch-site": "same-origin" }), async () => feed, NOW, report);
   assert.equal(ok.status, 200);
-  assert.match(ok.headers.get("cache-control")!, new RegExp(`s-maxage=${FRESH_SECONDS}\\b`));
+  assert.equal(ok.headers.get("cache-control"), "public, max-age=300", "the browser keeps it 5 minutes");
+  assert.equal(
+    ok.headers.get("vercel-cdn-cache-control"),
+    `max-age=${FRESH_SECONDS}, stale-while-revalidate=${6 * 3600}, stale-if-error=${12 * 3600}`,
+    "the edge keeps it half an hour, and serves it up to 12 hours while ECMWF fails",
+  );
   const body = (await ok.json()) as CycloneFeed;
   assert.equal(body.storms[0].name, "IN-FA");
-  const other = await cyclonesResponse(request({ "sec-fetch-site": "cross-site" }), async () => feed, NOW);
+  assert.equal(alerts.length, 0, "no alert when Google Cloud answers");
+  const other = await cyclonesResponse(request({ "sec-fetch-site": "cross-site" }), async () => feed, NOW, report);
   assert.equal(other.status, 403);
+  const viaPortal = await cyclonesResponse(
+    request(),
+    async (_, onFallback) => {
+      onFallback("ECMWF answered after: Google Cloud answered 503 for …");
+      return feed;
+    },
+    NOW,
+    report,
+  );
+  assert.equal(viaPortal.status, 200, "the portal's answer is served as usual");
+  assert.deepEqual(alerts.splice(0), [
+    { kind: "fallback", api: "/api/cyclones", message: "ECMWF answered after: Google Cloud answered 503 for …" },
+  ]);
   const failed = await cyclonesResponse(
     request(),
     async () => {
-      throw new CycloneSourceError("ECMWF answered 503");
+      throw new CycloneSourceError("Google Cloud answered 503; ECMWF answered 503");
     },
     NOW,
+    report,
   );
   assert.equal(failed.status, 502);
-  assert.match(failed.headers.get("cache-control")!, /s-maxage=60\b/, "a failure is kept a minute at the edge");
+  assert.equal(
+    failed.headers.get("cache-control"),
+    "no-store",
+    "a failure isn't kept, so the edge serves the last answer",
+  );
+  assert.equal(failed.headers.get("vercel-cdn-cache-control"), null);
+  assert.deepEqual(alerts.splice(0), [
+    { kind: "error", api: "/api/cyclones", message: "502, Google Cloud answered 503; ECMWF answered 503" },
+  ]);
   const unreadable = await cyclonesResponse(
     request(),
     async () => {
       throw new BufrError("Element 013241 is not in DooFah's tables");
     },
     NOW,
+    report,
   );
   assert.equal(unreadable.status, 502);
+  assert.match(alerts.splice(0)[0].message, /^502, ECMWF's track file could not be read: Element 013241/);
+  const logged = console.error;
+  console.error = () => {};
+  const broken = await cyclonesResponse(
+    request(),
+    async () => {
+      throw new TypeError("storms is undefined");
+    },
+    NOW,
+    report,
+  ).finally(() => (console.error = logged));
+  assert.equal(broken.status, 500);
+  assert.deepEqual(alerts.splice(0), [{ kind: "error", api: "/api/cyclones", message: "500: storms is undefined" }]);
 
   console.log(
     `verify:cyclones ok · ${messages.length} BUFR messages, ${feed.storms.length} active storm (${infa.name}), ` +

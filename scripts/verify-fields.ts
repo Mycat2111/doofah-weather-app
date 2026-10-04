@@ -14,6 +14,7 @@ import { ecmwfFromOpenMeteo } from "../src/services/forecast/ecmwf";
 import { FieldError, FieldService, framesFrom } from "../src/services/fields/FieldService";
 import { FIELD_VARIABLES, fieldParams, fieldTileFrom, type FieldTile } from "../src/services/fields/ecmwfFields";
 import { defaultTileSource, fieldsResponse, type TileSource } from "../src/services/fields/http";
+import type { Alert } from "../src/services/ops/alert";
 import {
   AHEAD_HOURS,
   fieldView,
@@ -381,7 +382,8 @@ const CHECKS = [
     }
   }),
 
-  check("/api/fields says when Open-Meteo is busy or down", async () => {
+  check("/api/fields says when Open-Meteo is busy or down, and sends an alert", async () => {
+    const alerts: Alert[] = [];
     const ask = (error: Error) =>
       fieldsResponse(
         new Request("https://doofah.test/api/fields?spacing=0.25&tile=9,66&slot=2026-10-03T02"),
@@ -389,6 +391,7 @@ const CHECKS = [
           throw error;
         },
         NOW,
+        (alert) => alerts.push(alert),
       );
     const busy = await ask(new OpenMeteoError("Too many requests", 429));
     assert.equal(busy.status, 503);
@@ -403,6 +406,11 @@ const CHECKS = [
     } finally {
       console.error = log;
     }
+    assert.deepEqual(alerts, [
+      { kind: "error", api: "/api/fields", message: "503, Open-Meteo's per-minute limit: Too many requests" },
+      { kind: "error", api: "/api/fields", message: "502, ECMWF unavailable: Bad" },
+      { kind: "error", api: "/api/fields", message: "500: boom" },
+    ]);
   }),
 
   check("tiles go to Open-Meteo's free servers, or its customer servers with the key", async () => {
@@ -422,6 +430,25 @@ const CHECKS = [
     await assert.rejects(defaultTileSource({}, failing)(id, SLOT), (e: unknown) => {
       return e instanceof OpenMeteoError && e.status === 429;
     });
+  }),
+
+  check("a tile is asked for again once after a 5xx, never after a 429", async () => {
+    const statuses: number[] = [];
+    const answering = (...first: number[]) =>
+      (async (input: RequestInfo | URL) => {
+        const status = first.shift() ?? 200;
+        statuses.push(status);
+        return status === 200
+          ? Response.json(openMeteoReply(new URL(String(input)).searchParams))
+          : Response.json({ error: true, reason: "Busy" }, { status });
+      }) as typeof fetch;
+    const id: TileId = { spacing: 0.25, row: 9, col: 66 };
+    assert.deepEqual(await defaultTileSource({}, answering(503))(id, SLOT), tileFor(id, SLOT));
+    assert.deepEqual(statuses.splice(0), [503, 200], "the second try answers");
+    await assert.rejects(defaultTileSource({}, answering(502, 504))(id, SLOT), /Busy/);
+    assert.deepEqual(statuses.splice(0), [502, 504], "two tries in all");
+    await assert.rejects(defaultTileSource({}, answering(429))(id, SLOT), /Busy/);
+    assert.deepEqual(statuses.splice(0), [429], "a 429 isn't asked again");
   }),
 
   /* ---------------- Frames in the page ---------------- */

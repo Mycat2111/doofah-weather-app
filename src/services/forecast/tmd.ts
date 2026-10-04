@@ -37,7 +37,7 @@ const THUNDERSTORM = 8;
 const RESOLUTION_KM = 3;
 const KMH_PER_MS = 3.6;
 /** A request that takes longer than this has failed; ECMWF is shown without WRF. */
-const TIMEOUT_MS = 10_000;
+const TIMEOUT_MS = 6_000;
 
 /**
  * Roughly Thailand, where TMD runs WRF at 3 km. Places outside it (a favorite

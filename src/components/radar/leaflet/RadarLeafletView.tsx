@@ -46,8 +46,8 @@ export interface RadarLeafletViewProps {
   tripStopName?: (index: number) => string;
   tripFocus?: RouteFocus;
   timeZone?: string;
-  /** Tropical cyclones to draw, with now (to the timeline's step) and the place's name for distances. */
-  cyclones?: { storms: Cyclone[]; now: number; placeName: string; demo?: boolean };
+  /** Tropical cyclones to draw, with now (to the timeline's step), the place's name for distances and the ECMWF run. */
+  cyclones?: { storms: Cyclone[]; now: number; placeName: string; run: string | null; demo?: boolean };
 }
 
 /** Closest zoom level (street level). */
@@ -369,6 +369,7 @@ export default function RadarLeafletView({
           now={cyclones.now}
           place={{ name: cyclones.placeName, point: center }}
           timeZone={timeZone}
+          run={cyclones.run}
           demo={cyclones.demo}
         />
       )}
