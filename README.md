@@ -10,7 +10,7 @@ A built-in weather simulation (5 km grid, hourly steps, 15 days) is kept as
 test data for the checks and as a demo: `?data=sim` runs the whole dashboard
 on it, map included. The live app never downloads it otherwise.
 
-- **Stack:** Next.js 16 (App Router, TypeScript), Tailwind CSS 4, Framer Motion, Lucide icons, Leaflet + react-leaflet with OpenStreetMap tiles, SWR for the page's forecast.
+- **Stack:** Next.js 16 (App Router, TypeScript), Tailwind CSS 4, Framer Motion, Lucide icons, Leaflet + react-leaflet with OpenStreetMap tiles, SWR for the page's forecast and map frames.
 - **No API keys needed to start.** ECMWF and air quality come from Open-Meteo's free API, and place search runs on the device; WRF needs TMD's token. See [Weather data](#weather-data) and [Route weather](#route-weather).
 - **Thai and English.** A TH / EN switch in the header changes every label, forecast phrase, date and place name.
 - **Favorite places.** Star any place and it joins a one-tap bar under the header, saved in the browser.
@@ -281,6 +281,10 @@ follows the timeline, its 10-minute steps and playback.
   asks only for the last. If Open-Meteo is busy, `/api/fields` answers 503
   and the map says "Map layers unavailable · retrying" and asks again a
   minute later. A busy site needs `OPEN_METEO_API_KEY`.
+- **Switching back.** A layer, area and hour seen in the last few minutes
+  comes back at once from the page's memory, with no spinner and no new
+  call (`src/hooks/useRadarFrames.ts`, on SWR; `SwrProvider` keeps the 12
+  latest answers). The last frames stay on the map while new ones load.
 - **WRF on the map.** TMD's API answers for places, not grids, and TMD
   reserves all rights to its WRF grid files, so WRF joins the map only with
   TMD's permission.
@@ -1020,7 +1024,7 @@ src/
 ├── hooks/
 │   ├── useForecast.ts             The forecast for a place on SWR: the saved copy at once, then the network's
 │   ├── useWeatherState.tsx        The place, its forecast and the moment on the map's timeline, for every screen
-│   ├── useRadarFrames.ts          Loads frames for the visible map area from the forecast's source; the frame at any moment
+│   ├── useRadarFrames.ts          Frames for the visible map area on SWR, from the forecast's source; the frame at any moment
 │   ├── useFavorites.ts            Favorite places from localStorage, synced across tabs
 │   ├── useGeolocation.ts          Browser location with status
 │   ├── useNow.ts                  A shared clock that ticks every 15 s, for countdowns
