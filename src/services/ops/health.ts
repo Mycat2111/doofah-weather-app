@@ -1,7 +1,8 @@
 /**
  * Server side of /api/health: asks each source the way the routes do, past
  * Vercel's edge cache (a cached answer would hide an outage), says how each
- * one is (and, once storm alerts are set up, when their job last ran), and
+ * one is (and, once storm alerts are set up, when their job last ran; once
+ * shared reports are, whether Supabase answers and its cleanup runs), and
  * sends an alert when one isn't ok. Called every 15 minutes by
  * GitHub Actions (.github/workflows/health.yml), which tells Discord itself
  * when DooFah doesn't answer at all.
@@ -15,6 +16,7 @@ import { fetchCyclones } from "../cyclones/openData";
 import type { UnifiedForecast } from "../forecast/types";
 import { getUnifiedForecast } from "../forecast/unified";
 import { redisStore } from "../push/store";
+import { supabaseStore } from "../reports/store";
 import { alertTargets, sendAlert } from "./alert";
 import { allowed } from "./auth";
 import { reportAfterReply, type Report } from "./report";
@@ -35,6 +37,8 @@ export interface Probes {
   cyclones: (now: number, onFallback: (reason: string) => void) => Promise<CycloneFeed>;
   /** When the storm alert job last finished (null before its first run); absent while push isn't set up. */
   pushRun?: () => Promise<number | null>;
+  /** Live shared reports and the oldest row's time; absent while Supabase isn't set up. */
+  reports?: () => Promise<{ live: number; oldest: number | null }>;
 }
 
 /** A place in Thailand, so both models are checked: Bangkok. */
@@ -45,14 +49,19 @@ const MIN_HOURS = 300;
 export const CHECK_TIMEOUT_MS = 40_000;
 /** The storm alert job runs every 30 minutes; this long without a run means its schedule stopped. */
 export const PUSH_STALE_MS = 2 * 3_600_000;
+/** Reports are deleted 3 hours after they are made, every 10 minutes; a row this old means the cleanup stopped. */
+export const REPORTS_STALE_MS = 3.5 * 3_600_000;
 
 const pushStore = redisStore();
+const reportStore = supabaseStore();
 
 const defaultProbes: Probes = {
   // About 2 Open-Meteo calls and 1 TMD call: 192 of the 10,000 free calls a day at every 15 minutes.
   forecast: (now) => getUnifiedForecast(PROBE.lat, PROBE.lon, now),
   cyclones: (now, onFallback) => fetchCyclones(now, fetch, onFallback),
   pushRun: pushStore ? () => pushStore.lastRun() : undefined,
+  // Also keeps a free Supabase project awake: Supabase pauses one after a week without database requests.
+  reports: reportStore ? () => reportStore.status() : undefined,
 };
 
 const reasonOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -82,7 +91,7 @@ export function runChecks(
   probes: Probes = defaultProbes,
   timeoutMs: number = CHECK_TIMEOUT_MS,
 ): Promise<Check[]> {
-  const { pushRun } = probes;
+  const { pushRun, reports } = probes;
   return Promise.all([
     timed(
       "Forecast (ECMWF + WRF, Bangkok)",
@@ -119,6 +128,26 @@ export function runChecks(
               return now - last > PUSH_STALE_MS
                 ? { status: "degraded" as const, detail: `last ran ${minutes} min ago; is its schedule paused?` }
                 : { status: "ok" as const, detail: `last ran ${minutes} min ago` };
+            },
+            timeoutMs,
+          ),
+        ]
+      : []),
+    ...(reports
+      ? [
+          timed(
+            "Shared reports (Supabase)",
+            async () => {
+              const { live, oldest } = await reports();
+              const detail = `${live} live report${live === 1 ? "" : "s"}`;
+              if (oldest !== null && now - oldest > REPORTS_STALE_MS) {
+                const hours = Math.round(((now - oldest) / 3_600_000) * 10) / 10;
+                return {
+                  status: "degraded" as const,
+                  detail: `${detail}; oldest row ${hours} h old: is the cleanup job (pg_cron) running?`,
+                };
+              }
+              return { status: "ok" as const, detail };
             },
             timeoutMs,
           ),
