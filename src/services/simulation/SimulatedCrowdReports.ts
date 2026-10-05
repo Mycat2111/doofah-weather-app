@@ -73,7 +73,7 @@ export class SimulatedCrowdReports {
     this.now = options.now ?? Date.now;
   }
 
-  /** Other people's reports from the last hour within REPORT_RADIUS_KM of `center`, newest first. */
+  /** Other people's reports from the last 3 hours within REPORT_RADIUS_KM of `center`, newest first. */
   async getCommunityReports(center: GeoPoint): Promise<CrowdReport[]> {
     if (this.latencyMs > 0) await new Promise((resolve) => setTimeout(resolve, this.latencyMs));
     return this.communityReports(center, this.now());

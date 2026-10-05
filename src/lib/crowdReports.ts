@@ -1,12 +1,12 @@
 /**
  * Weather reports from people ("it's raining here"): the kinds, how long a
  * report lasts and how far it counts, and this device's own reports, kept in
- * localStorage so they survive a reload and show in every tab, and dropped an
- * hour after they were made.
+ * localStorage so they survive a reload and show in every tab, and dropped 3
+ * hours after they were made.
  *
- * There is no shared backend yet, so with real forecasts only your own
- * reports show. Other people's come from the simulation, with `?data=sim`
- * (services/simulation/SimulatedCrowdReports.ts).
+ * With real forecasts, everyone's reports are shared through /api/reports
+ * (sharedReports.ts); with `?data=sim`, other people's come from the
+ * simulation (services/simulation/SimulatedCrowdReports.ts).
  */
 
 import { distanceKm } from "@/services/weather/places";
@@ -23,10 +23,12 @@ export interface CrowdReport {
   time: string;
   /** Sent from this device. */
   mine: boolean;
+  /** This device's: the ids the shared backend gave it and the reports it replaced, so they aren't shown twice. */
+  serverIds?: string[];
 }
 
-/** Reports fade out and leave the map an hour after they are made. */
-export const REPORT_TTL_MS = 60 * 60_000;
+/** Reports fade out and leave the map 3 hours after they are made (the shared backend's own limit too). */
+export const REPORT_TTL_MS = 3 * 60 * 60_000;
 /** Reports this close to a place are "local" to it, in km (about a city and its suburbs). */
 export const REPORT_RADIUS_KM = 30;
 /** Reporting again within this time changes your last report instead of adding one. */
@@ -37,6 +39,7 @@ export const HEAVY_RATE = 4;
 export const CLOUDY_COVER = 60;
 
 const STORAGE_KEY = "doofah-weather-reports";
+const DEVICE_KEY = "doofah-device-id";
 
 /** The report that matches the model at a point: what someone standing there should see. */
 export function radarKind(sample: Pick<AtmosphericSample, "precipitationMm" | "cloudCover">): ReportKind {
@@ -47,11 +50,11 @@ export function radarKind(sample: Pick<AtmosphericSample, "precipitationMm" | "c
 
 export const isRainReport = (kind: ReportKind) => kind === "lightRain" || kind === "heavyRain";
 
-/** How much of its hour a report has left, from 1 (just made) to 0 (gone). */
+/** How much of its 3 hours a report has left, from 1 (just made) to 0 (gone). */
 export const reportLife = (report: CrowdReport, now: number) =>
   Math.min(1, Math.max(0, 1 - (now - Date.parse(report.time)) / REPORT_TTL_MS));
 
-/** Reports still inside their hour and within `radiusKm` of `center`, newest first. */
+/** Reports still inside their 3 hours and within `radiusKm` of `center`, newest first. */
 export function liveReports(reports: CrowdReport[], now: number, center?: GeoPoint, radiusKm = REPORT_RADIUS_KM) {
   return reports
     .filter((r) => {
@@ -66,12 +69,24 @@ export function liveReports(reports: CrowdReport[], now: number, center?: GeoPoi
  * near the same spot replaces it (changing your mind is not a second witness).
  */
 export function addMyReport(mine: CrowdReport[], kind: ReportKind, point: GeoPoint, now: number): CrowdReport[] {
-  const report: CrowdReport = { id: `me-${now}`, kind, point, time: new Date(now).toISOString(), mine: true };
-  const kept = liveReports(mine, now).filter(
-    (r) => !(now - Date.parse(r.time) < REPLACE_WINDOW_MS && distanceKm(r.point, point) < 1),
-  );
-  return [report, ...kept];
+  const live = liveReports(mine, now);
+  const replaced = live.filter((r) => now - Date.parse(r.time) < REPLACE_WINDOW_MS && distanceKm(r.point, point) < 1);
+  // The shared backend replaces them too, but its copies can still be on the map for a minute.
+  const serverIds = replaced.flatMap((r) => r.serverIds ?? []);
+  const report: CrowdReport = {
+    id: `me-${now}`,
+    kind,
+    point,
+    time: new Date(now).toISOString(),
+    mine: true,
+    ...(serverIds.length ? { serverIds } : {}),
+  };
+  return [report, ...live.filter((r) => !replaced.includes(r))];
 }
+
+/** The shared backend saved `id`'s report as `serverId`. */
+export const markShared = (mine: CrowdReport[], id: string, serverId: string): CrowdReport[] =>
+  mine.map((r) => (r.id === id ? { ...r, serverIds: [serverId, ...(r.serverIds ?? [])] } : r));
 
 function isReport(value: unknown): value is CrowdReport {
   const r = value as CrowdReport;
@@ -81,7 +96,8 @@ function isReport(value: unknown): value is CrowdReport {
     REPORT_KINDS.includes(r.kind) &&
     typeof r.point?.lat === "number" &&
     typeof r.point?.lon === "number" &&
-    !Number.isNaN(Date.parse(r.time))
+    !Number.isNaN(Date.parse(r.time)) &&
+    (r.serverIds === undefined || (Array.isArray(r.serverIds) && r.serverIds.every((id) => typeof id === "string")))
   );
 }
 
@@ -102,6 +118,7 @@ export function parseMyReports(raw: string | null): CrowdReport[] {
 const EMPTY: CrowdReport[] = [];
 const listeners = new Set<() => void>();
 let current: CrowdReport[] | null = null;
+let device: string | null = null;
 
 function load(): CrowdReport[] {
   try {
@@ -136,13 +153,36 @@ export const myReportsStore = {
   },
   /** Sends a report. It shows at once; it is kept in this device's storage. */
   submit(kind: ReportKind, point: GeoPoint, now: number = Date.now()): CrowdReport {
-    current = addMyReport(myReportsStore.getSnapshot(), kind, point, now);
+    save(addMyReport(myReportsStore.getSnapshot(), kind, point, now));
+    return current![0];
+  },
+  /** The shared backend saved report `id` as `serverId`. */
+  shared(id: string, serverId: string) {
+    save(markShared(myReportsStore.getSnapshot(), id, serverId));
+  },
+  /**
+   * This device's random id, so the shared backend can tell a change of mind
+   * from a second person. It says nothing about the device or its owner.
+   */
+  device(): string {
+    if (device) return device;
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+      device = window.localStorage.getItem(DEVICE_KEY);
+      if (!device) window.localStorage.setItem(DEVICE_KEY, (device = crypto.randomUUID()));
     } catch {
-      // Still shown for this visit when storage is full or blocked.
+      // Storage blocked: a new id for each visit.
+      device ??= crypto.randomUUID();
     }
-    listeners.forEach((listener) => listener());
-    return current[0];
+    return device;
   },
 };
+
+function save(reports: CrowdReport[]) {
+  current = reports;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+  } catch {
+    // Still shown for this visit when storage is full or blocked.
+  }
+  listeners.forEach((listener) => listener());
+}

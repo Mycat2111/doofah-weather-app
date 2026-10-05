@@ -22,6 +22,7 @@ import { ZoomButtons } from "@/components/radar/ZoomButtons";
 import type { CycloneState } from "@/hooks/useCyclones";
 import { useNow } from "@/hooks/useNow";
 import { TIMELINE_STEP_MS, toStep, useRadarFrames } from "@/hooks/useRadarFrames";
+import { useSharedReports } from "@/hooks/useSharedReports";
 import { useWeatherState } from "@/hooks/useWeatherState";
 import { useI18n } from "@/i18n/I18nProvider";
 import { placeLabel } from "@/i18n/places";
@@ -29,7 +30,7 @@ import { inRegion, lonShift, trackAhead, type Cyclone } from "@/lib/cyclones";
 import type { RouteFocus } from "@/components/radar/leaflet/RouteLayer";
 import type { Trip } from "@/hooks/useRouteWeather";
 import type { Verification } from "@/lib/crowdVerify";
-import type { CrowdReport } from "@/lib/crowdReports";
+import { liveReports, type CrowdReport } from "@/lib/crowdReports";
 import type { GeoBounds, GeoPoint, Place, RadarLayerType, WeatherSource } from "@/services/weather/types";
 
 // Leaflet touches `window`, so the map itself only renders in the browser.
@@ -69,7 +70,10 @@ interface DooFahRadarMapProps {
   place: Place;
   /** Makes a GPS fix the dashboard's place ("go to my location" on the map). */
   onLocated: (point: GeoPoint) => void;
-  /** People's weather reports from the last hour, and how they compare with the radar. */
+  /**
+   * People's weather reports from the last 3 hours around the place, and how they compare with the radar.
+   * With live data the map adds everyone's reports in its view.
+   */
   reports?: CrowdReport[];
   reportsNow?: number;
   verification?: Verification | null;
@@ -125,6 +129,12 @@ export function DooFahRadarMap({
   const [gestureHint, setGestureHint] = useState(false);
   const nextZoomRef = useRef<number | null>(null);
   const { frameSet, loading, error } = useRadarFrames(layer, bounds);
+  const shared = useSharedReports(source === "live" ? bounds : null);
+  // The place's reports (this device's included) and everyone's in view; a report near the place is in both.
+  const mapReports = useMemo(() => {
+    const ids = new Set(reports.map((r) => r.id));
+    return liveReports([...reports, ...shared.others.filter((r) => !ids.has(r.id))], reportsNow);
+  }, [reports, shared.others, reportsNow]);
   const { time, setTime, followMap, seek } = useWeatherState();
   const now = useNow();
   const reduceMotion = useReducedMotion();
@@ -250,7 +260,7 @@ export function DooFahRadarMap({
     if (when !== null) setTime(toStep(when));
   }, [tripFocus, trip, setTime]);
 
-  // Reports describe the last hour, so they show on the timeline's last hour up to now.
+  // Reports say what the sky is like now, so they show on the timeline's last hour up to now.
   const live = shown === null || nowStep === null || (shown <= nowStep && shown > nowStep - HOUR_MS);
 
   // Tropical cyclones: every active storm is drawn; the ones whose path or cone comes near the place
@@ -317,7 +327,8 @@ export function DooFahRadarMap({
           onMap={setMap}
           onGestureHint={setGestureHint}
           nextZoomRef={nextZoomRef}
-          reports={live ? reports : undefined}
+          reports={live ? mapReports : undefined}
+          reportCells={live ? shared.cells : undefined}
           reportsNow={reportsNow}
           night={night}
           trip={trip}

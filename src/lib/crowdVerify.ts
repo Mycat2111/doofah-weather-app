@@ -28,7 +28,7 @@ export interface Verification {
 export const agreesWithRadar = (report: CrowdReport, radar: ReportKind) =>
   isRainReport(report.kind) === isRainReport(radar);
 
-/** How the local reports of the last hour compare with the radar; null without reports. */
+/** How the local reports of the last 3 hours compare with the radar; null without reports. */
 export function verifyRadar(reports: CrowdReport[], radarAt: (report: CrowdReport) => ReportKind): Verification | null {
   if (reports.length === 0) return null;
   const total = reports.length;

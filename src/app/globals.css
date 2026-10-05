@@ -340,7 +340,7 @@ html:lang(th) {
   }
 }
 
-/* People's weather reports: a glass bubble with a ring that runs down over the hour. */
+/* People's weather reports: a glass bubble with a ring that runs down over their 3 hours. */
 .doofah-report-marker {
   --life: 1;
   background: none;
@@ -398,6 +398,26 @@ html:lang(th) {
   font-weight: 600;
   line-height: 14px;
   white-space: nowrap;
+}
+/* Many reports counted together: a bigger bubble with the count on its shoulder. */
+.doofah-report-marker.cell .life {
+  -webkit-mask: radial-gradient(circle, transparent 15px, #000 15.5px);
+  mask: radial-gradient(circle, transparent 15px, #000 15.5px);
+}
+.doofah-report-marker .count {
+  position: absolute;
+  top: -4px;
+  right: -8px;
+  min-width: 18px;
+  padding: 0 4px;
+  border-radius: 9999px;
+  background: #f8fafc;
+  color: #0f172a;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
 }
 @keyframes doofah-report-in {
   from {
