@@ -699,11 +699,13 @@ DooFah closed, using the same rule and the same words as the storm banner
 
 ### Sending them
 
-GitHub Actions (`.github/workflows/storm-push.yml`) calls `/api/push/send`
-at minutes 7 and 37 of every hour, with the health check's `HEALTH_TOKEN`;
-"Run workflow" under Actions → Storm alerts runs it at once, and its log
-shows how many storms, phones, alerts and pushes there were.
-`sendStormAlerts()` in `src/services/push/send.ts`:
+Upstash QStash calls `/api/push/send` every 30 minutes (see
+[Schedules on Upstash QStash](#schedules-on-upstash-qstash)). GitHub Actions
+(`.github/workflows/storm-push.yml`) also calls it at minutes 7 and 37 as a
+backup, with the health check's `HEALTH_TOKEN`; "Run workflow" under
+Actions → Storm alerts runs it at once, and its log shows how many storms,
+phones, alerts and pushes there were. `sendStormAlerts()` in
+`src/services/push/send.ts`:
 
 - **Reads ECMWF's newest cyclone tracks** the way `/api/cyclones` does. With
   no storm anywhere, it stops there and doesn't read a single phone.
@@ -725,7 +727,7 @@ shows how many storms, phones, alerts and pushes there were.
   the push address.
 - **One run at a time** (`push:run`, 2 minutes). The time of each finished
   run is kept, and the health check reports it as degraded after 2 hours
-  without one: GitHub turns schedules off after 60 days without commits.
+  without one, so a paused or deleted schedule shows up.
   A run with no storms costs 3 Upstash commands, about 4,500 a month of the
   free 500,000.
 
@@ -755,7 +757,7 @@ shows how many storms, phones, alerts and pushes there were.
 | Variable | What it is |
 | --- | --- |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Made once with `npx web-push generate-vapid-keys`. The public key is built into the page; the private key stays on the server. Never change the pair once people subscribe: every subscription is tied to it. |
-| `VAPID_SUBJECT` | A contact for the push services: `https://doofah-weather-app.vercel.app` or a `mailto:`. Apple refuses anything else. |
+| `VAPID_SUBJECT` | A contact for the push services, sent with every push: `https://doofah-weather-app.vercel.app`, or `mailto:` followed by an address. Apple refuses anything else, and with a bare address the push routes answer 503. It can be changed later; only the key pair can't. |
 | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Added by Vercel when Upstash for Redis is connected from the Marketplace (`UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` work too). |
 
 Push needs Node, not the Edge runtime (`web-push`). The bell only appears in
@@ -828,8 +830,10 @@ logs.
 
 ### Health check every 15 minutes
 
-GitHub Actions (`.github/workflows/health.yml`) calls `/api/health` every
-15 minutes. The route asks each source the way the API routes do, past
+Upstash QStash calls `/api/health` every 15 minutes (see
+[Schedules on Upstash QStash](#schedules-on-upstash-qstash)), and GitHub
+Actions (`.github/workflows/health.yml`) on the same schedule as a backup.
+The route asks each source the way the API routes do, past
 Vercel's cache (a cached answer would hide an outage), and answers each
 check's state: ok, degraded or down (`src/services/ops/health.ts`).
 
@@ -841,8 +845,9 @@ check's state: ok, degraded or down (`src/services/ops/health.ts`).
 
 Anything but ok sends a "Health check" alert; the route answers 200 when
 every source is ok or degraded, and 503 when one is down. When DooFah
-doesn't answer at all, or answers anything else, the workflow posts to
-Discord itself with a link to the run. Each check costs about 2 Open-Meteo
+doesn't answer at all, or answers anything else, the GitHub workflow posts
+to Discord itself with a link to the run (QStash can't, so this waits for
+the backup). Each check costs about 2 Open-Meteo
 calls and 1 TMD call, so about 192 of the 10,000 free Open-Meteo calls a
 day. Map tiles (36 calls each) aren't checked; the forecast check already
 shows whether Open-Meteo answers.
@@ -863,12 +868,73 @@ Setting it up:
 
 Until `HEALTH_TOKEN` is set, each run only notes that nothing was checked.
 A repository variable `HEALTH_URL` points the workflow at another address.
-GitHub may start a scheduled run a few minutes late, and turns schedules off
-after 60 days without activity in the repository; "Enable workflow" under
-Actions turns it back on. On Vercel's Pro plan, Vercel Cron can call the
+GitHub runs schedules late, or skips them, when it is busy: in October 2026
+the 15-minute check ran only every 3 to 5 hours, which is why QStash is the
+main scheduler. GitHub also turns schedules off after 60 days without
+activity in the repository; "Enable workflow" under Actions turns them back
+on. On Vercel's Pro plan, Vercel Cron can call the
 route instead (`vercel.json` with `{"crons": [{"path": "/api/health", "schedule": "*/15 * * * *"}]}`;
 Vercel sends `CRON_SECRET` by itself). On the Hobby plan a cron runs at most
 once a day, and a 15-minute schedule fails the deploy.
+
+### Schedules on Upstash QStash
+
+QStash, Upstash's message service (the same account as the storm alert
+store), calls both scheduled routes on time:
+
+| Schedule id | Calls | When (UTC) | Method | Retries |
+| --- | --- | --- | --- | --- |
+| `doofah-storm-alerts` | `/api/push/send` | `*/30 * * * *` | POST | 1 |
+| `doofah-health` | `/api/health` | `*/15 * * * *` | GET | 0 |
+
+Each call carries `Authorization: Bearer <CRON_SECRET>`: QStash passes on
+any header it was given as `Upstash-Forward-<name>`. That is 144 calls a
+day of the free plan's 1,000 messages (each retry counts as one; the free
+plan has up to 10 schedules). A storm run that gets 409 (a GitHub backup
+run is going) or 502 (ECMWF out of reach) is tried once more. The health
+check isn't retried: DooFah has already sent its own alert for a 503, which
+QStash's logs then show as failed.
+
+Setting them up, once, in a terminal:
+
+1. In the [Upstash Console](https://console.upstash.com/qstash) → QStash,
+   pick the US East region (next to Vercel's `iad1`) and copy
+   `QSTASH_TOKEN` from Quickstart. Each region has its own token: the EU
+   region's goes with `https://qstash.upstash.io` instead.
+2. Type `read -rs QSTASH_TOKEN`, press Enter, paste the token and press
+   Enter (nothing shows). Then `read -rs CRON_SECRET` the same way, with the
+   value of `CRON_SECRET` in Vercel. This keeps both out of the screen and
+   the shell history.
+3. Paste:
+
+   ```sh
+   QSTASH=https://qstash-us-east-1.upstash.io
+   APP=https://doofah-weather-app.vercel.app
+
+   curl -X POST "$QSTASH/v2/schedules/$APP/api/push/send" \
+     -H "Authorization: Bearer $QSTASH_TOKEN" \
+     -H "Upstash-Schedule-Id: doofah-storm-alerts" \
+     -H "Upstash-Cron: */30 * * * *" \
+     -H "Upstash-Retries: 1" \
+     -H "Upstash-Forward-Authorization: Bearer $CRON_SECRET"
+
+   curl -X POST "$QSTASH/v2/schedules/$APP/api/health" \
+     -H "Authorization: Bearer $QSTASH_TOKEN" \
+     -H "Upstash-Schedule-Id: doofah-health" \
+     -H "Upstash-Cron: */15 * * * *" \
+     -H "Upstash-Method: GET" \
+     -H "Upstash-Retries: 0" \
+     -H "Upstash-Forward-Authorization: Bearer $CRON_SECRET"
+   ```
+
+   Each answers `{"scheduleId":"doofah-…"}`. Run them again after changing
+   `CRON_SECRET`: the same ids update the schedules instead of adding new
+   ones.
+4. QStash → Schedules lists both; its Logs show each call within the next
+   half hour. After the first storm run, the health check's "Storm alerts
+   (push job)" line says "last ran … min ago".
+
+A schedule is paused or deleted under QStash → Schedules.
 
 ## Project structure
 
@@ -1073,8 +1139,8 @@ scripts/verify-push.ts             Checks behind `npm run verify:push`
 scripts/fixtures/ecmwf-*.bufr      ECMWF sample BUFR files for the cyclone checks (see ECMWF-SAMPLES.md)
 scripts/generate-bufr-tables.py    Writes src/services/cyclones/bufrTables.ts from ecCodes
 scripts/generate-icons.ts          `npm run icons`, from scripts/icons/doofah-icon.svg and doofah-badge.svg
-.github/workflows/health.yml       The 15-minute health check on GitHub Actions
-.github/workflows/storm-push.yml   The storm alert job every 30 minutes on GitHub Actions
+.github/workflows/health.yml       The 15-minute health check on GitHub Actions (backup to QStash)
+.github/workflows/storm-push.yml   The storm alert job on GitHub Actions (backup to QStash)
 ```
 
 ## The simulation (test and demo data)

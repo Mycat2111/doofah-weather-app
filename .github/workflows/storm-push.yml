@@ -1,4 +1,5 @@
-# Asks DooFah to send storm alerts every 30 minutes: /api/push/send reads ECMWF's newest
+# Backup for the Upstash QStash schedule (README: Schedules on Upstash QStash), which GitHub may
+# run late or skip when busy. Asks DooFah to send storm alerts: /api/push/send reads ECMWF's newest
 # cyclone tracks and pushes a notification to each phone with storm alerts on whose saved
 # places a storm may pass within 500 km of (once as a warning, once more if it turns severe).
 # With no storms anywhere it reads nothing and sends nothing.
