@@ -12,13 +12,22 @@
  *
  * Only DooFah's own pages may call them (browsers say where a request comes
  * from), each visitor may write 30 times an hour per server instance, and
- * nothing is kept unless it passes the checks in subscription.ts. Without the
- * VAPID keys or Redis they answer 503.
+ * nothing is kept unless it passes the checks in subscription.ts.
+ *
+ * - `POST /api/push/send`: the storm alert job, called every 30 minutes by
+ *   GitHub Actions (.github/workflows/storm-push.yml) with
+ *   `Authorization: Bearer <CRON_SECRET>`, like the health check.
+ *
+ * Without the VAPID keys or Redis they all answer 503.
  */
 
 import { MESSAGES } from "@/i18n/messages";
+import type { CycloneFeed } from "@/lib/cyclones";
+import { BufrError } from "../cyclones/bufr";
+import { CycloneSourceError, fetchCyclones } from "../cyclones/openData";
+import { allowed } from "../ops/auth";
 import { reportAfterReply, type Report } from "../ops/report";
-import { isGone, pushStatus, sendPush, webPushSender, type Sender } from "./send";
+import { isGone, pushStatus, sendPush, sendStormAlerts, webPushSender, type Sender } from "./send";
 import { redisStore, type PushStore } from "./store";
 import { readRecord, readSubscription, subscriptionId } from "./subscription";
 import { vapidFrom, type Vapid } from "./vapid";
@@ -37,11 +46,16 @@ export interface PushDeps {
   now: () => number;
   report: Report;
   send: Sender;
+  /** CRON_SECRET: the send job's callers must present it. */
+  secret: string | undefined;
+  /** ECMWF's active storms, as /api/cyclones reads them. */
+  cyclones: (now: number, onFallback: (reason: string) => void) => Promise<CycloneFeed>;
 }
 
 export interface PushServer {
   subscribe(request: Request): Promise<Response>;
   test(request: Request): Promise<Response>;
+  sendStorms(request: Request): Promise<Response>;
 }
 
 const reply = (status: number, body?: unknown) =>
@@ -60,12 +74,14 @@ export const storeProblem = (error: unknown) =>
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
 export function pushServer(deps: Partial<PushDeps> = {}): PushServer {
-  const { store, vapid, now, report, send }: PushDeps = {
+  const { store, vapid, now, report, send, secret, cyclones }: PushDeps = {
     store: deps.store === undefined ? redisStore() : deps.store,
     vapid: deps.vapid === undefined ? vapidFrom() : deps.vapid,
     now: deps.now ?? Date.now,
     report: deps.report ?? reportAfterReply,
     send: deps.send ?? webPushSender,
+    secret: "secret" in deps ? deps.secret : process.env.CRON_SECRET?.trim(),
+    cyclones: deps.cyclones ?? ((at, onFallback) => fetchCyclones(at, fetch, onFallback)),
   };
   const visitors = new Map<string, number[]>();
 
@@ -188,6 +204,37 @@ export function pushServer(deps: Partial<PushDeps> = {}): PushServer {
         }
         report({ kind: "error", api, message: `502: the push service answered ${status || "nothing"}` });
         return refuse(502, "The push service did not take the test");
+      }
+    },
+
+    async sendStorms(request) {
+      const api = "/api/push/send";
+      if (!allowed(request.headers.get("authorization"), secret)) return refuse(401, "Not allowed");
+      if (!store || !vapid) return refuse(503, "Storm alerts are not set up");
+      const started = now();
+      try {
+        // A run started by hand while the scheduled one is going would send the same alerts twice.
+        if (!(await store.claimRun())) return refuse(409, "Already running");
+      } catch (error) {
+        return failed(api, error);
+      }
+      try {
+        let feed: CycloneFeed;
+        try {
+          feed = await cyclones(started, (reason) => report({ kind: "fallback", api, message: reason }));
+        } catch (error) {
+          if (!(error instanceof CycloneSourceError || error instanceof BufrError)) throw error;
+          // Both of ECMWF's sources failed: nothing is sent, and the next run tries again.
+          report({ kind: "error", api, message: `502, ${error.message}` });
+          return refuse(502, error.message);
+        }
+        const summary = await sendStormAlerts(feed, store, vapid, started, report, send);
+        await store.setLastRun(started);
+        return reply(200, { ok: true, run: feed.run, ...summary });
+      } catch (error) {
+        return failed(api, error);
+      } finally {
+        await store.releaseRun().catch(() => undefined);
       }
     },
   };

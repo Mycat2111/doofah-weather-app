@@ -1,7 +1,8 @@
 /**
  * Server side of /api/health: asks each source the way the routes do, past
  * Vercel's edge cache (a cached answer would hide an outage), says how each
- * one is, and sends an alert when one isn't ok. Called every 15 minutes by
+ * one is (and, once storm alerts are set up, when their job last ran), and
+ * sends an alert when one isn't ok. Called every 15 minutes by
  * GitHub Actions (.github/workflows/health.yml), which tells Discord itself
  * when DooFah doesn't answer at all.
  *
@@ -9,12 +10,13 @@
  * one else can spend DooFah's free Open-Meteo calls.
  */
 
-import { timingSafeEqual } from "node:crypto";
 import type { CycloneFeed } from "@/lib/cyclones";
 import { fetchCyclones } from "../cyclones/openData";
 import type { UnifiedForecast } from "../forecast/types";
 import { getUnifiedForecast } from "../forecast/unified";
+import { redisStore } from "../push/store";
 import { alertTargets, sendAlert } from "./alert";
+import { allowed } from "./auth";
 import { reportAfterReply, type Report } from "./report";
 
 export type Status = "ok" | "degraded" | "down";
@@ -31,6 +33,8 @@ export interface Check {
 export interface Probes {
   forecast: (now: number) => Promise<UnifiedForecast>;
   cyclones: (now: number, onFallback: (reason: string) => void) => Promise<CycloneFeed>;
+  /** When the storm alert job last finished (null before its first run); absent while push isn't set up. */
+  pushRun?: () => Promise<number | null>;
 }
 
 /** A place in Thailand, so both models are checked: Bangkok. */
@@ -39,11 +43,16 @@ const PROBE = { lat: 13.75, lon: 100.5 };
 const MIN_HOURS = 300;
 /** A check that hasn't answered in this long is down, so the route answers before Vercel stops it (maxDuration). */
 export const CHECK_TIMEOUT_MS = 40_000;
+/** The storm alert job runs every 30 minutes; this long without a run means its schedule stopped. */
+export const PUSH_STALE_MS = 2 * 3_600_000;
+
+const pushStore = redisStore();
 
 const defaultProbes: Probes = {
   // About 2 Open-Meteo calls and 1 TMD call: 192 of the 10,000 free calls a day at every 15 minutes.
   forecast: (now) => getUnifiedForecast(PROBE.lat, PROBE.lon, now),
   cyclones: (now, onFallback) => fetchCyclones(now, fetch, onFallback),
+  pushRun: pushStore ? () => pushStore.lastRun() : undefined,
 };
 
 const reasonOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -73,6 +82,7 @@ export function runChecks(
   probes: Probes = defaultProbes,
   timeoutMs: number = CHECK_TIMEOUT_MS,
 ): Promise<Check[]> {
+  const { pushRun } = probes;
   return Promise.all([
     timed(
       "Forecast (ECMWF + WRF, Bangkok)",
@@ -97,15 +107,24 @@ export function runChecks(
       },
       timeoutMs,
     ),
+    // GitHub pauses a public repo's schedules after 60 days without commits; this says so before anyone misses an alert.
+    ...(pushRun
+      ? [
+          timed(
+            "Storm alerts (push job)",
+            async () => {
+              const last = await pushRun();
+              if (last === null) return { status: "ok" as const, detail: "no run yet" };
+              const minutes = Math.round((now - last) / 60_000);
+              return now - last > PUSH_STALE_MS
+                ? { status: "degraded" as const, detail: `last ran ${minutes} min ago; is its schedule paused?` }
+                : { status: "ok" as const, detail: `last ran ${minutes} min ago` };
+            },
+            timeoutMs,
+          ),
+        ]
+      : []),
   ]);
-}
-
-/** Whether `header` is `Bearer <secret>`, compared in constant time. */
-function allowed(header: string | null, secret: string | undefined): boolean {
-  if (!secret || !header) return false;
-  const given = Buffer.from(header);
-  const wanted = Buffer.from(`Bearer ${secret}`);
-  return given.length === wanted.length && timingSafeEqual(given, wanted);
 }
 
 const reply = (body: unknown, status = 200) =>

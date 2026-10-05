@@ -310,6 +310,8 @@ export interface CycloneAlert {
   category: CycloneCategory;
   /** The place it comes closest to: the dashboard's place, else the nearest favorite. */
   place: string;
+  /** That place's id (in a storm notification, the hashed ref its link opens). */
+  placeId: string;
   km: number;
   /** When it is closest (ISO); null when it is that close already. */
   at: string | null;
@@ -361,6 +363,7 @@ export function cycloneAlerts(feed: CycloneFeed, place: CyclonePlace, favorites:
       name: storm.name,
       category: categoryOf(nowPoint?.wind_kmh ?? null, storm.basin),
       place: main.place.name,
+      placeId: main.place.id,
       km: Math.round(main.km / 10) * 10,
       at: main.time <= now + 30 * 60_000 ? null : new Date(main.time).toISOString(),
       windKmh: then?.wind_kmh == null ? null : Math.round(then.wind_kmh),

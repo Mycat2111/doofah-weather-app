@@ -15,7 +15,7 @@ import { TmdError } from "../src/services/forecast/tmd";
 import type { UnifiedForecast } from "../src/services/forecast/types";
 import { OpenMeteoError } from "../src/services/openmeteo/api";
 import { alertTargets, sendAlert, type Alert } from "../src/services/ops/alert";
-import { healthResponse, runChecks, type Check, type Probes } from "../src/services/ops/health";
+import { PUSH_STALE_MS, healthResponse, runChecks, type Check, type Probes } from "../src/services/ops/health";
 import { reportAfterReply } from "../src/services/ops/report";
 import { isTransient, withRetry } from "../src/services/ops/retry";
 
@@ -323,6 +323,28 @@ const CHECKS = [
     assert.equal(late[1].status, "down");
     assert.equal(late[1].detail, "no answer in 0.05 s", "the route answers before Vercel stops it");
   }),
+
+  check(
+    "the storm alert job: when it last ran, degraded after 2 hours without a run; left out until set up",
+    async () => {
+      assert.equal((await runChecks(NOW, healthy)).length, 2, "no push store, no check");
+      const at = (last: number | null) => runChecks(NOW, { ...healthy, pushRun: async () => last });
+      assert.deepEqual(statuses((await at(null)).slice(2)), ["ok Storm alerts (push job): no run yet"]);
+      assert.deepEqual(statuses((await at(NOW - 31 * 60_000)).slice(2)), [
+        "ok Storm alerts (push job): last ran 31 min ago",
+      ]);
+      assert.deepEqual(statuses((await at(NOW - PUSH_STALE_MS - 60_000)).slice(2)), [
+        "degraded Storm alerts (push job): last ran 121 min ago; is its schedule paused?",
+      ]);
+      const broken = await runChecks(NOW, {
+        ...healthy,
+        pushRun: async () => {
+          throw new Error("WRONGPASS invalid password");
+        },
+      });
+      assert.deepEqual(statuses(broken.slice(2)), ["down Storm alerts (push job): WRONGPASS invalid password"]);
+    },
+  ),
 
   check("?test sends only a test alert, and says whether a channel is set up", async () => {
     const response = await healthResponse(
