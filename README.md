@@ -482,11 +482,12 @@ sends a report.
     the last hour.
 - **Changing your mind.** Tapping again within 10 minutes changes your report
   instead of adding a second one.
-- **No shared backend yet.** Your reports are kept on the device
+- **Not shared yet.** The shared backend is in place
+  ([Shared reports on Supabase](#shared-reports-on-supabase)), but the page
+  doesn't use it yet. Your reports are kept on the device
   (`src/lib/crowdReports.ts`). Other people's reports and the badge below
   only show with `?data=sim`, from
-  `src/services/simulation/SimulatedCrowdReports.ts`, since real ones need a
-  shared backend.
+  `src/services/simulation/SimulatedCrowdReports.ts`.
   - Your reports are kept in localStorage, so they survive a reload.
   - Other people's reports are simulated from the same weather model as the
     radar. There are about six an hour within 30 km, more when it rains, and
@@ -500,6 +501,77 @@ sends a report.
   - The badge needs at least 2 people agreeing and at least 60% of the local
     reports.
   - When fewer than half agree, the badge says local users differ instead.
+
+### Shared reports on Supabase
+
+Everyone's reports are kept in Supabase (Postgres with PostGIS), behind
+DooFah's own routes. The browser never talks to Supabase and never holds a
+key for it.
+
+| Route | What it does |
+| --- | --- |
+| `GET /api/reports?tile=size,row,col` | One map tile's reports from the last 3 hours: one by one, or counted per cell when the tile has more than 200. 400 for a tile that isn't one, 503 while Supabase isn't set up |
+| `POST /api/reports` | Sends a report, `{ kind, lat, lon, device }`, from DooFah's own page only: 201 with the saved report, 429 after 6 reports in an hour from one phone, 503 while Supabase isn't set up |
+
+- **The table.** `crowd_reports` holds the kind, the spot as a PostGIS
+  point, the time and a hash of who sent it
+  (`supabase/migrations/20261005230000_crowd_reports.sql`). A GiST index on
+  the spot finds the reports in a box without reading the rest of the table.
+- **Map tiles.** The map asks by tile, not by its exact view
+  (`src/lib/sharedReports.ts`). A tile is a square of 0.25°, 1°, 5° or 15°,
+  counted from 0° N 0° E, and the size follows the zoom so a view takes at
+  most 3 × 3 tiles. Everyone looking at the same area asks for the same
+  tiles. Vercel's edge keeps each one for 30 seconds, so Supabase is asked
+  about twice a minute per tile in use in each Vercel region, however many
+  people are looking.
+  While Supabase is down, the edge keeps serving the last answer for 10
+  minutes.
+- **Many reports.** A tile with more than 200 live reports comes back
+  counted per cell instead, 16 cells a side, each with how many of each kind
+  and when the newest was made. All of Thailand stays an answer of a few
+  kB, however busy it gets.
+- **3 hours, then gone.** Every read asks only for reports younger than 3
+  hours, so an old report leaves the map on time. Supabase Cron (pg_cron)
+  also deletes them every 10 minutes, so the table only ever holds the last
+  few hours.
+- **Changing your mind.** Reporting again within 10 minutes and 1 km
+  replaces your report there. Each phone can send 6 reports an hour, and
+  each visitor 30 sends an hour per server instance.
+- **Privacy.** A spot is rounded to 0.01° (about 1 km) before it is saved.
+  Who sent it is a keyed hash of the phone's random id, never the id itself
+  or an IP address, so it can't be traced back to a phone without
+  DooFah's secret key. Row level security is on with no policies, and the
+  functions are closed to Supabase's browser keys, so only the server's
+  secret key can read or write.
+- **Health.** `/api/health` adds "Shared reports (Supabase)" once it is set
+  up. The check is degraded when a row is more than 3.5 hours old, which
+  means the cleanup job stopped. Its call every 15 minutes also keeps a free
+  Supabase project from being paused (Supabase pauses one after a week with
+  no database requests).
+- **Cost.** A report row is about 100 bytes, and only 3 hours of them are
+  kept, so the free plan's 500 MB is far more than DooFah needs.
+
+Setting it up:
+
+1. At [supabase.com](https://supabase.com), create a project on the free
+   plan in **East US (North Virginia)**, the same region as DooFah's Vercel
+   functions.
+2. In the project's SQL Editor, paste all of
+   `supabase/migrations/20261005230000_crowd_reports.sql` and choose Run. It
+   turns on PostGIS and Cron, creates the table and its functions, and
+   schedules the cleanup. Running it again changes nothing.
+3. Under Project Settings → API Keys, create a secret key (for example
+   `doofah-server`) and copy it, along with the project URL.
+4. In Vercel → Settings → Environment Variables, add `SUPABASE_URL` (the
+   project URL) and `SUPABASE_SECRET_KEY` (the secret key, marked
+   Sensitive) for Production and Preview, then redeploy.
+5. Check it: `https://<your-app>/api/reports?tile=1,13,100` answers
+   `{"reports":[],"cells":[]}`, and the health check lists "Shared reports
+   (Supabase) · 0 live reports". Cron → Jobs in Supabase shows
+   `doofah-delete-old-reports` every 10 minutes.
+
+A project that still uses the older service_role key works with
+`SUPABASE_SERVICE_ROLE_KEY` in place of `SUPABASE_SECRET_KEY`.
 
 ## Route weather
 
@@ -846,6 +918,7 @@ check's state: ok, degraded or down (`src/services/ops/health.ts`).
 | Forecast for Bangkok (ECMWF and WRF) | WRF is missing, or ECMWF sent under 300 hours | ECMWF fails after 2 tries, or no answer in 40 s |
 | Cyclone tracks | ECMWF's portal had to answer for Google Cloud | Both fail, or no answer in 40 s |
 | Storm alerts (push job), only once Redis is set up | No run for 2 hours | Redis doesn't answer |
+| Shared reports, only once Supabase is set up | A report row is over 3.5 hours old (the cleanup stopped) | Supabase doesn't answer |
 
 Anything but ok sends a "Health check" alert; the route answers 200 when
 every source is ok or degraded, and 503 when one is down. When DooFah
@@ -956,6 +1029,7 @@ src/
 │   ├── api/push/subscribe/        Storm alerts on (POST), renewed (PUT) or off (DELETE) for this device
 │   ├── api/push/test/             One test notification to this device, at most once a minute
 │   ├── api/push/send/             The storm alert job, called every 30 minutes by GitHub Actions
+│   ├── api/reports/               Everyone's weather reports by map tile (GET), and sending one (POST)
 │   ├── manifest.ts                Web app manifest (install name, colours, icons)
 │   ├── icon.svg, apple-icon.png, favicon.ico   App icons (from `npm run icons`)
 │   └── globals.css                Glass surfaces, sky effects, touch rules, Leaflet styling
@@ -1049,6 +1123,7 @@ src/
 │   ├── rainCountdown.ts           Time to the next rain: by the hour for live forecasts, the radar nowcast with the simulation
 │   ├── crowdReports.ts            Report kinds, how long a report lasts, and this device's reports
 │   ├── crowdVerify.ts             When local reports count as verifying the rain radar
+│   ├── sharedReports.ts           Everyone's reports: map tiles, the 3 hours, and what /api/reports sends
 │   ├── routeWeather.ts            Stops along a route, how wet each is, the trip outlook
 │   ├── voiceSummary.ts            What the spoken summary says
 │   ├── speech.ts                  Picking the best voice for a language
@@ -1096,6 +1171,10 @@ src/
     │   ├── send.ts                One push with web-push, what a refusal means, and the storm alert job
     │   ├── message.ts             A storm notification's words, in the phone's language and time zone
     │   └── http.ts                Server side of /api/push/subscribe, /api/push/test and /api/push/send
+    ├── reports/
+    │   ├── supabase.ts            Supabase's REST API with the secret key, from the server only
+    │   ├── store.ts               The crowd_reports functions: reports in a box, sending one, status
+    │   └── http.ts                Server side of /api/reports: tiles, edge caching, checks, the phone's hash
     ├── tts/
     │   └── googleTts.ts           Server side of /api/voice: Google Cloud Text-to-Speech
     ├── routing/
@@ -1140,11 +1219,13 @@ scripts/verify-fields.ts           Checks behind `npm run verify:fields`
 scripts/verify-cyclones.ts         Checks behind `npm run verify:cyclones`
 scripts/verify-ops.ts              Checks behind `npm run verify:ops`
 scripts/verify-push.ts             Checks behind `npm run verify:push`
+scripts/verify-shared-reports.ts   Checks behind `npm run verify:shared-reports`
 scripts/fixtures/ecmwf-*.bufr      ECMWF sample BUFR files for the cyclone checks (see ECMWF-SAMPLES.md)
 scripts/generate-bufr-tables.py    Writes src/services/cyclones/bufrTables.ts from ecCodes
 scripts/generate-icons.ts          `npm run icons`, from scripts/icons/doofah-icon.svg and doofah-badge.svg
 .github/workflows/health.yml       The 15-minute health check on GitHub Actions (backup to QStash)
 .github/workflows/storm-push.yml   The storm alert job on GitHub Actions (backup to QStash)
+supabase/migrations/               The shared reports' table, functions and cleanup, run once in Supabase
 ```
 
 ## The simulation (test and demo data)
