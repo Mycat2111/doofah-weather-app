@@ -13,11 +13,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { createServer, type IncomingHttpHeaders } from "node:http";
 import type { AddressInfo } from "node:net";
-import { REPORT_KINDS, type ReportKind } from "../src/lib/crowdReports";
+import { REPORT_KINDS, REPORT_TTL_MS, type ReportKind } from "../src/lib/crowdReports";
 import {
   CELLS_PER_SIDE,
   MAX_POINTS,
-  SHARED_REPORT_TTL_MS,
   TILE_SIZES,
   cellSize,
   parseTile,
@@ -563,7 +562,7 @@ const CHECKS = [
 
   check("Migration: the same 3 hours, kinds and rules as the code; closed to the browser's keys", async () => {
     const sql = await readFile(MIGRATION, "utf8");
-    assert.equal(SHARED_REPORT_TTL_MS, 3 * HOUR);
+    assert.equal(REPORT_TTL_MS, 3 * HOUR);
     assert.match(sql, /crowd_report_ttl\(\)[\s\S]*?select interval '3 hours'/);
     const kinds = sql.match(/create type public\.report_kind as enum \(([^)]*)\)/)![1];
     assert.deepEqual(

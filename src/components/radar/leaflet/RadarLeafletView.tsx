@@ -11,6 +11,7 @@ import { haptic } from "@/lib/haptics";
 import { useFrameAt } from "@/hooks/useRadarFrames";
 import type { Trip } from "@/hooks/useRouteWeather";
 import type { CrowdReport } from "@/lib/crowdReports";
+import type { ReportCell } from "@/lib/sharedReports";
 import { sampleGrid } from "@/services/weather/grid";
 import type { GeoBounds, GeoPoint, RadarFrame, RadarFrameSet, RadarGridSpec } from "@/services/weather/types";
 import { CLOUD_SCALE, PRECIP_SCALE, PRESSURE_SCALE, TEMPERATURE_SCALE, WIND_SCALE } from "../colorScales";
@@ -36,8 +37,9 @@ export interface RadarLeafletViewProps {
   onGestureHint?: (show: boolean) => void;
   /** Zoom for the next fly to a new centre (set by "go to my location"); otherwise at least 9. */
   nextZoomRef?: RefObject<number | null>;
-  /** People's weather reports to pin on the map, and the time their age is measured from. */
+  /** People's weather reports to pin on the map, counted ones in busy areas, and the time their age is measured from. */
   reports?: CrowdReport[];
+  reportCells?: ReportCell[];
   reportsNow?: number;
   /** Night at the place: "sunny" reports show a moon. */
   night?: boolean;
@@ -314,6 +316,7 @@ export default function RadarLeafletView({
   onGestureHint,
   nextZoomRef,
   reports = [],
+  reportCells = [],
   reportsNow = 0,
   night = false,
   trip = null,
@@ -377,7 +380,7 @@ export default function RadarLeafletView({
         <RouteLayer trip={trip} frameTime={time} focus={tripFocus} timeZone={timeZone} stopName={tripStopName} />
       )}
       <Marker position={position} icon={userIcon} keyboard={false} interactive={false} />
-      <ReportMarkers reports={reports} now={reportsNow} night={night} />
+      <ReportMarkers reports={reports} cells={reportCells} center={center} now={reportsNow} night={night} />
     </MapContainer>
   );
 }

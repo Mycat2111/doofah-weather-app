@@ -15,14 +15,14 @@ export const REPORT_STYLE: Record<ReportKind, { icon: LucideIcon; night?: Lucide
 
 /** Say that the sky is sunny, cloudy or raining where you are, in one tap. */
 export function WeatherReportBar({
-  reports,
+  nearby,
   mine,
   now,
   isDay,
   onReport,
 }: {
-  /** Live local reports, this device's included. */
-  reports: CrowdReport[];
+  /** Other people's live reports nearby. */
+  nearby: number;
   mine: CrowdReport | null;
   now: number;
   isDay: boolean;
@@ -30,7 +30,6 @@ export function WeatherReportBar({
 }) {
   const { m } = useI18n();
   const name = (kind: ReportKind) => (kind === "sunny" && !isDay ? m.reports.clear : m.reports.kinds[kind]);
-  const others = reports.filter((r) => !r.mine).length;
   const minutes = mine ? Math.max(0, Math.floor((now - Date.parse(mine.time)) / 60_000)) : 0;
   const status = !mine
     ? { key: "hint", text: m.reports.hint }
@@ -45,7 +44,7 @@ export function WeatherReportBar({
           <Users className="size-3.5 shrink-0 text-sky-200" aria-hidden />
           {m.reports.title}
         </p>
-        {others > 0 && <span className="text-[11px] text-white/50 th:text-xs">{m.reports.nearby(others)}</span>}
+        {nearby > 0 && <span className="text-[11px] text-white/50 th:text-xs">{m.reports.nearby(nearby)}</span>}
       </div>
 
       <div className="mt-2.5 grid grid-cols-4 gap-1.5 max-[359px]:grid-cols-2">

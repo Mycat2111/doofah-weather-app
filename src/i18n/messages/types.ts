@@ -189,6 +189,8 @@ export interface Messages {
     yours: (kind: string, ago: string) => string;
     ago: (minutes: number) => string;
     nearby: (count: number) => string;
+    /** Many reports counted together on the map; `kind` is what most of them say, already translated. */
+    counted: (count: number, kind: string) => string;
     you: string;
     verified: (people: number) => string;
     disputed: (agreeing: number, total: number) => string;

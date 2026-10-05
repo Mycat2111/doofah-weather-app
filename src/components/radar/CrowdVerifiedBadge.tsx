@@ -11,7 +11,7 @@ const LOOK: Record<VerificationStatus, { icon: LucideIcon; tone: string }> = {
   few: { icon: Users, tone: "text-sky-200" },
 };
 
-/** "Verified by 5 local users": how people's reports from the last hour compare with the rain radar. */
+/** "Verified by 5 local users": how people's reports from the last 3 hours compare with the rain radar. */
 export function CrowdVerifiedBadge({ verification }: { verification: Verification | null }) {
   const { m } = useI18n();
   const text = !verification

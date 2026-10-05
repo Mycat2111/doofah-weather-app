@@ -309,7 +309,7 @@ function Dashboard({
                 onBackToNow={() => setTime(null)}
                 reportBar={
                   <WeatherReportBar
-                    reports={crowd.reports}
+                    nearby={crowd.nearby}
                     mine={crowd.mine}
                     now={crowd.now}
                     isDay={current.sample.isDay}

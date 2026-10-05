@@ -471,30 +471,40 @@ the same countdown as the badge, so they never disagree with it:
 
 Under the rain countdown, "What's the sky like where you are?" has four
 buttons: Sunny (Clear after dark), Cloudy, Light rain and Heavy rain. One tap
-sends a report.
+sends a report, and everyone using DooFah sees it on the map for 3 hours.
 
 - **On the map.** Your report shows next to your pin with a "You" tag.
-  Other people's reports from the last hour show as small glass bubbles.
-  - Each bubble has a ring that runs down over the hour. The bubble fades as
-    the ring empties, and it leaves the map 60 minutes after the report was
-    made.
+  Other people's reports from the last 3 hours show as small glass bubbles,
+  everywhere in the map's view.
+  - Each bubble has a ring that runs down over the 3 hours. The bubble
+    fades as the ring empties, and it leaves the map 3 hours after the
+    report was made.
+  - In a busy area, reports come counted: one bigger bubble with the kind
+    most people report there (rain wins a tie) and how many reported.
   - Reports only show on the "now" end of the timeline, since they describe
-    the last hour.
-- **Changing your mind.** Tapping again within 10 minutes changes your report
-  instead of adding a second one.
-- **Not shared yet.** The shared backend is in place
-  ([Shared reports on Supabase](#shared-reports-on-supabase)), but the page
-  doesn't use it yet. Your reports are kept on the device
-  (`src/lib/crowdReports.ts`). Other people's reports and the badge below
-  only show with `?data=sim`, from
-  `src/services/simulation/SimulatedCrowdReports.ts`.
-  - Your reports are kept in localStorage, so they survive a reload.
-  - Other people's reports are simulated from the same weather model as the
-    radar. There are about six an hour within 30 km, more when it rains, and
-    about one in eight picks the "wrong" button.
-  - The same place and time always give the same reports.
+    the sky now.
+- **Nearby.** The report card counts other people's reports within 30 km of
+  the place.
+- **Changing your mind.** Tapping again within 10 minutes and 1 km changes
+  your report instead of adding a second one, on the device and on the
+  server alike.
+- **Shared with everyone.** A tap shows at once from this device's storage
+  (`src/lib/crowdReports.ts`) and is sent to `/api/reports`
+  (`src/hooks/useSharedReports.ts`). The map asks for everyone's reports
+  every minute, so other people see a new one within about a minute.
+  - Your own reports always show from your device, never twice. The ids the
+    server gave them are kept with them, including the one a change of mind
+    replaced.
+  - Until Supabase is set up (below), the server answers 503, and reports
+    stay on the device that sent them.
+  - With `?data=sim`, nothing is sent. Other people's reports come from
+    `src/services/simulation/SimulatedCrowdReports.ts`, simulated from the
+    same weather model as the radar. That's about six an hour within 30 km,
+    more when it rains, and about one in eight picks the "wrong" button. The
+    same place and time always give the same reports.
 - **"Verified by 5 local users".** This badge sits under the layer
-  switcher while the rain layer is showing. The rule is in
+  switcher while the rain layer is showing, with `?data=sim` (the rule needs
+  the radar at each report's spot and time). The rule is in
   `src/lib/crowdVerify.ts`.
   - A report agrees with the radar when both say rain, or both say dry, at the
     report's spot and time.
@@ -1102,7 +1112,8 @@ src/
 │   ├── useFavorites.ts            Favorite places from localStorage, synced across tabs
 │   ├── useGeolocation.ts          Browser location with status
 │   ├── useNow.ts                  A shared clock that ticks every 15 s, for countdowns
-│   ├── useCrowdReports.ts         Local reports (yours, and simulated ones with ?data=sim), and whether they back the radar
+│   ├── useCrowdReports.ts         Reports around the place: yours, everyone's (or simulated ones with ?data=sim), and whether they back the radar
+│   ├── useSharedReports.ts        Everyone's reports in a view from /api/reports, every minute, and sharing yours
 │   ├── useSpotWeather.ts          Weather at the favorites, from the forecast their dashboards read
 │   ├── useRouteWeather.ts         Route card state: places, leave time, route and stop weather
 │   ├── useSpeech.ts               Web Speech: voice choice, sentence by sentence, stop
@@ -1121,9 +1132,9 @@ src/
 │   ├── haptics.ts                 Short vibrations on Android and iPhone
 │   ├── lifestyle.ts               Lifestyle card rules: good, take care or not now, and why
 │   ├── rainCountdown.ts           Time to the next rain: by the hour for live forecasts, the radar nowcast with the simulation
-│   ├── crowdReports.ts            Report kinds, how long a report lasts, and this device's reports
+│   ├── crowdReports.ts            Report kinds, the 3 hours a report lasts, and this device's reports and random id
 │   ├── crowdVerify.ts             When local reports count as verifying the rain radar
-│   ├── sharedReports.ts           Everyone's reports: map tiles, the 3 hours, and what /api/reports sends
+│   ├── sharedReports.ts           Everyone's reports: map tiles, what /api/reports sends, yours left out, counting nearby
 │   ├── routeWeather.ts            Stops along a route, how wet each is, the trip outlook
 │   ├── voiceSummary.ts            What the spoken summary says
 │   ├── speech.ts                  Picking the best voice for a language
