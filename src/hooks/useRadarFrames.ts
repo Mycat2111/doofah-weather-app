@@ -1,7 +1,8 @@
 "use client";
 
 import type { MotionValue } from "framer-motion";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import useSWR from "swr";
 import { useNow } from "@/hooks/useNow";
 import { useWeatherState } from "@/hooks/useWeatherState";
 import { frameBetween, frameFlow, frameSpan, type Flow } from "@/components/radar/interpolate";
@@ -25,70 +26,64 @@ const RETRY_MS = 60_000;
  */
 const SETTLE_MS = 500;
 
-interface RadarState {
-  key: string;
-  data?: RadarFrameSet;
-  error?: string;
-}
+/** What a frame set is kept under: the source, layer, area and hour it is for (SWR compares the area by value). */
+type FramesKey = readonly ["frames", string, RadarLayerType, GeoBounds, number];
 
-const keyOf = (layer: RadarLayerType, bounds: GeoBounds | null, hour: number) =>
-  bounds ? `${layer}:${bounds.flat().join(",")}:${hour}` : "";
+/** `value` once it has stayed the same for `ms`; the first one at once. */
+function useSettled<T>(value: T | null, ms: number): T | null {
+  const [settled, setSettled] = useState(value);
+  // The map's first area needs no wait.
+  if (settled === null && value !== null) setSettled(value);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSettled(value), ms);
+    return () => window.clearTimeout(timer);
+  }, [value, ms]);
+  return settled;
+}
 
 /**
  * Hourly frames for one layer over the given area, past 3 h to +24 h, again
  * when the hour turns: from the same source as the forecast (ECMWF when live,
- * the simulation otherwise). Keeps showing the last frame set while a new one
- * comes, waits for the map to rest before asking for a new area, and tries
- * again a minute after a failure.
+ * the simulation otherwise). A layer and area seen in the last few minutes
+ * comes back at once from the page's memory (SwrProvider keeps the 12 latest
+ * answers). Keeps showing the last frames while new ones come, waits for the
+ * map to rest before asking for a new area, and tries again a minute after a
+ * failure.
  */
 export function useRadarFrames(layer: RadarLayerType, bounds: GeoBounds | null) {
   const { fields } = useWeatherState();
-  const [state, setState] = useState<RadarState>({ key: "" });
-  const [attempt, setAttempt] = useState(0);
   const now = useNow();
   const hour = now === null ? 0 : floorToHour(now);
-  const key = keyOf(layer, bounds, hour);
-  const lastBounds = useRef<GeoBounds | null>(null);
+  // A new layer or hour is asked for at once, a new area once the map rests.
+  const area = useSettled(bounds, SETTLE_MS);
+  const key: FramesKey | null = area && hour ? ["frames", fields.source, layer, area, hour] : null;
 
-  useEffect(() => {
-    if (!bounds || !hour) return;
-    let cancelled = false;
-    let retry = 0;
-    const moved = lastBounds.current !== null && lastBounds.current !== bounds;
-    lastBounds.current = bounds;
-    const requestKey = keyOf(layer, bounds, hour);
-    const load = () =>
-      fields
-        .getRadarFrames({
-          layer,
-          bounds,
-          fromOffsetHours: TIMELINE_FROM,
-          toOffsetHours: TIMELINE_TO,
-          maxCellsPerSide: 110,
-        })
-        .then((data) => !cancelled && setState({ key: requestKey, data }))
-        .catch((error: unknown) => {
-          if (cancelled) return;
-          setState((prev) => ({
-            ...prev,
-            key: requestKey,
-            error: error instanceof Error ? error.message : String(error),
-          }));
-          retry = window.setTimeout(() => setAttempt((n) => n + 1), RETRY_MS);
-        });
-    // A new layer, hour or retry loads at once; a new area once the map rests.
-    const settle = window.setTimeout(load, moved ? SETTLE_MS : 0);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(settle);
-      window.clearTimeout(retry);
-    };
-  }, [fields, layer, bounds, hour, attempt]);
+  const { data, error, isLoading } = useSWR<RadarFrameSet, unknown, FramesKey | null>(
+    key,
+    // Read from the key, not this render: a retry for an earlier key must ask for that key's layer and area.
+    ([, , layer, bounds]) =>
+      fields.getRadarFrames({
+        layer,
+        bounds,
+        fromOffsetHours: TIMELINE_FROM,
+        toOffsetHours: TIMELINE_TO,
+        maxCellsPerSide: 110,
+      }),
+    {
+      keepPreviousData: true, // the last frames stay on the map while new ones come
+      // Frames change with the hour (a new key), not with focus or time on screen.
+      revalidateIfStale: false,
+      revalidateOnFocus: false,
+      onErrorRetry: (_error, _key, _config, revalidate, { retryCount }) => {
+        window.setTimeout(() => void revalidate({ retryCount }), RETRY_MS);
+      },
+    },
+  );
 
   return {
-    frameSet: state.data,
-    loading: state.key !== key,
-    error: state.key === key ? state.error : undefined,
+    frameSet: data,
+    loading: isLoading || area !== bounds,
+    error: error ? (error instanceof Error ? error.message : String(error)) : undefined,
   };
 }
 
