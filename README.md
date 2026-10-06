@@ -940,6 +940,15 @@ Setting them up, once, in a terminal:
 
 A schedule is paused or deleted under QStash → Schedules.
 
+## v2 forecast pipeline (in progress)
+
+DooFah v2 moves the forecast engine to a Python pipeline that loads model runs
+into PostgreSQL (the `wx` schema) and, in later steps, draws the map's frames.
+Step 1 is here: `supabase/migrations/20261006130000_wx_schema.sql` and a job
+that loads ECMWF IFS 9 km for Thailand from Open-Meteo's open data. The app
+doesn't read it yet; everything above works as before. See
+[pipeline/README.md](pipeline/README.md).
+
 ## Project structure
 
 ```
@@ -1145,6 +1154,9 @@ scripts/generate-bufr-tables.py    Writes src/services/cyclones/bufrTables.ts fr
 scripts/generate-icons.ts          `npm run icons`, from scripts/icons/doofah-icon.svg and doofah-badge.svg
 .github/workflows/health.yml       The 15-minute health check on GitHub Actions (backup to QStash)
 .github/workflows/storm-push.yml   The storm alert job on GitHub Actions (backup to QStash)
+.github/workflows/pipeline.yml     The pipeline's tests on a throwaway PostGIS, for changes to pipeline/ or supabase/migrations/
+supabase/migrations/               Database migrations; *_wx_schema.sql is v2's forecast store
+pipeline/                          v2 forecast pipeline (Python, uv): grid.py, openmeteo.py, db.py, ecmwf.py and the CLI
 ```
 
 ## The simulation (test and demo data)

@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The Python forecast pipeline (its .venv can hold JavaScript files).
+    "pipeline/**",
   ]),
 ]);
 

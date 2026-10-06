@@ -1,0 +1,52 @@
+# Tests for the forecast pipeline (pipeline/) and the wx schema, on a throwaway PostGIS.
+# Each database test applies supabase/migrations/20261006130000_wx_schema.sql to its own database.
+name: Pipeline tests
+
+on:
+  pull_request:
+    paths:
+      - "pipeline/**"
+      - "supabase/migrations/**"
+      - ".github/workflows/pipeline.yml"
+  push:
+    branches: [main]
+    paths:
+      - "pipeline/**"
+      - "supabase/migrations/**"
+      - ".github/workflows/pipeline.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgis:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    defaults:
+      run:
+        working-directory: pipeline
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: pipeline/uv.lock
+      - name: Install
+        run: uv sync --locked
+      - name: Test
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+        run: uv run --locked pytest -q
