@@ -31,15 +31,20 @@ attempt picks it up. If anything else fails, the run is saved as `failed` with
 the error, the previous run stays visible, and the job exits with code 1.
 
 ECMWF runs at 00, 06, 12 and 18 UTC; Open-Meteo usually has a run up 6 to 8
-hours later. Every 30 minutes is a sensible schedule.
+hours later. `.github/workflows/ecmwf-ingest.yml` runs the job every 30 minutes
+on GitHub Actions (at :17 and :47), and on demand from the Actions tab.
 
 ## Setting up
 
 1. Apply `supabase/migrations/20261006130000_wx_schema.sql` once (Supabase's SQL
    editor, `supabase db push`, or `psql -f`). Running it again changes nothing.
 2. Set `DATABASE_URL` where the job runs. On Supabase, use the **session pooler**
-   (port 5432) or the direct connection: the job's lock needs a session, which the
-   transaction pooler (port 6543) doesn't keep.
+   (port 5432) with `?sslmode=require`: the job's lock needs a session, which the
+   transaction pooler (port 6543) doesn't keep, and GitHub's runners can't reach
+   the direct connection (IPv6 only).
+3. For the schedule, add `DATABASE_URL` as a repository secret on GitHub
+   (Settings › Secrets and variables › Actions). Until it's there, the workflow
+   stops at its first step with a notice.
 
 | Variable                | Default                              |                                       |
 | ----------------------- | ------------------------------------ | ------------------------------------- |

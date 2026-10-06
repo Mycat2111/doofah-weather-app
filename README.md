@@ -1155,6 +1155,7 @@ scripts/generate-icons.ts          `npm run icons`, from scripts/icons/doofah-ic
 .github/workflows/health.yml       The 15-minute health check on GitHub Actions (backup to QStash)
 .github/workflows/storm-push.yml   The storm alert job on GitHub Actions (backup to QStash)
 .github/workflows/pipeline.yml     The pipeline's tests on a throwaway PostGIS, for changes to pipeline/ or supabase/migrations/
+.github/workflows/ecmwf-ingest.yml Loads ECMWF's newest run into the wx schema every 30 minutes (needs the DATABASE_URL secret)
 supabase/migrations/               Database migrations; *_wx_schema.sql is v2's forecast store
 pipeline/                          v2 forecast pipeline (Python, uv): grid.py, openmeteo.py, db.py, ecmwf.py and the CLI
 ```
