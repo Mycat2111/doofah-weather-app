@@ -398,6 +398,41 @@ export interface Messages {
     close: string;
   };
 
+  /** v2 preview (`?v2=1`): the rain graph for the place or a spot tapped on the map, from the v2 forecast store. */
+  v2: {
+    title: string;
+    /** The badge that says this is a preview of the new forecast system. */
+    preview: string;
+    tapHint: string;
+    /** The graph is for a spot tapped on the map, not a named place. */
+    tapped: string;
+    backToPlace: (name: string) => string;
+    /** The model run behind the graph: its start time, then how long ago that was (from `ago`). */
+    run: (clock: string, ago: string) => string;
+    ago: (hours: number) => string;
+    /** How far the model's grid point is from the spot. */
+    gridPoint: (km: string) => string;
+    loading: string;
+    /** No forecast for the spot (outside Thailand), or no run loaded yet. */
+    none: string;
+    notSetUp: string;
+    failed: string;
+    dry: string;
+    /** A step's time span, e.g. "14:00–15:00". */
+    span: (from: string, to: string) => string;
+    rain: (mm: string, rate: string) => string;
+    wind: (kmh: number, from: string) => string;
+    /** Wind under 1 km/h, which has no direction worth naming. */
+    calm: string;
+    cloud: (percent: number) => string;
+    /** The graph's description for screen readers. */
+    chart: (place: string) => string;
+    wettest: (when: string, rate: string) => string;
+    noRain: string;
+    table: string;
+    columns: { time: string; rain: string; temp: string; wind: string; cloud: string };
+  };
+
   errors: {
     forecast: string;
     /** No connection: the forecast shown is the one saved at `clock`. */

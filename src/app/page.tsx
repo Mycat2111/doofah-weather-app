@@ -9,7 +9,7 @@ import { ATMOSPHERE_THEMES, type AtmosphereTheme } from "@/services/weather/type
 const ALERT_KINDS: AlertKind[] = ["storm", "rain", "air"];
 
 export default async function Home({ searchParams }: PageProps<"/">) {
-  const { sky, alert, rain, data, cyclones, storm, place } = await searchParams;
+  const { sky, alert, rain, data, cyclones, storm, place, v2 } = await searchParams;
   const contactEmail = process.env.CONTACT_EMAIL || undefined;
   const override = ATMOSPHERE_THEMES.find((t) => t === sky) as AtmosphereTheme | undefined;
   // `?alert=storm`, `?alert=rain,air` or `?alert=all` previews the alert banner.
@@ -39,6 +39,8 @@ export default async function Home({ searchParams }: PageProps<"/">) {
       contactEmail={contactEmail}
       // A natural AI voice for the spoken summary, from /api/voice, when the site has a Google Cloud key.
       aiVoice={Boolean(process.env.GOOGLE_CLOUD_TTS_API_KEY)}
+      // `?v2=1` previews v2: the rain graph from the v2 forecast store, for the place or a spot tapped on the map.
+      v2Preview={v2 === "1"}
     />
   );
 }

@@ -20,7 +20,8 @@ from psycopg import sql
 from doofah_pipeline import ecmwf
 from doofah_pipeline.grid import size
 
-MIGRATION = Path(__file__).resolve().parents[2] / "supabase" / "migrations" / "20261006130000_wx_schema.sql"
+# The forecast store's migrations, in order: the schema, then what the app reads through.
+MIGRATIONS = sorted((Path(__file__).resolve().parents[2] / "supabase" / "migrations").glob("*_wx_*.sql"))
 BUCKET_URL = "https://bucket.test"
 SMALL_N = 24  # an O24 grid: 3,168 points, a dozen of them inside the Thailand box
 
@@ -134,9 +135,8 @@ def small_grid(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ecmwf, "N", SMALL_N)
 
 
-@pytest.fixture
-def database_url() -> Iterator[str]:
-    """A new database with the wx migration applied, dropped afterwards.
+def new_database(prepare: str | None = None) -> Iterator[str]:
+    """A new database with the wx migrations applied (after `prepare`, if given), dropped afterwards.
 
     TEST_DATABASE_URL is a server where the user may create databases and
     PostGIS is installed, e.g. postgresql://postgres:postgres@localhost:5432/postgres.
@@ -150,8 +150,17 @@ def database_url() -> Iterator[str]:
     url = psycopg.conninfo.make_conninfo(admin_url, dbname=name)
     try:
         with psycopg.connect(url, autocommit=True) as conn:
-            conn.execute(MIGRATION.read_text())
+            if prepare:
+                conn.execute(prepare)
+            for migration in MIGRATIONS:
+                conn.execute(migration.read_text())
         yield url
     finally:
         with psycopg.connect(admin_url, autocommit=True) as admin:
             admin.execute(sql.SQL("drop database if exists {} with (force)").format(sql.Identifier(name)))
+
+
+@pytest.fixture
+def database_url() -> Iterator[str]:
+    """A new database with the wx migrations applied, dropped afterwards."""
+    yield from new_database()

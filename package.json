@@ -21,6 +21,7 @@
     "verify:forecast-service": "tsx scripts/verify-forecast-service.ts",
     "verify:weather-state": "tsx scripts/verify-weather-state.ts",
     "verify:fields": "tsx scripts/verify-fields.ts",
+    "verify:wx-point": "tsx scripts/verify-wx-point.ts",
     "verify:cyclones": "tsx scripts/verify-cyclones.ts",
     "verify:ops": "tsx scripts/verify-ops.ts",
     "verify:push": "tsx scripts/verify-push.ts",

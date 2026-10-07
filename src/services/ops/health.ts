@@ -14,6 +14,7 @@ import type { CycloneFeed } from "@/lib/cyclones";
 import { fetchCyclones } from "../cyclones/openData";
 import type { UnifiedForecast } from "../forecast/types";
 import { getUnifiedForecast } from "../forecast/unified";
+import { wxStore, type WxSourceStatus } from "../wx/store";
 import { redisStore } from "../push/store";
 import { alertTargets, sendAlert } from "./alert";
 import { allowed } from "./auth";
@@ -33,6 +34,8 @@ export interface Check {
 export interface Probes {
   forecast: (now: number) => Promise<UnifiedForecast>;
   cyclones: (now: number, onFallback: (reason: string) => void) => Promise<CycloneFeed>;
+  /** The v2 forecast store's runs (wx_status); absent while Supabase isn't set up. */
+  forecastStore?: () => Promise<WxSourceStatus[]>;
   /** When the storm alert job last finished (null before its first run); absent while push isn't set up. */
   pushRun?: () => Promise<number | null>;
 }
@@ -43,15 +46,22 @@ const PROBE = { lat: 13.75, lon: 100.5 };
 const MIN_HOURS = 300;
 /** A check that hasn't answered in this long is down, so the route answers before Vercel stops it (maxDuration). */
 export const CHECK_TIMEOUT_MS = 40_000;
+/**
+ * ECMWF runs every 6 hours and reaches Open-Meteo about 7 hours after it starts, so the newest run is
+ * 7 to 13 hours old while the ingest job keeps up; older than this, it has missed at least one run.
+ */
+export const WX_STALE_MS = 18 * 3_600_000;
 /** The storm alert job runs every 30 minutes; this long without a run means its schedule stopped. */
 export const PUSH_STALE_MS = 2 * 3_600_000;
 
+const forecastStore = wxStore();
 const pushStore = redisStore();
 
 const defaultProbes: Probes = {
   // About 2 Open-Meteo calls and 1 TMD call: 192 of the 10,000 free calls a day at every 15 minutes.
   forecast: (now) => getUnifiedForecast(PROBE.lat, PROBE.lon, now),
   cyclones: (now, onFallback) => fetchCyclones(now, fetch, onFallback),
+  forecastStore: forecastStore ? () => forecastStore.status() : undefined,
   pushRun: pushStore ? () => pushStore.lastRun() : undefined,
 };
 
@@ -107,6 +117,7 @@ export function runChecks(
       },
       timeoutMs,
     ),
+    ...(probes.forecastStore ? [forecastStoreCheck(now, probes.forecastStore, timeoutMs)] : []),
     // GitHub pauses a public repo's schedules after 60 days without commits; this says so before anyone misses an alert.
     ...(pushRun
       ? [
@@ -125,6 +136,32 @@ export function runChecks(
         ]
       : []),
   ]);
+}
+
+/** v2's forecast store: the newest ECMWF run users see, and whether the ingest job (pipeline/) keeps it fresh. */
+function forecastStoreCheck(now: number, status: () => Promise<WxSourceStatus[]>, timeoutMs: number) {
+  return timed(
+    "Forecast store (v2, ECMWF 9 km)",
+    async () => {
+      const ecmwf = (await status()).find((s) => s.source === "ecmwf_hres");
+      if (!ecmwf?.ready) {
+        const why = ecmwf?.newest?.error ? `; the last try failed: ${ecmwf.newest.error}` : "";
+        return { status: "degraded" as const, detail: `no ECMWF run loaded yet${why}` };
+      }
+      const { runTime, steps } = ecmwf.ready;
+      const hours = Math.round(((now - Date.parse(runTime)) / 3_600_000) * 10) / 10;
+      const detail = `run ${runTime.slice(0, 16).replace("T", " ")} (+07), ${hours} h old, ${steps} steps`;
+      if (ecmwf.newest && ecmwf.newest.status === "failed") {
+        const error = ecmwf.newest.error ?? "no reason saved";
+        return { status: "degraded" as const, detail: `${detail}; the next run failed to load: ${error}` };
+      }
+      if (now - Date.parse(runTime) > WX_STALE_MS) {
+        return { status: "degraded" as const, detail: `${detail}; is the ECMWF ingest workflow running?` };
+      }
+      return { status: "ok" as const, detail };
+    },
+    timeoutMs,
+  );
 }
 
 const reply = (body: unknown, status = 200) =>
