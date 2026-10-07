@@ -1,5 +1,5 @@
 # Tests for the forecast pipeline (pipeline/) and the wx schema, on a throwaway PostGIS.
-# Each database test applies supabase/migrations/20261006130000_wx_schema.sql to its own database.
+# Each database test applies supabase/migrations/*_wx_*.sql to its own database.
 name: Pipeline tests
 
 on:

@@ -47,6 +47,7 @@ npm run dev          # http://localhost:3000
 | `npm run verify:forecast-service` | The screens on the unified forecast: the dashboard, a favorite's chip and trip stops from one reply per place, model tags, the hourly countdown and the offline copy |
 | `npm run verify:weather-state` | The moment on the map's timeline: the forecast for it, the countdown from it, the radar frames between hours and their motion, and the labels in both languages |
 | `npm run verify:fields` | The map's live layers: the lattice and its slots, the ECMWF request and reply for a tile, `/api/fields`, the frames from tiles, the same numbers as the forecast card, and the cloud layer's motion |
+| `npm run verify:wx-point` | v2 preview: `/api/v2/point` (who it answers, what it keeps and for how long, alerts), reading `wx_point` and `wx_status` through Supabase, and the health check's forecast store row; with `WX_DATABASE_URL`, a real database with a loaded run |
 | `npm run verify:cyclones` | Tropical cyclones: the BUFR reader against ecCodes on ECMWF's own files, tracks as storms, the cone, the strength names, the storm alert, finding the newest run and `/api/cyclones` |
 | `npm run verify:ops` | Monitoring: which failures are asked again and how often, the Discord and LINE alerts (what they say, at most one of a kind in 15 minutes) and `/api/health`, including when the storm alert job last ran |
 | `npm run verify:push` | Storm alerts by push: the VAPID settings, which subscriptions are kept, the link a notification opens, the Upstash store, the service worker's push, tap and renewal handlers, the subscribe and test routes, what the phone sends, and the storm alert job (who gets which alert, in which words, once per level, gone phones deleted, 20 at a time) |
@@ -945,9 +946,52 @@ A schedule is paused or deleted under QStash → Schedules.
 DooFah v2 moves the forecast engine to a Python pipeline that loads model runs
 into PostgreSQL (the `wx` schema) and, in later steps, draws the map's frames.
 Step 1 is here: `supabase/migrations/20261006130000_wx_schema.sql` and a job
-that loads ECMWF IFS 9 km for Thailand from Open-Meteo's open data. The app
-doesn't read it yet; everything above works as before. See
+that loads ECMWF IFS 9 km for Thailand from Open-Meteo's open data. See
 [pipeline/README.md](pipeline/README.md).
+
+Step 2 lets the app read it, as a preview that changes nothing for anyone
+who doesn't ask for it:
+
+- **`/api/v2/point?lat=…&lon=…`** answers with the newest ECMWF run at the
+  grid point nearest the place: each step's time (Thai time), how many
+  minutes its rain fell over (60, then 180 and 360 further out), rain, 2 m
+  temperature, 10 m wind and cloud cover, with the run's time and source.
+  It reads `public.wx_point` (supabase/migrations/20261007140000_wx_point_api.sql)
+  through Supabase's REST API with the secret key, on the server only. 404
+  outside the loaded area (97–106° E, 5–21° N) or before the first run, 503
+  until Supabase is set up. Vercel's edge keeps an answer 15 minutes, then
+  serves it another hour while it asks again, and 6 hours while Supabase
+  fails (`src/services/wx/http.ts`).
+- **`/?v2=1`** adds a "Rain ahead" card under the map: rain as mm per hour
+  from now to 6 days ahead, a 3-hour step drawn three hours wide. Tap or
+  hover a bar for its rain, temperature, wind and cloud; tap the map to see
+  that spot, and "Back to …" to return. It shows the run ("run 13:00 · 8 h
+  ago"), the grid point's distance and the CC BY 4.0 credit, in Thai and
+  English, with the numbers as a table underneath.
+- **`/api/health`** gains "Forecast store (v2, ECMWF 9 km)": degraded when
+  the newest run is over 18 hours old (the ingest job has missed a run), when
+  a newer run failed to load, or before the first run.
+
+To set it up:
+
+1. In the Supabase project the ingest job loads (the one in the
+   `DATABASE_URL` secret), open the SQL Editor, paste all of
+   `supabase/migrations/20261007140000_wx_point_api.sql` and choose Run.
+   Only the secret key may call its two functions; running it again changes
+   nothing.
+2. Under Project Settings → API Keys, create a secret key (for example
+   `doofah-server`) and copy it, along with the project URL.
+3. In Vercel → Settings → Environment Variables, add `SUPABASE_URL` (the
+   project URL) and `SUPABASE_SECRET_KEY` (the secret key, marked
+   Sensitive) for Production and Preview, then redeploy. Shared reports use
+   the same two, so they belong in this same project.
+4. Check it: `https://<your-app>/api/v2/point?lat=13.75&lon=100.50` answers
+   with the run and its steps, the health check lists "Forecast store (v2,
+   ECMWF 9 km)", and `/?v2=1` shows the card.
+
+`npm run verify:wx-point` checks the route, the store and the health row
+without a network; with `WX_DATABASE_URL` set to a database with a loaded run
+it also asks that database through psql.
 
 ## Project structure
 
@@ -955,13 +999,14 @@ doesn't read it yet; everything above works as before. See
 src/
 ├── app/
 │   ├── layout.tsx                 Fonts, language, metadata, viewport, Leaflet CSS
-│   ├── page.tsx                   Renders the dashboard (reads ?sky=, ?alert=, ?rain=, ?cyclones= and ?data=)
+│   ├── page.tsx                   Renders the dashboard (reads ?sky=, ?alert=, ?rain=, ?cyclones=, ?data= and ?v2=)
 │   ├── api/weather/air-quality/   Open-Meteo's air quality with the commercial key, if one is set
 │   ├── api/voice/                 One sentence of the spoken summary as MP3 (Google Cloud Text-to-Speech, if a key is set)
 │   ├── api/forecast/              The unified forecast (WRF + ECMWF) for one place, read by every card
 │   ├── api/fields/                One tile of the map's layers (ECMWF) for a 6-hour slot
 │   ├── api/cyclones/              Active tropical cyclones from ECMWF's newest track file
 │   ├── api/health/                DooFah's sources checked for the 15-minute health check (CRON_SECRET)
+│   ├── api/v2/point/              v2 preview: a place's forecast from the forecast store (Supabase)
 │   ├── api/push/subscribe/        Storm alerts on (POST), renewed (PUT) or off (DELETE) for this device
 │   ├── api/push/test/             One test notification to this device, at most once a minute
 │   ├── api/push/send/             The storm alert job, called every 30 minutes by GitHub Actions
@@ -983,6 +1028,7 @@ src/
 │   ├── CurrentWeatherCard.tsx     Hero: temperature, feels-like, rain countdown, AQI, this hour's model (5×5 km badge with the simulation)
 │   ├── RainCountdownPanel.tsx     Live time-to-rain badge over the 2-hour rain bars
 │   ├── WeatherReportBar.tsx       One-tap Sunny / Cloudy / Light rain / Heavy rain reports
+│   ├── v2/PointForecastCard.tsx   v2 preview (?v2=1): rain ahead at the place or a tapped spot, from /api/v2/point
 │   ├── VoiceSummaryButton.tsx     "Play AI summary" floating button and the words it reads
 │   ├── route/
 │   │   ├── RouteWeatherCard.tsx   Origin / destination, leave time, trip outlook, journey timeline
@@ -1034,6 +1080,7 @@ src/
 │   ├── useForecast.ts             The forecast for a place on SWR: the saved copy at once, then the network's
 │   ├── useWeatherState.tsx        The place, its forecast and the moment on the map's timeline, for every screen
 │   ├── useRadarFrames.ts          Frames for the visible map area on SWR, from the forecast's source; the frame at any moment
+│   ├── useWxPoint.ts              v2 preview: /api/v2/point on SWR for the place or a tapped spot
 │   ├── useFavorites.ts            Favorite places from localStorage, synced across tabs
 │   ├── useGeolocation.ts          Browser location with status
 │   ├── useNow.ts                  A shared clock that ticks every 15 s, for countdowns
@@ -1055,6 +1102,7 @@ src/
 │   ├── push.ts                    The browser's side of storm alerts: can push work here, permission, subscribe, sync
 │   ├── haptics.ts                 Short vibrations on Android and iPhone
 │   ├── lifestyle.ts               Lifestyle card rules: good, take care or not now, and why
+│   ├── wxPoint.ts                 v2's forecast for a place, shared by /api/v2/point and the page; rain per hour
 │   ├── rainCountdown.ts           Time to the next rain: by the hour for live forecasts, the radar nowcast with the simulation
 │   ├── crowdReports.ts            Report kinds, how long a report lasts, and this device's reports
 │   ├── crowdVerify.ts             When local reports count as verifying the rain radar
@@ -1098,6 +1146,7 @@ src/
     │   ├── report.ts              A route's alert, sent once its reply has gone
     │   ├── auth.ts                The scheduler's token check, shared by /api/health and /api/push/send
     │   └── health.ts              Server side of /api/health: each source ok, degraded or down
+    ├── wx/                        v2's forecast store: wx_point and wx_status through Supabase (reports/supabase.ts), /api/v2/point
     ├── push/
     │   ├── vapid.ts               The VAPID keys from Vercel, or none
     │   ├── subscription.ts        What is kept for a phone with storm alerts on, and the checks before it is
@@ -1146,6 +1195,7 @@ scripts/verify-forecast.ts         Checks behind `npm run verify:forecast`
 scripts/verify-forecast-service.ts Checks behind `npm run verify:forecast-service`
 scripts/verify-weather-state.ts    Checks behind `npm run verify:weather-state`
 scripts/verify-fields.ts           Checks behind `npm run verify:fields`
+scripts/verify-wx-point.ts         Checks behind `npm run verify:wx-point`
 scripts/verify-cyclones.ts         Checks behind `npm run verify:cyclones`
 scripts/verify-ops.ts              Checks behind `npm run verify:ops`
 scripts/verify-push.ts             Checks behind `npm run verify:push`
@@ -1156,7 +1206,7 @@ scripts/generate-icons.ts          `npm run icons`, from scripts/icons/doofah-ic
 .github/workflows/storm-push.yml   The storm alert job on GitHub Actions (backup to QStash)
 .github/workflows/pipeline.yml     The pipeline's tests on a throwaway PostGIS, for changes to pipeline/ or supabase/migrations/
 .github/workflows/ecmwf-ingest.yml Loads ECMWF's newest run into the wx schema every 30 minutes (needs the DATABASE_URL secret)
-supabase/migrations/               Database migrations; *_wx_schema.sql is v2's forecast store
+supabase/migrations/               Database migrations; *_wx_*.sql are v2's forecast store and what the app reads through
 pipeline/                          v2 forecast pipeline (Python, uv): grid.py, openmeteo.py, db.py, ecmwf.py and the CLI
 ```
 

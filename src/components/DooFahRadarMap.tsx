@@ -8,7 +8,7 @@ import {
   useReducedMotion,
   type AnimationPlaybackControls,
 } from "framer-motion";
-import type { Map as LeafletMap } from "leaflet";
+import type { Map as LeafletMap, LeafletMouseEvent } from "leaflet";
 import { Hand, LoaderCircle, Radar } from "lucide-react";
 import dynamic from "next/dynamic";
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -87,6 +87,8 @@ interface DooFahRadarMapProps {
   /** Active tropical cyclones, and requests to show one (from the storm alert). */
   cyclones?: CycloneState;
   stormFocus?: StormFocus;
+  /** A tap on the map, with the spot (v2 preview: the dashboard's rain graph follows it). */
+  onTap?: (point: GeoPoint) => void;
   className?: string;
 }
 
@@ -116,6 +118,7 @@ export function DooFahRadarMap({
   tripStopName,
   cyclones,
   stormFocus,
+  onTap,
   className = "",
 }: DooFahRadarMapProps) {
   const { m, f, locale } = useI18n();
@@ -300,6 +303,19 @@ export function DooFahRadarMap({
     seenStormFocus.current = stormFocus.key;
     showStorm(storm);
   }, [stormFocus, storms, map, showStorm]);
+
+  useEffect(() => {
+    if (!map || !onTap) return;
+    // Leaflet can give longitudes past ±180 once the map has been panned round the world.
+    const tap = (e: LeafletMouseEvent) => {
+      const { lat, lng } = e.latlng.wrap();
+      onTap({ lat, lon: lng });
+    };
+    map.on("click", tap);
+    return () => {
+      map.off("click", tap);
+    };
+  }, [map, onTap]);
 
   return (
     <section

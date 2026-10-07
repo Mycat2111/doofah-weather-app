@@ -38,6 +38,8 @@ on GitHub Actions (at :17 and :47), and on demand from the Actions tab.
 
 1. Apply `supabase/migrations/20261006130000_wx_schema.sql` once (Supabase's SQL
    editor, `supabase db push`, or `psql -f`). Running it again changes nothing.
+   The app reads the store through `20261007140000_wx_point_api.sql` (the main
+   README's "v2 forecast pipeline" section); the job doesn't need it.
 2. Set `DATABASE_URL` where the job runs. On Supabase, use the **session pooler**
    (port 5432) with `?sslmode=require`: the job's lock needs a session, which the
    transaction pooler (port 6543) doesn't keep, and GitHub's runners can't reach
@@ -95,7 +97,9 @@ WX_LIVE=1 uv run pytest -m live   # reads today's run from Open-Meteo's bucket
 ```
 
 The tests use a fake bucket laid out like Open-Meteo's, on a coarse O24 grid,
-so they need no network.
+so they need no network. Each database test applies every
+`supabase/migrations/*_wx_*.sql` in order, so `public.wx_point` and
+`public.wx_status` are tested here too, along with who may call them.
 
 GitHub Actions runs them on every pull request that changes `pipeline/` or
 `supabase/migrations/`.

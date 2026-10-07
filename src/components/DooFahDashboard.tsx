@@ -19,6 +19,7 @@ import { WeatherAlertBanner } from "@/components/WeatherAlertBanner";
 import { WeatherDetailsGrid } from "@/components/WeatherDetailsGrid";
 import { VoiceSummaryButton } from "@/components/VoiceSummaryButton";
 import { WeatherReportBar } from "@/components/WeatherReportBar";
+import { PointForecastCard } from "@/components/v2/PointForecastCard";
 import { useCrowdReports } from "@/hooks/useCrowdReports";
 import { useCyclones } from "@/hooks/useCyclones";
 import { useFavorites } from "@/hooks/useFavorites";
@@ -60,6 +61,8 @@ interface DooFahDashboardProps {
   contactEmail?: string;
   /** The spoken summary can use the AI voice at /api/voice. */
   aiVoice?: boolean;
+  /** `?v2=1`: show the rain graph from the v2 forecast store, for the place or a spot tapped on the map. */
+  v2Preview?: boolean;
 }
 
 export function DooFahDashboard({ weather: setup, ...props }: DooFahDashboardProps) {
@@ -83,6 +86,7 @@ function Dashboard({
   osrmUrl,
   contactEmail,
   aiVoice,
+  v2Preview,
 }: Omit<DooFahDashboardProps, "weather"> & { weather: WeatherService }) {
   const { locale, m, f } = useI18n();
   const simulated = weather.source === "simulated";
@@ -98,6 +102,10 @@ function Dashboard({
   const pushAlerts = useStormAlerts(place);
 
   const onLocated = useCallback((point: GeoPoint) => setPlace(placeForPoint(point)), [setPlace]);
+  // v2 preview: a spot tapped on the map, until the place changes.
+  const [tapped, setTapped] = useState<{ placeId: string; point: GeoPoint } | null>(null);
+  const onMapTap = useCallback((point: GeoPoint) => setTapped({ placeId: place.id, point }), [place.id]);
+  const spot = tapped?.placeId === place.id ? tapped.point : null;
   const geo = useGeolocation(onLocated);
 
   // The sky, the weather card, its rain countdown, the lifestyle cards and the
@@ -344,10 +352,24 @@ function Dashboard({
             tripStopName={stopName}
             cyclones={cyclones}
             stormFocus={stormFocus}
+            onTap={v2Preview ? onMapTap : undefined}
             className="h-[600px] lg:col-start-2 lg:row-start-1 lg:h-auto lg:min-h-[580px]"
           />
           {routeCard}
         </div>
+
+        {v2Preview && (
+          <PointForecastCard
+            point={spot ?? place.point}
+            name={spot ? m.v2.tapped : placeLabel(place, locale).name}
+            back={
+              spot
+                ? { label: m.v2.backToPlace(placeLabel(place, locale).name), onBack: () => setTapped(null) }
+                : undefined
+            }
+            className="mt-4"
+          />
+        )}
 
         <div className={`mt-4 transition-opacity duration-300 ${loading && data ? "opacity-60" : ""}`}>{hourly}</div>
 
