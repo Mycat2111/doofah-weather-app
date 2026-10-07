@@ -884,17 +884,20 @@ once a day, and a 15-minute schedule fails the deploy.
 ### Schedules on Upstash QStash
 
 QStash, Upstash's message service (the same account as the storm alert
-store), calls both scheduled routes on time:
+store), calls both scheduled routes on time, and starts the v2 pipeline's
+ECMWF ingest on GitHub Actions:
 
 | Schedule id | Calls | When (UTC) | Method | Retries |
 | --- | --- | --- | --- | --- |
 | `doofah-storm-alerts` | `/api/push/send` | `*/30 * * * *` | POST | 1 |
 | `doofah-health` | `/api/health` | `*/15 * * * *` | GET | 0 |
+| `doofah-ecmwf-ingest` | GitHub's Run workflow API for `ecmwf-ingest.yml` | `17,47 * * * *` | POST | 0 |
 
-Each call carries `Authorization: Bearer <CRON_SECRET>`: QStash passes on
-any header it was given as `Upstash-Forward-<name>`. That is 144 calls a
-day of the free plan's 1,000 messages (each retry counts as one; the free
-plan has up to 10 schedules). A storm run that gets 409 (a GitHub backup
+Each call to DooFah carries `Authorization: Bearer <CRON_SECRET>`: QStash
+passes on any header it was given as `Upstash-Forward-<name>`. The ingest
+call carries a GitHub token instead (below). That is 192 calls a day of the
+free plan's 1,000 messages (each retry counts as one; the free plan has up
+to 10 schedules). A storm run that gets 409 (a GitHub backup
 run is going) or 502 (ECMWF out of reach) is tried once more. The health
 check isn't retried: DooFah has already sent its own alert for a 503, which
 QStash's logs then show as failed.
@@ -939,6 +942,49 @@ Setting them up, once, in a terminal:
    (push job)" line says "last ran … min ago".
 
 A schedule is paused or deleted under QStash → Schedules.
+
+#### The ECMWF ingest
+
+GitHub's own schedule for `.github/workflows/ecmwf-ingest.yml` started none
+of its first six runs, so QStash starts the workflow at the same times
+through GitHub's API. That takes a GitHub token allowed to run workflows in
+this repository and nothing else:
+
+1. On GitHub → Settings → Developer settings → [Fine-grained personal access
+   tokens](https://github.com/settings/personal-access-tokens/new): name it
+   `doofah-qstash-ingest`, pick an expiry (at most a year; note the date),
+   choose Only select repositories → `doofah-weather-app`, and under
+   Repository permissions set **Actions** to Read and write. Generate it
+   and copy it.
+2. In the same terminal as above, `read -rs GITHUB_TOKEN` and paste it the
+   same way, then paste:
+
+   ```sh
+   QSTASH=https://qstash-us-east-1.upstash.io
+   RUN=https://api.github.com/repos/Mycat2111/doofah-weather-app/actions/workflows/ecmwf-ingest.yml/dispatches
+
+   curl -X POST "$QSTASH/v2/schedules/$RUN" \
+     -H "Authorization: Bearer $QSTASH_TOKEN" \
+     -H "Upstash-Schedule-Id: doofah-ecmwf-ingest" \
+     -H "Upstash-Cron: 17,47 * * * *" \
+     -H "Upstash-Retries: 0" \
+     -H "Upstash-Forward-Authorization: Bearer $GITHUB_TOKEN" \
+     -H "Upstash-Forward-Accept: application/vnd.github+json" \
+     -H "Upstash-Forward-X-GitHub-Api-Version: 2022-11-28" \
+     -H "Content-Type: application/json" \
+     -d '{"ref":"main"}'
+   ```
+
+   It answers `{"scheduleId":"doofah-ecmwf-ingest"}`.
+3. At the next :17 or :47, QStash's Logs show GitHub's answer, 204, and
+   GitHub → Actions → ECMWF ingest shows a run started by
+   `workflow_dispatch`. A 401 or 403 there means the token is wrong, has
+   expired or lacks Actions write; make a new one and run step 2 again
+   (the same id updates the schedule).
+
+When the token expires, these runs stop and only GitHub's own schedule is
+left. With v2 step 2 in, the health check's "Forecast store" row turns
+degraded once the newest run is 18 hours old.
 
 ## v2 forecast pipeline (in progress)
 
