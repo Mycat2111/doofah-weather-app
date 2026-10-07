@@ -1,0 +1,72 @@
+# Loads ECMWF's newest 9 km run for Thailand into the wx schema (pipeline/README.md).
+# ECMWF runs at 00, 06, 12 and 18 UTC and Open-Meteo has each one up 6 to 8 hours later, so
+# most runs of this workflow find the run already loaded and stop within a minute. GitHub may
+# start a schedule late or skip it when busy; the next one catches up, since each run loads
+# whatever is newest.
+#
+# Repository secrets (Settings > Secrets and variables > Actions):
+#   DATABASE_URL               Supabase's session pooler string (port 5432) with ?sslmode=require.
+#                              Not the direct connection (GitHub's runners have no IPv6) and not
+#                              the transaction pooler on 6543 (the job's lock needs a session).
+#   ALERT_DISCORD_WEBHOOK_URL  optional: the same webhook as in Vercel, told when a load fails
+# Until DATABASE_URL is set, every run stops at the first step with a notice.
+name: ECMWF ingest
+
+on:
+  schedule:
+    - cron: "17,47 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ecmwf-ingest
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check the database secret
+        id: secret
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::notice::DATABASE_URL isn't set yet, so nothing was loaded."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v5
+        if: steps.secret.outputs.skip != 'true'
+
+      - uses: astral-sh/setup-uv@v6
+        if: steps.secret.outputs.skip != 'true'
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: pipeline/uv.lock
+
+      - name: Load the newest run
+        if: steps.secret.outputs.skip != 'true'
+        working-directory: pipeline
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          uv sync --locked --no-dev
+          uv run --locked --no-dev python -m doofah_pipeline ingest ecmwf_hres
+
+      - name: Tell Discord that the load failed
+        if: failure() && steps.secret.outputs.skip != 'true'
+        env:
+          WEBHOOK: ${{ secrets.ALERT_DISCORD_WEBHOOK_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [ -n "$WEBHOOK" ] || { echo "::warning::ALERT_DISCORD_WEBHOOK_URL isn't set."; exit 0; }
+          jq -n --arg run "$RUN_URL" '{
+            username: "DooFah monitor",
+            content: "🌧️ ECMWF ingest failed · the previous run stays in the database. Run: \($run)",
+            allowed_mentions: { parse: [] }
+          }' | curl -s --max-time 15 -H "Content-Type: application/json" -d @- "$WEBHOOK"
